@@ -15,8 +15,8 @@ This module defines the SQLAlchemy ORM model for the `user_history` table.
 
 import enum
 
-from sqlalchemy.orm import relationship
 from sqlalchemy import BigInteger, Column, Enum, ForeignKey, Text
+from sqlalchemy.orm import relationship
 
 from app.config.database import Base
 
