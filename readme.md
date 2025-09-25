@@ -29,7 +29,7 @@ All configurations are defined in `pyproject.toml` and `.pre-commit-config.yaml`
 ### Pre-commit Hook
 Install the pre-commit hook to run Black, isort, and Ruff automatically before every commit:
 ```bash
-uv run pre-commit install --hook-type post-commit
+uv run pre-commit install
 ```
 
 Manual run for all files:
