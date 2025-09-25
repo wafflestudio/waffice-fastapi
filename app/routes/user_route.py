@@ -27,7 +27,6 @@ from app.schemas import (
 router = APIRouter(prefix="/api", tags=["user"])
 
 
-# DB 세션 DI
 def get_db():
     db = SessionLocal()
     try:
@@ -102,30 +101,3 @@ def user_access(payload: dict, db: Session = Depends(get_db)):
     if not result:
         raise HTTPException(status_code=404, detail="User not found")
     return {"ok": True, "atime": result.atime}
-
-
-# -----------------------
-# User History
-# -----------------------
-
-
-@router.post("/userhist/create", status_code=status.HTTP_201_CREATED)
-def userhist_create(data: UserHistoryCreate, db: Session = Depends(get_db)):
-    result = user_controller.create_user_history(db, data)
-    if not result:
-        raise HTTPException(status_code=404, detail="User not found")
-    return {"ok": True, "id": result.id}
-
-
-@router.get("/userhist/info")
-def userhist_info(id: int, db: Session = Depends(get_db)):
-    result = user_controller.get_user_history(db, id)
-    if not result:
-        raise HTTPException(status_code=404, detail="History not found")
-    return {"ok": True, "history": result}
-
-
-@router.get("/userhist/all")
-def userhist_all(db: Session = Depends(get_db)):
-    histories = user_controller.get_all_user_histories(db)
-    return {"ok": True, "histories": histories}

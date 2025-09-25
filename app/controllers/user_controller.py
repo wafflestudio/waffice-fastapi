@@ -48,8 +48,6 @@ def enroll_user(db: Session, payload: dict):
     )
     if not pending:
         return None
-
-    # 이미 가입된 구글 ID가 있는지 확인
     exists = db.query(User).filter(User.google_id == pending.google_id).first()
     if exists:
         return "conflict"
