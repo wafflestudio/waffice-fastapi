@@ -11,11 +11,11 @@ User Controller
 
 import time
 
-from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
-from app.schemas import UserHistoryCreate, UserPendingCreate, UserPrivilege, UserType
 from app.models import User, UserHistory, UserPending
+from app.schemas import UserHistoryCreate, UserPendingCreate, UserPrivilege, UserType
 
 # -----------------------
 # User Pending
@@ -24,7 +24,13 @@ from app.models import User, UserHistory, UserPending
 
 def create_pending_user(db: Session, data: UserPendingCreate):
     """가입 대기열에 신규 유저 추가"""
-    new_pending = UserPending(google_id=data.google_id, email=data.email,name=data.name, profile_picture=data.profile_picture, ctime=int(time.time()), )
+    new_pending = UserPending(
+        google_id=data.google_id,
+        email=data.email,
+        name=data.name,
+        profile_picture=data.profile_picture,
+        ctime=int(time.time()),
+    )
     try:
         db.add(new_pending)
         db.commit()
