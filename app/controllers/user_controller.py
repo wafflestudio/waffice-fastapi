@@ -11,11 +11,11 @@ User Controller
 
 import time
 
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
-from app.models import User, UserHistory, UserPending
 from app.schemas import UserHistoryCreate, UserPendingCreate, UserPrivilege, UserType
+from app.models import User, UserHistory, UserPending
 
 # -----------------------
 # User Pending

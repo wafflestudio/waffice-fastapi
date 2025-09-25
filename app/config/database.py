@@ -1,10 +1,11 @@
+# /config/database.py
+
 import os
 
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-# .env 불러오기
 load_dotenv()
 
 DB_USER = os.getenv("DB_USER")
