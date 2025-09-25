@@ -1,0 +1,22 @@
+[project]
+name = "waffle-fastapi"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "alembic>=1.16.5",
+    "fastapi[standard]>=0.117.1",
+    "pydantic>=2.11.9",
+    "pymysql>=1.1.2",
+    "python-dotenv>=1.1.1",
+    "sqlalchemy>=2.0.43",
+    "uvicorn[standard]>=0.37.0",
+]
+
+[dependency-groups]
+dev = [
+    "black>=25.9.0",
+    "isort>=6.0.1",
+    "pre-commit>=4.3.0",
+]

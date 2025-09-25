@@ -1,0 +1,52 @@
+# =========================
+# PYTHON & FASTAPI PROJECT
+# =========================
+
+# Force text normalization
+* text=auto
+
+# Python source code: use text diff
+*.py     text diff=python
+
+# JSON, YAML, TOML configs: normalize line endings
+*.json   text
+*.yaml   text
+*.yml    text
+*.toml   text
+
+# SQL schema and migrations
+*.sql    text
+
+# Markdown and docs
+*.md     text
+*.rst    text
+*.txt    text
+
+# Frontend static files (if any)
+*.js     text
+*.ts     text
+*.tsx    text
+*.jsx    text
+*.css    text
+*.scss   text
+*.html   text
+
+# Binary files
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.pdf    binary
+*.woff   binary
+*.woff2  binary
+
+# Enforce LF for scripts
+*.sh     text eol=lf
+
+# =========================
+# Linguist hints (GitHub)
+# =========================
+
+# Make sure GitHub stats show properly
+*.py linguist-language=Python
