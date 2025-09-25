@@ -10,7 +10,6 @@ echo Running isort (check only)...
 uv run isort --check-only .
 
 echo.
-echo =======================================
 echo   Lint check completed!
-echo =======================================
-pause
+
+:: uv run pre-commit run --all-files
