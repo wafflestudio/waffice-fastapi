@@ -24,13 +24,7 @@ from app.models import User, UserHistory, UserPending
 
 def create_pending_user(db: Session, data: UserPendingCreate):
     """가입 대기열에 신규 유저 추가"""
-    new_pending = UserPending(
-        google_id=data.google_id,
-        email=data.email,
-        name=data.name,
-        profile_picture=data.profile_picture,
-        ctime=int(time.time()),
-    )
+    new_pending = UserPending(google_id=data.google_id, email=data.email, name=data.name, profile_picture=data.profile_picture, ctime=int(time.time()), )
     try:
         db.add(new_pending)
         db.commit()
