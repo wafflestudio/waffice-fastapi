@@ -39,11 +39,13 @@ class UserHistory(Base):
     type = Column(Enum(UserHistoryType), nullable=False)
     description = Column(Text)
     curr_privilege = Column(
-        Enum("준회원", "정회원", "활동회원", name="curr_privilege_enum"), nullable=True
+        Enum("associate", "regular", "active", name="curr_privilege_enum"),
+        nullable=True,
     )
     curr_time_stop = Column(BigInteger, nullable=True)
     prec_privilege = Column(
-        Enum("준회원", "정회원", "활동회원", name="prec_privilege_enum"), nullable=True
+        Enum("associate", "regular", "active", name="prec_privilege_enum"),
+        nullable=True,
     )
     prec_time_stop = Column(BigInteger, nullable=True)
 

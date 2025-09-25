@@ -12,9 +12,9 @@ class UserType(str, Enum):
 
 
 class UserPrivilege(str, Enum):
-    준회원 = "준회원"
-    정회원 = "정회원"
-    활동회원 = "활동회원"
+    associate = "associate"
+    regular = "regular"
+    active = "active"
 
 
 class UserBase(BaseModel):

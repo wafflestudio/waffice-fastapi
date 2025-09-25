@@ -28,9 +28,9 @@ class UserType(enum.Enum):
 
 
 class UserPrivilege(enum.Enum):
-    준회원 = "준회원"
-    정회원 = "정회원"
-    활동회원 = "활동회원"
+    associate = "associate"
+    regular = "regular"
+    active = "active"
 
 
 # User

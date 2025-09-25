@@ -13,7 +13,7 @@ CREATE TABLE `user` (
   `userid`        BIGINT AUTO_INCREMENT PRIMARY KEY,
   `google_id`     VARCHAR(255) NOT NULL UNIQUE,
   `type`          ENUM('programmer','designer') NOT NULL,
-  `privilege`     ENUM('준회원','정회원','활동회원') NOT NULL,
+  `privilege`     ENUM('associate','regular','active') NOT NULL,
   `admin`         TINYINT NOT NULL DEFAULT 0, -- 0/1/2
   `atime`         BIGINT NOT NULL, -- access time (unix-like)
   `ctime`         BIGINT NOT NULL, -- create time
@@ -38,16 +38,28 @@ CREATE TABLE `user` (
 );
 ```
 
+## 가입대기 회원 DB `user_pending`
+```sql
+CREATE TABLE `user_pending` (
+  `id`              BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `google_id`       VARCHAR(255) NOT NULL UNIQUE, -- Google OAuth2의 sub (고유 ID)
+  `email`           VARCHAR(255) NOT NULL,        -- OAuth2에서 받은 이메일
+  `name`            VARCHAR(128) NOT NULL,        -- OAuth2에서 받은 이름
+  `profile_picture` VARCHAR(512),                 -- 프로필 이미지 URL
+  `ctime`           BIGINT NOT NULL,              -- 신청 시각
+);
+```
+
 ## 회원 변동사항 DB `user_history`
 ```sql
 CREATE TABLE `user_history` (
   `id`              BIGINT AUTO_INCREMENT PRIMARY KEY,
   `userid`          BIGINT NOT NULL,
-  `type`            ENUM('생성','탈퇴','징계','프로젝트가입','프로젝트탈퇴') NOT NULL,
+  `type`            ENUM('join','left','discupline','project_join','project_left') NOT NULL,
   `description`     TEXT,
-  `curr_privilege`  ENUM('준회원','정회원','활동회원') NULL,
+  `curr_privilege`  ENUM('associate','regular','active') NULL,
   `curr_time_stop`  BIGINT NULL,
-  `prec_privilege`  ENUM('준회원','정회원','활동회원') NULL,
+  `prec_privilege`  ENUM('associate','regular','active') NULL,
   `prec_time_stop`  BIGINT NULL,
   FOREIGN KEY (`userid`) REFERENCES `user`(`userid`) ON DELETE CASCADE
 );

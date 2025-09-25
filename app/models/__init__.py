@@ -15,5 +15,6 @@ This package contains all SQLAlchemy ORM model definitions used in the project.
 
 from .user import User
 from .user_history import UserHistory
+from .user_pending import UserPending
 
-__all__ = ["User", "UserHistory"]
+__all__ = ["User", "UserHistory", "UserPending"]

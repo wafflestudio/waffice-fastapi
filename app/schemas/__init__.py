@@ -5,6 +5,7 @@ from .user_history import (
     UserHistoryCreate,
     UserHistoryType,
 )
+from .user_pending import UserPending, UserPendingBase, UserPendingCreate
 
 __all__ = [
     "User",
@@ -16,4 +17,7 @@ __all__ = [
     "UserHistoryCreate",
     "UserHistoryBase",
     "UserHistoryType",
+    "UserPendingBase",
+    "UserPendingCreate",
+    "UserPending",
 ]
