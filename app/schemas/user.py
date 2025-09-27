@@ -22,17 +22,17 @@ class UserBase(BaseModel):
     type: UserType
     privilege: UserPrivilege
     admin: int = 0
-    info_phonecall: Optional[str] = None
-    info_email: Optional[EmailStr] = None
-    info_major: Optional[str] = None
-    info_cardinal: Optional[str] = None
-    info_position: Optional[str] = None
-    info_work: Optional[str] = None
-    info_introduce: Optional[str] = None
-    info_sns1: Optional[str] = None
-    info_sns2: Optional[str] = None
-    info_sns3: Optional[str] = None
-    info_sns4: Optional[str] = None
+    profile_phone: Optional[str] = None
+    profile_email: Optional[EmailStr] = None
+    profile_major: Optional[str] = None
+    profile_cardinal: Optional[str] = None
+    profile_position: Optional[str] = None
+    profile_work: Optional[str] = None
+    profile_intro: Optional[str] = None
+    profile_sns1: Optional[str] = None
+    profile_sns2: Optional[str] = None
+    profile_sns3: Optional[str] = None
+    profile_sns4: Optional[str] = None
     id_github: Optional[str] = None
     id_slack: Optional[str] = None
     receive_email: bool = True
@@ -44,12 +44,10 @@ class UserCreate(UserBase):
 
 
 class User(UserBase):
-    userid: int
+    id: int
     atime: int
     ctime: int
     mtime: int
     time_quit: Optional[int] = None
     time_stop: Optional[int] = None
-
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}

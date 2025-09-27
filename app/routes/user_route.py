@@ -42,7 +42,7 @@ def get_db():
 
 @router.post("/user/create", status_code=status.HTTP_201_CREATED)
 def create_pending_user(data: UserPendingCreate, db: Session = Depends(get_db)):
-    user = user_controller.create_pending_user(db, data)
+    user: UserPending = user_controller.create_pending_user(db, data)
     if not user:
         raise HTTPException(status_code=409, detail="Conflict: already exists")
     return {"ok": True, "id": user.id, "ctime": user.ctime}
@@ -55,7 +55,7 @@ def enroll_user(payload: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Pending user not found")
     if result == "conflict":
         raise HTTPException(status_code=409, detail="Conflict: already enrolled")
-    return {"ok": True, "userid": result.userid}
+    return {"ok": True, "userid": result.id}
 
 
 @router.post("/user/deny")

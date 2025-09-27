@@ -10,31 +10,31 @@
 ## 회원 DB `user`
 ```sql
 CREATE TABLE `user` (
-  `userid`        BIGINT AUTO_INCREMENT PRIMARY KEY,
-  `google_id`     VARCHAR(255) NOT NULL UNIQUE,
-  `type`          ENUM('programmer','designer') NOT NULL,
-  `privilege`     ENUM('associate','regular','active') NOT NULL,
-  `admin`         TINYINT NOT NULL DEFAULT 0, -- 0/1/2
-  `atime`         BIGINT NOT NULL, -- access time (unix-like)
-  `ctime`         BIGINT NOT NULL, -- create time
-  `mtime`         BIGINT NOT NULL, -- modify time
-  `time_quit`     BIGINT NULL, -- 탈퇴시간
-  `time_stop`     BIGINT NULL, -- 정지시간
-  `info_phonecall` VARCHAR(32),
-  `info_email`     VARCHAR(255),
-  `info_major`     VARCHAR(128),
-  `info_cardinal`  VARCHAR(32),
-  `info_position`  VARCHAR(128),
-  `info_work`      VARCHAR(128),
-  `info_introduce` TEXT,
-  `info_sns1`      VARCHAR(255),
-  `info_sns2`      VARCHAR(255),
-  `info_sns3`      VARCHAR(255),
-  `info_sns4`      VARCHAR(255),
-  `id_github`      VARCHAR(255),
-  `id_slack`       VARCHAR(255),
-  `receive_email`  BOOLEAN DEFAULT TRUE,
-  `receive_sms`    BOOLEAN DEFAULT TRUE
+  `id`              BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `google_id`       VARCHAR(255) NOT NULL UNIQUE,
+  `type`            ENUM('programmer','designer') NOT NULL,
+  `privilege`       ENUM('associate','regular','active') NOT NULL,
+  `admin`           TINYINT NOT NULL DEFAULT 0, -- 0/1/2
+  `atime`           BIGINT NOT NULL, -- access time (unix-like)
+  `ctime`           BIGINT NOT NULL, -- create time
+  `mtime`           BIGINT NOT NULL, -- modify time
+  `time_quit`       BIGINT NULL, -- quit time
+  `time_stop`       BIGINT NULL, -- suspended time
+  `profile_phone`   VARCHAR(32),
+  `profile_email`   VARCHAR(255),
+  `profile_major`   VARCHAR(128),
+  `profile_cardinal` VARCHAR(32),
+  `profile_position` VARCHAR(128),
+  `profile_work`    VARCHAR(128),
+  `profile_intro`   TEXT,
+  `profile_sns1`    VARCHAR(255),
+  `profile_sns2`    VARCHAR(255),
+  `profile_sns3`    VARCHAR(255),
+  `profile_sns4`    VARCHAR(255),
+  `id_github`       VARCHAR(255),
+  `id_slack`        VARCHAR(255),
+  `receive_email`   BOOLEAN DEFAULT TRUE,
+  `receive_sms`     BOOLEAN DEFAULT TRUE
 );
 ```
 
@@ -42,11 +42,11 @@ CREATE TABLE `user` (
 ```sql
 CREATE TABLE `user_pending` (
   `id`              BIGINT AUTO_INCREMENT PRIMARY KEY,
-  `google_id`       VARCHAR(255) NOT NULL UNIQUE, -- Google OAuth2의 sub (고유 ID)
-  `email`           VARCHAR(255) NOT NULL,        -- OAuth2에서 받은 이메일
-  `name`            VARCHAR(128) NOT NULL,        -- OAuth2에서 받은 이름
-  `profile_picture` VARCHAR(512),                 -- 프로필 이미지 URL
-  `ctime`           BIGINT NOT NULL,              -- 신청 시각
+  `google_id`       VARCHAR(255) NOT NULL UNIQUE, -- Google OAuth2 unique sub
+  `email`           VARCHAR(255) NOT NULL,        -- OAuth2 email
+  `name`            VARCHAR(128) NOT NULL,        -- OAuth2 name
+  `profile_picture` VARCHAR(512),                 -- profile image URL
+  `ctime`           BIGINT NOT NULL               -- apply time
 );
 ```
 
@@ -55,13 +55,13 @@ CREATE TABLE `user_pending` (
 CREATE TABLE `user_history` (
   `id`              BIGINT AUTO_INCREMENT PRIMARY KEY,
   `userid`          BIGINT NOT NULL,
-  `type`            ENUM('join','left','discupline','project_join','project_left') NOT NULL,
+  `type`            ENUM('join','left','discipline','project_join','project_left') NOT NULL,
   `description`     TEXT,
   `curr_privilege`  ENUM('associate','regular','active') NULL,
   `curr_time_stop`  BIGINT NULL,
-  `prec_privilege`  ENUM('associate','regular','active') NULL,
-  `prec_time_stop`  BIGINT NULL,
-  FOREIGN KEY (`userid`) REFERENCES `user`(`userid`) ON DELETE CASCADE
+  `prev_privilege`  ENUM('associate','regular','active') NULL,
+  `prev_time_stop`  BIGINT NULL,
+  FOREIGN KEY (`userid`) REFERENCES `user`(`id`) ON DELETE CASCADE
 );
 ```
 

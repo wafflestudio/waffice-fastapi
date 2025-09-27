@@ -20,8 +20,8 @@ class UserHistoryBase(BaseModel):
     description: Optional[str] = None
     curr_privilege: Optional[str] = None
     curr_time_stop: Optional[int] = None
-    prec_privilege: Optional[str] = None
-    prec_time_stop: Optional[int] = None
+    prev_privilege: Optional[str] = None
+    prev_time_stop: Optional[int] = None
 
 
 class UserHistoryCreate(UserHistoryBase):
@@ -31,5 +31,4 @@ class UserHistoryCreate(UserHistoryBase):
 class UserHistory(UserHistoryBase):
     id: int
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}

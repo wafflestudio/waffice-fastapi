@@ -21,7 +21,7 @@ from app.schemas.user_history import UserHistoryCreate
 
 def create_user_history(db: Session, data: UserHistoryCreate):
     """새로운 userHistory 생성"""
-    user = db.query(User).filter(User.userid == data.userid).first()
+    user = db.query(User).filter(User.id == data.userid).first()
     if not user:
         return None
 
@@ -31,8 +31,8 @@ def create_user_history(db: Session, data: UserHistoryCreate):
         description=data.description,
         curr_privilege=data.curr_privilege,
         curr_time_stop=data.curr_time_stop,
-        prec_privilege=data.prec_privilege,
-        prec_time_stop=data.prec_time_stop,
+        prev_privilege=data.prev_privilege,
+        prev_time_stop=data.prev_time_stop,
     )
     db.add(history)
     db.commit()

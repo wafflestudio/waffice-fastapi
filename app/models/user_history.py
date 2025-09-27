@@ -34,7 +34,7 @@ class UserHistory(Base):
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     userid = Column(
-        BigInteger, ForeignKey("user.userid", ondelete="CASCADE"), nullable=False
+        BigInteger, ForeignKey("user.id", ondelete="CASCADE"), nullable=False
     )
     type = Column(Enum(UserHistoryType), nullable=False)
     description = Column(Text)
@@ -43,10 +43,10 @@ class UserHistory(Base):
         nullable=True,
     )
     curr_time_stop = Column(BigInteger, nullable=True)
-    prec_privilege = Column(
-        Enum("associate", "regular", "active", name="prec_privilege_enum"),
+    prev_privilege = Column(
+        Enum("associate", "regular", "active", name="prev_privilege_enum"),
         nullable=True,
     )
-    prec_time_stop = Column(BigInteger, nullable=True)
+    prev_time_stop = Column(BigInteger, nullable=True)
 
     user = relationship("User", back_populates="histories")

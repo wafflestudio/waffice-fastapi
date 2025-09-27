@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import User, UserHistory, UserPending
-from app.schemas import UserHistoryCreate, UserPendingCreate, UserPrivilege, UserType
+from app.schemas import UserPendingCreate, UserPrivilege, UserType
 
 # -----------------------
 # User Pending
@@ -41,8 +41,18 @@ def create_pending_user(db: Session, data: UserPendingCreate):
         return None
 
 
+def deny_user(db: Session, payload: dict):
+    pending = (
+        db.query(UserPending).filter(UserPending.id == payload["pending_id"]).first()
+    )
+    if not pending:
+        return None
+    db.delete(pending)
+    db.commit()
+    return True
+
+
 def enroll_user(db: Session, payload: dict):
-    """가입 대기열 유저를 정식 회원으로 등록"""
     pending = (
         db.query(UserPending).filter(UserPending.id == payload["pending_id"]).first()
     )
@@ -72,8 +82,44 @@ def enroll_user(db: Session, payload: dict):
         return None
 
 
-def deny_user(db: Session, payload: dict):
-    """가입 대기열 거절"""
-    pending = (
-        db.query(UserPending).filter(UserPending.id == payload["pending_id"]).first()
-    )
+# -----------------------
+# User Info
+# -----------------------
+
+
+def get_user_info(db: Session, userid: int):
+    user = db.query(User).filter(User.id == userid).first()
+    if not user:
+        return None
+    histories = db.query(UserHistory).filter(UserHistory.userid == userid).all()
+    return {"user": user, "history": histories}
+
+
+def get_all_users(db: Session):
+    return db.query(User).all()
+
+
+def update_user(db: Session, payload: dict):
+    user = db.query(User).filter(User.id == payload["userid"]).first()
+    if not user:
+        return None
+
+    if "privilege" in payload:
+        user.privilege = UserPrivilege(payload["privilege"])
+    if "admin" in payload:
+        user.admin = payload["admin"]
+
+    user.mtime = int(time.time())
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def update_access_time(db: Session, userid: int):
+    user = db.query(User).filter(User.id == userid).first()  # <- 변경
+    if not user:
+        return None
+    user.atime = int(time.time())
+    db.commit()
+    db.refresh(user)
+    return user

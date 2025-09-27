@@ -21,7 +21,7 @@ def get_db():
 # -----------------------
 
 
-@router.post("/userhist/create", status_code=status.HTTP_201_CREATED)
+@router.post("/create", status_code=status.HTTP_201_CREATED)
 def userhist_create(data: UserHistoryCreate, db: Session = Depends(get_db)):
     result = userhist_controller.create_user_history(db, data)
     if not result:
@@ -29,7 +29,7 @@ def userhist_create(data: UserHistoryCreate, db: Session = Depends(get_db)):
     return {"ok": True, "id": result.id}
 
 
-@router.get("/userhist/info")
+@router.get("/info")
 def userhist_info(id: int, db: Session = Depends(get_db)):
     result = userhist_controller.get_user_history(db, id)
     if not result:
@@ -37,7 +37,7 @@ def userhist_info(id: int, db: Session = Depends(get_db)):
     return {"ok": True, "history": result}
 
 
-@router.get("/userhist/all")
+@router.get("/all")
 def userhist_all(db: Session = Depends(get_db)):
     histories = userhist_controller.get_all_user_histories(db)
     return {"ok": True, "histories": histories}

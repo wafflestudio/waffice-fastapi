@@ -18,5 +18,4 @@ class UserPending(UserPendingBase):
     id: int
     ctime: int
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}
