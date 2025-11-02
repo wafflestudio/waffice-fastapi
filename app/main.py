@@ -8,5 +8,11 @@ app = FastAPI()
 
 Base.metadata.create_all(bind=engine)
 
+
+@app.get("/health-check")
+def health_check():
+    return {"ok": True}
+
+
 app.include_router(user_route.router)
 app.include_router(userhist_route.router)
