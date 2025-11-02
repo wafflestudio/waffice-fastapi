@@ -31,9 +31,7 @@ def get_db_credentials():
     region_name = os.getenv("AWS_REGION", "ap-northeast-2")
 
     if not secret_name:
-        raise ValueError(
-            f"AWS_SECRET_NAME must be set for environment: {ENV}"
-        )
+        raise ValueError(f"AWS_SECRET_NAME must be set for environment: {ENV}")
 
     session = boto3.session.Session()
     client = session.client(service_name="secretsmanager", region_name=region_name)
