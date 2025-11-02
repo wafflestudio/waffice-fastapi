@@ -4,14 +4,17 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v*'
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
-  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+  ECR_REPOSITORY: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.ECR_REPOSITORY_PROD || secrets.ECR_REPOSITORY_DEV }}
+  ENVIRONMENT: ${{ startsWith(github.ref, 'refs/tags/v') && 'prod' || 'dev' }}
 
 jobs:
   deploy:
-    name: Build and Push to ECR
+    name: Build and Push to ECR (${{ startsWith(github.ref, 'refs/tags/v') && 'prod' || 'dev' }})
     runs-on: ubuntu-latest
 
     steps:
@@ -53,6 +56,6 @@ jobs:
 
       - name: Image digest
         run: |
-          echo "Image pushed successfully!"
+          echo "Image pushed successfully to ${{ env.ENVIRONMENT }}!"
           echo "Repository: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}"
           echo "Tags: latest, ${{ steps.meta.outputs.sha_short }}, ${{ steps.meta.outputs.timestamp }}"
