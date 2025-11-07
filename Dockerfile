@@ -30,6 +30,10 @@ COPY --from=builder /app/.venv /app/.venv
 # Copy application code
 COPY app ./app
 
+# Build argument for environment
+ARG ENV=dev
+ENV ENV=${ENV}
+
 # Set environment variables
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \

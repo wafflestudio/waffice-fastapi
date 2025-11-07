@@ -46,6 +46,8 @@ jobs:
           push: true
           tags: |
             ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.meta.outputs.timestamp }}
+          build-args: |
+            ENV=prod
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

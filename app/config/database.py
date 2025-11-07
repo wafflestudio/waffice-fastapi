@@ -34,7 +34,7 @@ def get_db_credentials():
         }
 
     # For dev/prod: use AWS Secrets Manager
-    secret_name = os.getenv("AWS_SECRET_NAME")
+    secret_name = f"{ENV}/waffice-server"
     region_name = os.getenv("AWS_REGION", "ap-northeast-2")
 
     if not secret_name:
