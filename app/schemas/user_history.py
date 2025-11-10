@@ -1,7 +1,7 @@
-# schemas/user_history.py
-
+# app/schemas/user_history.py
+from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from pydantic import BaseModel
 
@@ -15,13 +15,12 @@ class UserHistoryType(str, Enum):
 
 
 class UserHistoryBase(BaseModel):
-    userid: int
-    type: UserHistoryType
+    user_id: int
+    event_type: UserHistoryType
     description: Optional[str] = None
-    curr_privilege: Optional[str] = None
-    curr_time_stop: Optional[int] = None
-    prev_privilege: Optional[str] = None
-    prev_time_stop: Optional[int] = None
+    prev_json: Optional[Dict[str, Any]] = None
+    curr_json: Optional[Dict[str, Any]] = None
+    operated_by: Optional[int] = None
 
 
 class UserHistoryCreate(UserHistoryBase):
@@ -30,5 +29,6 @@ class UserHistoryCreate(UserHistoryBase):
 
 class UserHistory(UserHistoryBase):
     id: int
+    ctime: datetime
 
     model_config = {"from_attributes": True}

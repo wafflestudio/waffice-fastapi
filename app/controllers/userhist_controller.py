@@ -12,7 +12,7 @@ User History Controller
 from sqlalchemy.orm import Session
 
 from app.models import User, UserHistory
-from app.schemas.user_history import UserHistoryCreate
+from app.schemas import UserHistoryCreate
 
 # -----------------------
 # User History

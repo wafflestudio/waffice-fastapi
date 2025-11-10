@@ -1,25 +1,23 @@
-# /models/user_pending.py
+# app/models/user_pending.py
+from datetime import datetime
 
-"""
-UserPending Model Definition
-============================
+from sqlalchemy import DateTime, String
+from sqlalchemy.orm import Mapped, mapped_column
 
-- Author: KMSstudio
-- Description:
-    Represents pending users who applied for membership but are not yet approved.
-"""
-
-from sqlalchemy import BigInteger, Column, String
-
-from app.config.database import Base
+from app.models import Base
 
 
 class UserPending(Base):
     __tablename__ = "user_pending"
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
-    google_id = Column(String(255), nullable=False, unique=True)
-    email = Column(String(255), nullable=False)
-    name = Column(String(128), nullable=False)
-    profile_picture = Column(String(512))
-    ctime = Column(BigInteger, nullable=False)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    google_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+
+    email: Mapped[str | None] = mapped_column(String(255))
+    name: Mapped[str | None] = mapped_column(String(128))
+    github: Mapped[str | None] = mapped_column(String(255))
+    profile_picture: Mapped[str | None] = mapped_column(String(512))
+
+    ctime: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.now
+    )
