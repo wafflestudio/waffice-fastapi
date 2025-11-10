@@ -1,68 +1,70 @@
-# /models/user.py
+# app/models/user.py
+from datetime import datetime
+from typing import Optional
 
-"""
-User Model Definition
-=====================
+from sqlalchemy import Boolean, DateTime, Enum as SAEnum, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-This module defines the SQLAlchemy ORM model for the `user` table.
+from app.models import Base
 
-- Author: KMSstudio
-- Description:
-    Represents a user in the system with attributes such as
-    google_id, type, privilege, contact info, and other metadata.
-    Provides relationship to UserHistory for tracking user changes/events.
-"""
-
-import enum
-
-from sqlalchemy import BigInteger, Boolean, Column, Enum, Integer, String, Text
-from sqlalchemy.orm import relationship
-
-from app.config.database import Base
+UserType = ("programmer", "designer")
+UserPrivilege = ("associate", "regular", "active")
 
 
-# ENUM
-class UserType(enum.Enum):
-    programmer = "programmer"
-    designer = "designer"
+class WafficeUser(Base):
+    __tablename__ = "waffice_users"
 
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    google_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    type: Mapped[str] = mapped_column(
+        SAEnum(*UserType, name="user_type"), nullable=False
+    )
+    privilege: Mapped[str] = mapped_column(
+        SAEnum(*UserPrivilege, name="user_privilege"), nullable=False
+    )
 
-class UserPrivilege(enum.Enum):
-    associate = "associate"
-    regular = "regular"
-    active = "active"
+    admin: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
+    ctime: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.now
+    )
+    mtime: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.now
+    )
+    time_quit: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    time_stop: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
-# User
-class User(Base):
-    __tablename__ = "user"
+    profile_phone: Mapped[Optional[str]] = mapped_column(String(32))
+    profile_email: Mapped[Optional[str]] = mapped_column(String(255))
+    profile_major: Mapped[Optional[str]] = mapped_column(String(128))
+    profile_cardinal: Mapped[Optional[str]] = mapped_column(String(32))
+    profile_position: Mapped[Optional[str]] = mapped_column(String(128))
+    profile_work: Mapped[Optional[str]] = mapped_column(String(128))
+    profile_intro: Mapped[Optional[str]] = mapped_column(Text)
+    id_github: Mapped[Optional[str]] = mapped_column(String(255))
+    id_slack: Mapped[Optional[str]] = mapped_column(String(255))
+    receive_email: Mapped[bool] = mapped_column(Boolean, default=True)
+    receive_sms: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
-    google_id = Column(String(255), nullable=False, unique=True)
-    type = Column(Enum(UserType), nullable=False)
-    privilege = Column(Enum(UserPrivilege), nullable=False)
-    admin = Column(Integer, nullable=False, default=0)  # 0/1/2
-    atime = Column(BigInteger, nullable=False)
-    ctime = Column(BigInteger, nullable=False)
-    mtime = Column(BigInteger, nullable=False)
-    time_quit = Column(BigInteger, nullable=True)
-    time_stop = Column(BigInteger, nullable=True)
-    profile_phone = Column(String(32))
-    profile_email = Column(String(255))
-    profile_major = Column(String(128))
-    profile_cardinal = Column(String(32))
-    profile_position = Column(String(128))
-    profile_work = Column(String(128))
-    profile_intro = Column(Text)
-    profile_sns1 = Column(String(255))
-    profile_sns2 = Column(String(255))
-    profile_sns3 = Column(String(255))
-    profile_sns4 = Column(String(255))
-    id_github = Column(String(255))
-    id_slack = Column(String(255))
-    receive_email = Column(Boolean, default=True)
-    receive_sms = Column(Boolean, default=True)
-
+    # 🔧 FK를 명시해서 모호성 제거
     histories = relationship(
-        "UserHistory", back_populates="user", cascade="all, delete-orphan"
+        "UserHistory",
+        back_populates="user",
+        foreign_keys="UserHistory.user_id",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    acted_histories = relationship(
+        "UserHistory",
+        back_populates="actor",
+        foreign_keys="UserHistory.operated_by",
+        lazy="selectin",
+    )
+
+    links = relationship(
+        "UserLink",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="UserLink.ord",
     )

@@ -1,20 +1,27 @@
-# /models/__init__.py
-
 """
-Models Package
-==============
+app.models
+==========
 
-This package contains all SQLAlchemy ORM model definitions used in the project.
+This package defines all **SQLAlchemy ORM models** representing
+the database structure of the application.
 
-- Author: KMSstudio
-- Description:
-    Each file in this package represents one or more database tables
-    mapped to Python classes. These models define the schema and
-    relationships for the system's database layer.
+Each model in this package maps directly to a database table and
+defines columns, relationships, and constraints at the persistence layer.
 """
 
-from .user import User
+from sqlalchemy.orm import declarative_base
+
+Base = declarative_base()
+
+from .user import WafficeUser
 from .user_history import UserHistory
+from .user_link import UserLink
 from .user_pending import UserPending
 
-__all__ = ["User", "UserHistory", "UserPending"]
+__all__ = [
+    "Base",
+    "WafficeUser",
+    "UserLink",
+    "UserHistory",
+    "UserPending",
+]

@@ -1,103 +1,75 @@
-# /routes/user_route.py
-
-"""
-User and UserHistory Routes
-===========================
-
-- Author: KMSstudio
-- Description:
-    Provides REST API endpoints for managing users, pending users,
-    and user history records.
-"""
-
-from fastapi import APIRouter, Depends, HTTPException, status
+# routes/user_route.py
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.config.database import SessionLocal
-from app.controllers import user_controller
+from app.config import get_db
+from app.controllers.user_controller import UserController
 from app.schemas import (
+    PendingDecideIn,
+    PendingDecideOut,
     User,
-    UserCreate,
-    UserHistory,
-    UserHistoryCreate,
     UserPending,
     UserPendingCreate,
 )
 
-router = APIRouter(prefix="/api", tags=["user"])
+router = APIRouter(prefix="/api", tags=["User"])
+
+# ==========================================================
+# PUBLIC USER ROUTES
+# ==========================================================
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+@router.get("/user/status")
+def user_status(google_id: str, db: Session = Depends(get_db)):
+    return UserController.get_status(db, google_id)
 
 
-# -----------------------
-# User Pending
-# -----------------------
+@router.post("/user/create", response_model=UserPending)
+def user_create_pending(payload: UserPendingCreate, db: Session = Depends(get_db)):
+    return UserController.create_pending(
+        db,
+        google_id=payload.google_id,
+        email=payload.email,
+        name=payload.name,
+        # github는 저장 안 하더라도 스키마에서 받아 두면 422를 막을 수 있음
+    )
 
 
-@router.post("/user/create", status_code=status.HTTP_201_CREATED)
-def create_pending_user(data: UserPendingCreate, db: Session = Depends(get_db)):
-    user: UserPending = user_controller.create_pending_user(db, data)
-    if not user:
-        raise HTTPException(status_code=409, detail="Conflict: already exists")
-    return {"ok": True, "id": user.id, "ctime": user.ctime}
+@router.get("/user/me", response_model=User)
+def user_me(db: Session = Depends(get_db)):
+    # JWT 인증은 추후. 테스트용 user_id=1
+    user_id = 1
+    return UserController.get_me(db, user_id)
 
 
-@router.post("/user/enroll", status_code=status.HTTP_201_CREATED)
-def enroll_user(payload: dict, db: Session = Depends(get_db)):
-    result = user_controller.enroll_user(db, payload)
-    if not result:
-        raise HTTPException(status_code=404, detail="Pending user not found")
-    if result == "conflict":
-        raise HTTPException(status_code=409, detail="Conflict: already enrolled")
-    return {"ok": True, "userid": result.id}
+@router.patch("/user/update", response_model=User)
+def user_update_profile(updates: dict, db: Session = Depends(get_db)):
+    user_id = 1
+    return UserController.update_profile(db, user_id, updates)
 
 
-@router.post("/user/deny")
-def deny_user(payload: dict, db: Session = Depends(get_db)):
-    result = user_controller.deny_user(db, payload)
-    if not result:
-        raise HTTPException(status_code=404, detail="Pending user not found")
-    return {"ok": True, "status": "거절"}
+# ==========================================================
+# EXECUTIVE USER ROUTES
+# ==========================================================
 
 
-# -----------------------
-# User
-# -----------------------
+@router.get("/exct/user/all")
+def get_all_users(db: Session = Depends(get_db)):
+    return UserController.list_all(db)
 
 
-@router.get("/user/info")
-def user_info(userid: int, db: Session = Depends(get_db)):
-    result = user_controller.get_user_info(db, userid)
-    if not result:
-        raise HTTPException(status_code=404, detail="User not found")
-    return {"ok": True, "user": result["user"], "history": result["history"]}
+@router.post("/exct/user/decide", response_model=PendingDecideOut)
+def decide_pending(payload: PendingDecideIn, db: Session = Depends(get_db)):
+    return UserController.decide_pending(db, payload)
 
 
-@router.get("/user/all")
-def user_all(db: Session = Depends(get_db)):
-    users = user_controller.get_all_users(db)
-    return {"ok": True, "users": users}
+@router.get("/exct/user/info")
+def get_user_info(
+    user_id: int = None, google_id: str = None, db: Session = Depends(get_db)
+):
+    return UserController.get_user_info(db, user_id, google_id)
 
 
-@router.post("/user/update")
-def user_update(payload: dict, db: Session = Depends(get_db)):
-    result = user_controller.update_user(db, payload)
-    if not result:
-        raise HTTPException(status_code=404, detail="User not found")
-    if result == "forbidden":
-        raise HTTPException(status_code=403, detail="Forbidden")
-    return {"ok": True, "userid": payload["userid"]}
-
-
-@router.post("/user/access")
-def user_access(payload: dict, db: Session = Depends(get_db)):
-    result = user_controller.update_access_time(db, payload["userid"])
-    if not result:
-        raise HTTPException(status_code=404, detail="User not found")
-    return {"ok": True, "atime": result.atime}
+@router.patch("/exct/user/update")
+def update_exec_user(updates: list[dict], db: Session = Depends(get_db)):
+    return UserController.update_exec_user(db, updates)
