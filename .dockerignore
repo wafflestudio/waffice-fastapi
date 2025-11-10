@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# CI/CD
+.github/
+
+# Documentation
+*.md
+docs/
+
+# Tests
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment files
+.env
+.env.*
+
+# Docker
+docker-compose.yml
+Dockerfile
+.dockerignore
+
+# Database
+*.db
+*.sqlite
+
+# Logs
+*.log
+
+# Pre-commit
+.pre-commit-config.yaml
+
+# Misc
+.DS_Store
+*.bak
+*.tmp
+lint.sh
+lint.bat

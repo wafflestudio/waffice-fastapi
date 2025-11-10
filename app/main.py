@@ -17,6 +17,12 @@ app = FastAPI(lifespan=lifespan)
 
 from app.routes import user_route, userhist_route
 
+
+@app.get("/health-check")
+def health_check():
+    return {"ok": True}
+
+
 app.include_router(user_route.router)
 app.include_router(userhist_route.router)
 

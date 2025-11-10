@@ -11,4 +11,26 @@ services:
     ports:
       - "3306:3306"
     command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: myuser
+      DB_PASSWORD: mypass
+      DB_NAME: mydb
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
 
