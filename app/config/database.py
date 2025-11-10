@@ -58,6 +58,7 @@ def get_db_credentials():
         "dbname": secret.get("dbname"),
     }
 
+
 # Get database credentials
 db_creds = get_db_credentials()
 
