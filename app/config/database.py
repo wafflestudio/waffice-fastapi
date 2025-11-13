@@ -67,6 +67,7 @@ DB_PASSWORD = db_creds["password"]
 DB_HOST = db_creds["host"]
 DB_PORT = db_creds["port"]
 DB_NAME = db_creds["dbname"]
+DB_ECHO = os.getenv("DB_ECHO", "False").lower() in ("true", "1", "t")
 
 # ----------------------------------------------------------------------
 # Build DATABASE URL (PyMySQL)
