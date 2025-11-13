@@ -1,7 +1,7 @@
 # Waffice Project FastAPI repository
 
 > 최초작성일 2025.09.26  
-> 최신개정일 2025.09.26  
+> 최신개정일 2025.11.13  
 > 작성자 [23기 강명석](mailto:tomskang@naver.com)  
 > 최신개정자 [23기 강명석](mailto:tomskang@naver.com)  
 
