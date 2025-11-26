@@ -14,20 +14,6 @@ client = TestClient(app)
 
 
 # ------------------------------------------------------------------------------
-# DB RESET PER TEST
-# ------------------------------------------------------------------------------
-@pytest.fixture(autouse=True)
-def _reset_db():
-    """
-    Reset database before each test so cases don't affect each other.
-    Uses helpers exposed in app.config.database.
-    """
-    drop_all()
-    create_all()
-    yield
-
-
-# ------------------------------------------------------------------------------
 # BASIC HEALTH TEST
 # ------------------------------------------------------------------------------
 def test_health_check():
