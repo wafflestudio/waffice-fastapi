@@ -3,13 +3,13 @@ REM ================================
 REM  Python Lint & Format Check
 REM ================================
 
-echo Running Black...
-uv run black .
+echo Running Black (check only)...
+uv run black --check .
 
-echo Running isort...
-uv run isort .
+echo Running isort (check only)...
+uv run isort --check-only .
 
 echo.
-echo   Lint completed!
+echo   Lint check completed!
 
 :: uv run pre-commit run --all-files

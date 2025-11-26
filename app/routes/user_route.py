@@ -1,4 +1,7 @@
 # routes/user_route.py
+
+from typing import Annotated, Any, Dict
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -11,8 +14,12 @@ from app.schemas import (
     UserPending,
     UserPendingCreate,
 )
+from app.utils.jwt_auth import get_current_user
 
 router = APIRouter(prefix="/api", tags=["User"])
+
+CurrentUserPayload = Annotated[Dict[str, Any], Depends(get_current_user)]
+
 
 # ==========================================================
 # PUBLIC USER ROUTES
@@ -36,15 +43,21 @@ def user_create_pending(payload: UserPendingCreate, db: Session = Depends(get_db
 
 
 @router.get("/user/me", response_model=User)
-def user_me(db: Session = Depends(get_db)):
-    # JWT 인증은 추후. 테스트용 user_id=1
-    user_id = 1
+def user_me(
+    db: Session = Depends(get_db),
+    user_payload: CurrentUserPayload = None,
+):
+    user_id = int(user_payload["user_id"])
     return UserController.get_me(db, user_id)
 
 
 @router.patch("/user/update", response_model=User)
-def user_update_profile(updates: dict, db: Session = Depends(get_db)):
-    user_id = 1
+def update_profile(
+    updates: dict,
+    db: Session = Depends(get_db),
+    user_payload: CurrentUserPayload = None,
+):
+    user_id = int(user_payload["user_id"])
     return UserController.update_profile(db, user_id, updates)
 
 
