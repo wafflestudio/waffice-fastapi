@@ -93,7 +93,7 @@ def get_engine():
     """
     engine = create_engine(
         DATABASE_URL,
-        echo=DB_ECHO,
+        echo=False,
         future=True,
         pool_pre_ping=True,
         pool_recycle=280,

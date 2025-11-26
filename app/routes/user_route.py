@@ -20,6 +20,7 @@ router = APIRouter(prefix="/api", tags=["User"])
 
 CurrentUserPayload = Annotated[Dict[str, Any], Depends(get_current_user)]
 
+
 # ==========================================================
 # PUBLIC USER ROUTES
 # ==========================================================

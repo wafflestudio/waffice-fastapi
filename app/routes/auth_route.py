@@ -44,13 +44,37 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 # =========================
 
 
-@router.get("/google/login")
+@router.get(
+    "/google/login",
+    summary="Google OAuth 로그인 시작",
+    description=(
+        "Google OAuth 2.0 Login Flow를 시작\n"
+        "- 사용자를 Google 로그인/동의 화면으로 리다이렉트\n"
+        "- Callback to: `/auth/google/callback`"
+    ),
+)
 async def google_login(request: Request):
     redirect_uri = request.url_for("google_auth_callback")
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 
-@router.get("/google/callback", name="google_auth_callback")
+@router.get(
+    "/google/callback",
+    name="google_auth_callback",
+    summary="Google OAuth 콜백 처리",
+    description=(
+        "Google OAuth 2.0 콜백을 처리 엔드포인트\n\n"
+        "동작:\n"
+        "1. Acc token 및 google_id 조회\n"
+        "2. 얻은 `google_id`로 user 상태 조회 (`approved/pending/unregistered`).\n"
+        "3a. 승인된 유저(`approved`)인 경우:\n"
+        "   - `user_id` 기반으로 JWT acc token 발급\n"
+        "   - `/auth/callback?status=approved&token=...` 으로 redirect.\n"
+        "3b. 그 외(`pending`/`unregistered`)인 경우:\n"
+        "   - 토큰을 발급하지 않습니다.\n"
+        "   - `/auth/callback?status=...&google_id=...` 으로 redirect."
+    ),
+)
 async def google_callback(request: Request, db: Session = Depends(get_db)):
     token = await oauth.google.authorize_access_token(request)
 
@@ -93,8 +117,3 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         )
 
     return RedirectResponse(url=redirect_url)
-
-
-@router.get("/me")
-async def auth_me(current_user: Dict[str, Any] = Depends(get_current_user)):
-    return current_user
