@@ -77,10 +77,11 @@ DB_PORT=3306
 DB_NAME=mydb
 ```
 
-### 3.2. Start MySQL via Docker Compose
+### 3.2. Start MySQL server and FasiAPI app via Docker Compose
 From the project root (where `docker-compose.yml` exists):
 
 ```bash
+docker compose build --no-cache
 docker compose up -d
 docker compose logs -f
 ```
@@ -94,7 +95,9 @@ nc -zv 127.0.0.1 3306
 tnc 127.0.0.1 -port 3306
 ```
 
-### 3.3. Run the FastAPI app
+### 3.2*. Run the FastAPI app directly
+It is also available run the app directly via `uvicorn`.
+
 ```bash
 uv run uvicorn app.main:app --reload
 uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000

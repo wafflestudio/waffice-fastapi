@@ -46,7 +46,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.get(
     "/google/login",
-    summary="Google OAuth 로그인 시작",
+    summary="Google OAuth Login",
     description=(
         "Google OAuth 2.0 Login Flow를 시작\n"
         "- 사용자를 Google 로그인/동의 화면으로 리다이렉트\n"
@@ -61,7 +61,7 @@ async def google_login(request: Request):
 @router.get(
     "/google/callback",
     name="google_auth_callback",
-    summary="Google OAuth 콜백 처리",
+    summary="Google OAuth Callbacks",
     description=(
         "Google OAuth 2.0 콜백을 처리 엔드포인트\n\n"
         "동작:\n"
