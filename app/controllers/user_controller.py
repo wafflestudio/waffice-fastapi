@@ -15,11 +15,11 @@ class UserController:
     def get_status(db: Session, google_id: str):
         """
         - google_id 로 현재 상태 조회 (미등록 | 대기 | 승인)
-        - 승인 시 JWT 발급 (지금은 stub)
+        - 승인 시 user.id 반환
         """
         user = UserService.get_by_google(db, google_id)
         if user:
-            return {"status": "approved", "user_id": user.id, "jwt": "fake-jwt"}
+            return {"status": "approved", "user_id": user.id}
 
         pending = UserPendingService.get_by_google(db, google_id)
         if pending:
