@@ -13,6 +13,7 @@ from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
 
+from .project import Project, ProjectMember, ProjectWebsite
 from .user import WafficeUser
 from .user_history import UserHistory
 from .user_link import UserLink
@@ -20,8 +21,13 @@ from .user_pending import UserPending
 
 __all__ = [
     "Base",
+    # User
     "WafficeUser",
     "UserLink",
     "UserHistory",
     "UserPending",
+    # project
+    "Project",
+    "ProjectMember",
+    "ProjectWebsite",
 ]

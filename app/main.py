@@ -39,11 +39,12 @@ app.add_middleware(SessionMiddleware, secret_key=APP_SECRET_KEY)
 # ==============================
 # ROUTERS
 # ==============================
-from app.routes import auth_route, user_route, userhist_route
+from app.routes import auth_route, project_route, user_route, userhist_route
 
 app.include_router(user_route.router)
 app.include_router(userhist_route.router)
 app.include_router(auth_route.router)
+app.include_router(project_route.router)
 
 
 # ==============================
