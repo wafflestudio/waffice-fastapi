@@ -4,13 +4,13 @@ import os
 from typing import Any, Dict
 
 from authlib.integrations.starlette_client import OAuth
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.config import get_db
 from app.controllers.user_controller import UserController
-from app.utils.jwt_auth import create_access_token, get_current_user
+from app.utils.jwt_auth import create_access_token, get_current_user  # noqa: F401
 
 # =========================
 # CONFIG
@@ -47,11 +47,24 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.get(
     "/google/login",
     summary="Google OAuth Login",
+    status_code=status.HTTP_307_TEMPORARY_REDIRECT,
     description=(
         "Google OAuth 2.0 Login Flow를 시작\n"
         "- 사용자를 Google 로그인/동의 화면으로 리다이렉트\n"
         "- Callback to: `/auth/google/callback`"
     ),
+    responses={
+        307: {
+            "description": "Redirect to Google OAuth 2.0 authorization endpoint.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Redirecting to Google OAuth 2.0 authorization endpoint"
+                    }
+                }
+            },
+        }
+    },
 )
 async def google_login(request: Request):
     redirect_uri = request.url_for("google_auth_callback")
@@ -61,19 +74,79 @@ async def google_login(request: Request):
 @router.get(
     "/google/callback",
     name="google_auth_callback",
-    summary="Google OAuth Callbacks",
+    summary="Google OAuth Callback",
+    status_code=status.HTTP_307_TEMPORARY_REDIRECT,
     description=(
         "Google OAuth 2.0 콜백을 처리 엔드포인트\n\n"
         "동작:\n"
-        "1. Acc token 및 google_id 조회\n"
+        "1. Access token 및 google_id 조회\n"
         "2. 얻은 `google_id`로 user 상태 조회 (`approved/pending/unregistered`).\n"
         "3a. 승인된 유저(`approved`)인 경우:\n"
-        "   - `user_id` 기반으로 JWT acc token 발급\n"
+        "   - `user_id` 기반으로 JWT access token 발급\n"
         "   - `/auth/callback?status=approved&token=...` 으로 redirect.\n"
         "3b. 그 외(`pending`/`unregistered`)인 경우:\n"
         "   - 토큰을 발급하지 않습니다.\n"
         "   - `/auth/callback?status=...&google_id=...` 으로 redirect."
     ),
+    responses={
+        307: {
+            "description": "Redirect back to frontend with login result.",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "approved": {
+                            "summary": "Approved user",
+                            "description": (
+                                "User is already approved. "
+                                "Frontend receives a JWT access token via query string."
+                            ),
+                            "value": {
+                                "detail": "Redirecting to frontend callback URL",
+                                "redirect_example": (
+                                    f"{FRONTEND_ORIGIN}/auth/callback"
+                                    "?status=approved&token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                                ),
+                            },
+                        },
+                        "pending": {
+                            "summary": "Pending user",
+                            "description": (
+                                "User exists in pending queue and is not approved yet. "
+                                "No JWT is issued; frontend receives google_id."
+                            ),
+                            "value": {
+                                "detail": "Redirecting to frontend callback URL",
+                                "redirect_example": (
+                                    f"{FRONTEND_ORIGIN}/auth/callback"
+                                    "?status=pending&google_id=123456789012345678901"
+                                ),
+                            },
+                        },
+                        "unregistered": {
+                            "summary": "Unregistered user",
+                            "description": (
+                                "User is not registered at all. "
+                                "Frontend receives google_id and can start registration flow."
+                            ),
+                            "value": {
+                                "detail": "Redirecting to frontend callback URL",
+                                "redirect_example": (
+                                    f"{FRONTEND_ORIGIN}/auth/callback"
+                                    "?status=unregistered&google_id=123456789012345678901"
+                                ),
+                            },
+                        },
+                    }
+                }
+            },
+        },
+        400: {
+            "description": "Google login failed",
+            "content": {
+                "application/json": {"example": {"detail": "Google login failed"}}
+            },
+        },
+    },
 )
 async def google_callback(request: Request, db: Session = Depends(get_db)):
     token = await oauth.google.authorize_access_token(request)
