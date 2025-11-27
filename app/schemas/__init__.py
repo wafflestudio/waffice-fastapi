@@ -22,6 +22,23 @@ Each schema module corresponds to one logical entity in the system, e.g.:
 `user.py`, `user_link.py`, `user_history.py`, `user_pending.py`.
 """
 
+from .project import (
+    Project,
+    ProjectBase,
+    ProjectCreate,
+    ProjectMember,
+    ProjectMemberBase,
+    ProjectMemberCreate,
+    ProjectMemberRole,
+    ProjectMemberUpdate,
+    ProjectStatus,
+    ProjectUpdate,
+    ProjectWebsite,
+    ProjectWebsiteBase,
+    ProjectWebsiteCreate,
+    ProjectWebsiteOut,
+    ProjectWebsiteUpdate,
+)
 from .user import User, UserBase, UserCreate, UserPrivilege, UserType
 from .user_history import (
     UserHistory,
@@ -72,4 +89,20 @@ __all__ = [
     "PendingDecision",
     "PendingDecideIn",
     "PendingDecideOut",
+    # project
+    "Project",
+    "ProjectBase",
+    "ProjectCreate",
+    "ProjectUpdate",
+    "ProjectStatus",
+    "ProjectWebsite",
+    "ProjectWebsiteBase",
+    "ProjectWebsiteCreate",
+    "ProjectWebsiteUpdate",
+    "ProjectWebsiteOut",
+    "ProjectMember",
+    "ProjectMemberBase",
+    "ProjectMemberCreate",
+    "ProjectMemberUpdate",
+    "ProjectMemberRole",
 ]
