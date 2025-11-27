@@ -55,7 +55,7 @@ def project_info(
 
 @router.patch(
     "/project/update",
-    summary="Update project (leader only)",
+    summary="Update project (4leader)",
     description=(
         "Update project fields and optionally replace all websites. "
         "The caller must be a leader of the target project."
@@ -83,7 +83,7 @@ def project_update(
 
 @router.post(
     "/project/invite",
-    summary="Invite user to project",
+    summary="Invite user to project (4leader)",
     description=(
         "Invite a user to a project. "
         "If you invite as leader, you must also be a leader. "
@@ -95,7 +95,7 @@ def project_invite(
     target_user_id: int = Body(..., description="User to invite"),
     role: ProjectMemberRole = Body(
         ProjectMemberRole.member,
-        description="Role in project (leader or member)",
+        description="Role in project (4leader)",
     ),
     position: str = Body(
         ...,
@@ -126,7 +126,7 @@ def project_invite(
 
 @router.post(
     "/project/kick",
-    summary="Remove user from project",
+    summary="Remove user from project (4leader)",
     description=(
         "Remove a user from a project. "
         "The caller must be a leader of the project. "
@@ -183,7 +183,7 @@ def project_leave(
 
 @router.post(
     "/exct/project/create",
-    summary="Create project (exec only)",
+    summary="Create project",
     description=(
         "Create a new project. Caller must have executive privilege. "
         "The caller is automatically registered as the project leader."
@@ -213,7 +213,7 @@ def exct_project_create(
 
 @router.delete(
     "/exct/project/delete",
-    summary="Delete project (exec only)",
+    summary="Delete project",
     description="Delete an entire project. Only users with executive privilege can perform this action.",
 )
 def exct_project_delete(
@@ -238,7 +238,7 @@ def exct_project_delete(
 
 @router.patch(
     "/exct/project/update",
-    summary="Update project (exec only)",
+    summary="Update project",
     description=(
         "Update project fields and optionally replace all websites. "
         "Only users with executive privilege can perform this action."

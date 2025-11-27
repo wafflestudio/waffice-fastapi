@@ -120,15 +120,9 @@ class ProjectController:
         """
         /api/project/invite
         - 프로젝트에 유저를 초대
-        - leader 로 초대하려면 actor 가 leader 여야 함
-        - member 로 초대는 "프로젝트 멤버"라면 허용 (정책에 따라 조정 가능)
+        - 초대하는 자가 프로젝트의 leader 여야 함
         """
-        # actor 가 최소한 이 프로젝트의 멤버인지 확인
-        ProjectController._ensure_member_or_404(db, project_id, actor_user_id)
-
-        # leader 로 초대하는 경우, actor 도 leader 이어야 함
-        if role == ProjectMemberRole.leader:
-            ProjectController._ensure_leader_or_403(db, project_id, actor_user_id)
+        ProjectController._ensure_leader_or_403(db, project_id, actor_user_id)
 
         # 이미 active 멤버인지 여부는 정책에 따라 처리
         existing = ProjectService.get_member(db, project_id, target_user_id)
