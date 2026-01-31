@@ -40,6 +40,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# CSRF protection - requires X-Requested-With header for state-changing requests
+from app.middleware import CSRFMiddleware
+
+app.add_middleware(CSRFMiddleware)
+
 # Google OAuth 에서 state, code 저장할 세션
 app.add_middleware(SessionMiddleware, secret_key=APP_SECRET_KEY)
 

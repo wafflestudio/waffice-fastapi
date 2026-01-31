@@ -41,13 +41,12 @@ class AuthResult(BaseModel):
     """
     Authentication result after signin/signup.
 
-    Contains the JWT access token and user details.
+    Token is set via HttpOnly cookie, not returned in response body.
     """
 
     status: Literal["pending", "active"] = Field(
         description="User status: 'pending' (awaiting approval), 'active' (approved)"
     )
-    token: Token = Field(description="JWT access token for API authentication")
     user: UserDetail = Field(description="User details")
 
 

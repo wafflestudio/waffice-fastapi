@@ -1,8 +1,9 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
+from app.config.cookies import ACCESS_TOKEN_COOKIE_NAME
 from app.config.database import get_db
 from app.config.secrets import JWT_SECRET_KEY
 from app.models import Qualification, User
@@ -10,11 +11,34 @@ from app.services import UserService
 
 JWT_ALGORITHM = "HS256"
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/google")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/google", auto_error=False)
+
+
+async def get_token_from_cookie_or_header(
+    request: Request, header_token: str | None = Depends(oauth2_scheme)
+) -> str:
+    """
+    Extract token from cookie first, then fall back to Authorization header.
+    Raises 401 if no token is found in either location.
+    """
+    # Try cookie first
+    cookie_token = request.cookies.get(ACCESS_TOKEN_COOKIE_NAME)
+    if cookie_token:
+        return cookie_token
+
+    # Fall back to Authorization header
+    if header_token:
+        return header_token
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Not authenticated",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)
+    token: str = Depends(get_token_from_cookie_or_header), db: Session = Depends(get_db)
 ) -> User:
     """
     Decode JWT token and get current user.

@@ -108,8 +108,9 @@ class TestSigninEndpoint:
         data = response.json()
         assert data["ok"] is True
         assert data["data"]["status"] == "active"
-        assert "access_token" in data["data"]["token"]
         assert data["data"]["user"]["id"] == active_user.id
+        # Token is set via HttpOnly cookie, not in response body
+        assert "waffice_access_token" in response.cookies
 
     def test_signin_pending_user(self, client, db, pending_user):
         """Signin with pending user should return pending status."""
@@ -167,9 +168,10 @@ class TestSignupEndpoint:
         data = response.json()
         assert data["ok"] is True
         assert data["data"]["status"] == "pending"  # New users start as pending
-        assert "access_token" in data["data"]["token"]
         assert data["data"]["user"]["name"] == "New User"
         assert data["data"]["user"]["email"] == "newuser@example.com"
+        # Token is set via HttpOnly cookie, not in response body
+        assert "waffice_access_token" in response.cookies
 
     def test_signup_idempotent_existing_user(self, client, db, active_user):
         """Signup with existing user's google_id should return existing user."""
@@ -223,7 +225,7 @@ class TestGetAuthStatus:
         assert data["ok"] is True
         assert data["data"]["status"] == "active"
         assert data["data"]["user"]["id"] == active_user.id
-        assert "access_token" in data["data"]["token"]
+        # Token is no longer refreshed or returned in response body
 
     def test_get_auth_status_pending(self, client, pending_token, pending_user):
         """Get auth status for pending user."""
@@ -241,3 +243,56 @@ class TestGetAuthStatus:
         response = client.get("/auth/me")
 
         assert response.status_code == 401
+
+
+class TestCookieAuth:
+    """Tests for HTTP cookie-based authentication."""
+
+    def test_signin_sets_cookie(self, client, db, active_user):
+        """Signin should set authentication cookie."""
+        auth_token = create_auth_token(
+            active_user.google_id, active_user.email, is_new=False
+        )
+
+        response = client.post("/auth/signin", json={"auth_token": auth_token})
+
+        assert response.status_code == 200
+        assert "waffice_access_token" in response.cookies
+
+    def test_auth_me_with_cookie(self, client, db, active_user):
+        """Auth me should work with cookie."""
+        auth_token = create_auth_token(
+            active_user.google_id, active_user.email, is_new=False
+        )
+
+        # First signin to get cookie
+        signin_response = client.post("/auth/signin", json={"auth_token": auth_token})
+        assert signin_response.status_code == 200
+
+        # Now call /auth/me without Authorization header (uses cookie)
+        me_response = client.get("/auth/me")
+        assert me_response.status_code == 200
+        data = me_response.json()
+        assert data["ok"] is True
+        assert data["data"]["user"]["id"] == active_user.id
+
+    def test_logout_clears_cookie(self, client, db, active_user):
+        """Logout should clear authentication cookie."""
+        auth_token = create_auth_token(
+            active_user.google_id, active_user.email, is_new=False
+        )
+
+        # First signin to get cookie
+        signin_response = client.post("/auth/signin", json={"auth_token": auth_token})
+        assert signin_response.status_code == 200
+        assert "waffice_access_token" in signin_response.cookies
+
+        # Logout
+        logout_response = client.post("/auth/logout")
+        assert logout_response.status_code == 200
+        data = logout_response.json()
+        assert data["ok"] is True
+
+        # Verify cookie is cleared (session no longer valid)
+        me_response = client.get("/auth/me")
+        assert me_response.status_code == 401

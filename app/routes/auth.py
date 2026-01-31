@@ -3,13 +3,13 @@ from datetime import datetime, timedelta, timezone
 
 # Google OAuth configuration
 from authlib.integrations.starlette_client import OAuth
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response as FastAPIResponse
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
+from app.config.cookies import ACCESS_TOKEN_COOKIE_NAME, get_cookie_settings
 from app.config.database import get_db
 from app.config.secrets import (
-    ENV,
     FRONTEND_ORIGIN,
     GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET,
@@ -26,7 +26,6 @@ from app.schemas import (
     Response,
     SigninRequest,
     SignupRequest,
-    Token,
 )
 from app.services import UserService
 
@@ -45,6 +44,24 @@ oauth.register(
 )
 
 router = APIRouter()
+
+
+def set_auth_cookie(response: FastAPIResponse, access_token: str) -> None:
+    """Set authentication cookie on response."""
+    settings = get_cookie_settings()
+    response.set_cookie(value=access_token, **settings)
+
+
+def clear_auth_cookie(response: FastAPIResponse) -> None:
+    """Clear authentication cookie from response."""
+    settings = get_cookie_settings()
+    response.delete_cookie(
+        key=settings["key"],
+        path=settings["path"],
+        secure=settings["secure"],
+        httponly=settings["httponly"],
+        samesite=settings["samesite"],
+    )
 
 
 def create_access_token(user_id: int, email: str, google_id: str | None) -> str:
@@ -245,21 +262,18 @@ async def google_token_exchange(
             detail="No ID token received from Google",
         )
 
-    # Decode ID token to get user info (Google's ID tokens are JWTs)
+    # Verify and decode ID token using Google's public keys
     try:
-        # We don't verify the signature here since we just received it from Google
-        # In production, you might want to verify using Google's public keys
-        user_info = jwt.decode(
+        from google.auth.transport import requests as google_requests
+        from google.oauth2 import id_token as google_id_token
+
+        user_info = google_id_token.verify_oauth2_token(
             id_token,
-            "",
-            options={
-                "verify_signature": False,
-                "verify_aud": False,
-                "verify_at_hash": False,
-            },
+            google_requests.Request(),
+            GOOGLE_CLIENT_ID,
         )
-    except Exception as e:
-        logger.error(f"Failed to decode ID token: {e}")
+    except ValueError as e:
+        logger.error(f"Failed to verify ID token: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Failed to decode user information",
@@ -305,7 +319,11 @@ async def google_token_exchange(
         400: {"description": "Invalid auth token or user not registered"},
     },
 )
-async def signin(request: SigninRequest, db: Session = Depends(get_db)):
+async def signin(
+    request: SigninRequest,
+    response: FastAPIResponse,
+    db: Session = Depends(get_db),
+):
     """
     Sign in an existing user with an auth token.
 
@@ -338,6 +356,9 @@ async def signin(request: SigninRequest, db: Session = Depends(get_db)):
     # Generate JWT
     access_token = create_access_token(user.id, user.email, user.google_id)
 
+    # Set auth cookie
+    set_auth_cookie(response, access_token)
+
     if user.qualification == Qualification.PENDING:
         auth_status = "pending"
     else:
@@ -347,7 +368,6 @@ async def signin(request: SigninRequest, db: Session = Depends(get_db)):
         ok=True,
         data=AuthResult(
             status=auth_status,
-            token=Token(access_token=access_token),
             user=user,
         ),
     )
@@ -363,7 +383,11 @@ async def signin(request: SigninRequest, db: Session = Depends(get_db)):
         400: {"description": "Invalid auth token"},
     },
 )
-async def signup(request: SignupRequest, db: Session = Depends(get_db)):
+async def signup(
+    request: SignupRequest,
+    response: FastAPIResponse,
+    db: Session = Depends(get_db),
+):
     """
     Complete user signup after OAuth authentication.
 
@@ -388,8 +412,7 @@ async def signup(request: SignupRequest, db: Session = Depends(get_db)):
         if not user.google_id:
             UserService.update(db, user, google_id=google_id)
     else:
-        # Create new user (auto-admin in dev environment)
-        is_dev = ENV in ["local", "dev"]
+        # Create new user
         user = UserService.create(
             db,
             google_id=google_id,
@@ -399,12 +422,15 @@ async def signup(request: SignupRequest, db: Session = Depends(get_db)):
             affiliation=request.affiliation,
             bio=request.bio,
             github_username=request.github_username,
-            qualification=Qualification.ACTIVE if is_dev else Qualification.PENDING,
-            is_admin=is_dev,
+            qualification=Qualification.PENDING,
+            is_admin=False,
         )
 
     # Generate JWT
     access_token = create_access_token(user.id, user.email, user.google_id)
+
+    # Set auth cookie
+    set_auth_cookie(response, access_token)
 
     if user.qualification == Qualification.PENDING:
         auth_status = "pending"
@@ -415,7 +441,6 @@ async def signup(request: SignupRequest, db: Session = Depends(get_db)):
         ok=True,
         data=AuthResult(
             status=auth_status,
-            token=Token(access_token=access_token),
             user=user,
         ),
     )
@@ -440,22 +465,36 @@ async def get_auth_status(
     Returns the user's status ('pending' or 'active') along with their
     full profile information. Useful for checking session validity and
     determining available features based on approval status.
+
+    Note: Token is NOT refreshed here to prevent unlimited session extension.
+    Users must re-authenticate when their token expires.
     """
     if current_user.qualification == Qualification.PENDING:
         auth_status = "pending"
     else:
         auth_status = "active"
 
-    # Generate a fresh token
-    access_token = create_access_token(
-        current_user.id, current_user.email, current_user.google_id
-    )
-
     return Response(
         ok=True,
         data=AuthResult(
             status=auth_status,
-            token=Token(access_token=access_token),
             user=current_user,
         ),
     )
+
+
+@router.post(
+    "/logout",
+    response_model=Response[None],
+    summary="Logout user",
+    description="Clear authentication cookie to logout user.",
+    responses={
+        200: {"description": "Logout successful"},
+    },
+)
+async def logout(response: FastAPIResponse):
+    """
+    Logout the current user by clearing the authentication cookie.
+    """
+    clear_auth_cookie(response)
+    return Response(ok=True, data=None)
