@@ -1,0 +1,6 @@
+Read .ralph/refactor-prompt.md and execute the refactoring plan.
+
+Check current progress, identify next incomplete task, implement it, run tests.
+Repeat until all criteria in refactor-prompt.md are met.
+
+When ALL tests pass and ALL criteria are complete, output: <promise>COMPLETE</promise>
