@@ -248,7 +248,15 @@ async def google_token_exchange(
     try:
         # We don't verify the signature here since we just received it from Google
         # In production, you might want to verify using Google's public keys
-        user_info = jwt.decode(id_token, options={"verify_signature": False})
+        user_info = jwt.decode(
+            id_token,
+            "",
+            options={
+                "verify_signature": False,
+                "verify_aud": False,
+                "verify_at_hash": False,
+            }
+        )
     except Exception as e:
         logger.error(f"Failed to decode ID token: {e}")
         raise HTTPException(
