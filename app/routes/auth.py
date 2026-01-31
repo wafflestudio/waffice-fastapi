@@ -239,14 +239,23 @@ async def google_token_exchange(
         "grant_type": "authorization_code",
     }
 
-    print(f"[AUTH] Google token exchange request: redirect_uri={request.redirect_uri}", flush=True)
+    print(
+        f"[AUTH] Google token exchange request: redirect_uri={request.redirect_uri}",
+        flush=True,
+    )
 
     async with httpx.AsyncClient() as client:
         try:
             token_response = await client.post(token_url, data=token_data)
-            print(f"[AUTH] Google token response status: {token_response.status_code}", flush=True)
+            print(
+                f"[AUTH] Google token response status: {token_response.status_code}",
+                flush=True,
+            )
             if token_response.status_code != 200:
-                print(f"[AUTH] Google token exchange failed: {token_response.text}", flush=True)
+                print(
+                    f"[AUTH] Google token exchange failed: {token_response.text}",
+                    flush=True,
+                )
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Failed to exchange authorization code: {token_response.text}",
