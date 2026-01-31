@@ -8,6 +8,10 @@ from app.schemas.common import Website
 class SignupRequest(BaseModel):
     """Request body for completing user registration after OAuth."""
 
+    auth_token: str = Field(
+        description="Temporary auth token received from OAuth callback",
+        examples=["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."],
+    )
     name: str = Field(
         description="User's display name",
         min_length=1,

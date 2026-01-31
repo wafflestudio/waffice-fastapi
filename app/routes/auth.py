@@ -1,10 +1,10 @@
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 # Google OAuth configuration
 from authlib.integrations.starlette_client import OAuth
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from jose import jwt
+from fastapi import APIRouter, Depends, Request
+from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
@@ -16,13 +16,22 @@ from app.config.secrets import (
     JWT_SECRET_KEY,
 )
 from app.deps.auth import JWT_ALGORITHM, get_current_user
+from app.exceptions import InvalidAuthTokenError, UserNotRegisteredError
 from app.models import Qualification, User
-from app.schemas import AuthStatus, Response, SignupRequest, Token
+from app.schemas import (
+    AuthResult,
+    AuthStatus,
+    Response,
+    SigninRequest,
+    SignupRequest,
+    Token,
+)
 from app.services import UserService
 
 logger = logging.getLogger(__name__)
 
 JWT_EXPIRE_MINUTES = JWT_EXPIRE_HOURS * 60
+AUTH_TOKEN_EXPIRE_MINUTES = 10
 
 oauth = OAuth()
 oauth.register(
@@ -38,8 +47,6 @@ router = APIRouter()
 
 def create_access_token(user_id: int, email: str, google_id: str | None) -> str:
     """Create JWT access token for user"""
-    from datetime import datetime, timezone
-
     now = datetime.now(timezone.utc)
     exp = now + timedelta(minutes=JWT_EXPIRE_MINUTES)
 
@@ -54,10 +61,38 @@ def create_access_token(user_id: int, email: str, google_id: str | None) -> str:
     return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
 
 
+def create_auth_token(google_id: str, email: str, is_new: bool) -> str:
+    """Create temporary auth token for signin/signup flow"""
+    now = datetime.now(timezone.utc)
+    exp = now + timedelta(minutes=AUTH_TOKEN_EXPIRE_MINUTES)
+
+    payload = {
+        "type": "auth",
+        "google_id": google_id,
+        "email": email,
+        "is_new": is_new,
+        "iat": int(now.timestamp()),
+        "exp": int(exp.timestamp()),
+    }
+    return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+
+def decode_auth_token(auth_token: str) -> dict:
+    """Decode and validate auth token. Raises InvalidAuthTokenError if invalid."""
+    try:
+        payload = jwt.decode(auth_token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        if payload.get("type") != "auth":
+            raise InvalidAuthTokenError("Invalid token type")
+        return payload
+    except JWTError as e:
+        logger.warning(f"Auth token decode failed: {e}")
+        raise InvalidAuthTokenError()
+
+
 @router.get(
     "/google",
     summary="Initiate Google OAuth login",
-    description="Redirects the user to Google's OAuth consent page. After authentication, Google redirects back to `/auth/google/callback`.",
+    description="Redirects the user to Google's OAuth consent page. After authentication, Google redirects back to `/auth/redirect`.",
     responses={
         302: {"description": "Redirect to Google OAuth consent page"},
     },
@@ -69,7 +104,7 @@ async def google_login(request: Request):
     This endpoint redirects users to Google's OAuth consent page where they
     can authorize the application to access their profile and email.
 
-    After successful authorization, Google redirects to `/auth/google/callback`
+    After successful authorization, Google redirects to `/auth/redirect`
     with an authorization code.
     """
     redirect_uri = GOOGLE_REDIRECT_URI
@@ -77,9 +112,10 @@ async def google_login(request: Request):
 
 
 @router.get(
-    "/google/callback",
+    "/redirect",
+    response_model=Response[AuthStatus],
     summary="Handle Google OAuth callback",
-    description="Processes the OAuth callback from Google and returns authentication status.",
+    description="Processes the OAuth callback from Google and returns an auth token.",
     responses={
         200: {
             "description": "Authentication successful",
@@ -90,34 +126,29 @@ async def google_login(request: Request):
                             "summary": "New user (needs signup)",
                             "value": {
                                 "ok": True,
-                                "data": {"status": "new", "user": None},
+                                "data": {
+                                    "status": "new",
+                                    "auth_token": "eyJ...",
+                                },
                             },
                         },
                         "pending_user": {
-                            "summary": "Pending user (awaiting approval)",
+                            "summary": "Pending user (use signin endpoint)",
                             "value": {
                                 "ok": True,
                                 "data": {
                                     "status": "pending",
-                                    "token": {
-                                        "access_token": "eyJ...",
-                                        "token_type": "bearer",
-                                    },
-                                    "user": {"id": 1, "name": "John", "...": "..."},
+                                    "auth_token": "eyJ...",
                                 },
                             },
                         },
                         "active_user": {
-                            "summary": "Active user (approved)",
+                            "summary": "Active user (use signin endpoint)",
                             "value": {
                                 "ok": True,
                                 "data": {
                                     "status": "active",
-                                    "token": {
-                                        "access_token": "eyJ...",
-                                        "token_type": "bearer",
-                                    },
-                                    "user": {"id": 1, "name": "John", "...": "..."},
+                                    "auth_token": "eyJ...",
                                 },
                             },
                         },
@@ -133,14 +164,16 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     Handle the OAuth callback from Google.
 
     This endpoint is called by Google after user authorization. It processes
-    the authorization code and determines the user's authentication status:
+    the authorization code and returns an auth_token for subsequent signin/signup:
 
-    - **new**: User not found in database. Frontend should redirect to signup.
-    - **pending**: User exists but awaiting admin approval. Limited API access.
-    - **active**: User approved. Full API access based on qualification level.
+    - **new**: User not found in database. Use `/auth/signup` with auth_token.
+    - **pending**: User exists but awaiting approval. Use `/auth/signin` with auth_token.
+    - **active**: User approved. Use `/auth/signin` with auth_token.
 
-    For existing users, a JWT token is returned for subsequent API calls.
+    The auth_token is valid for 10 minutes.
     """
+    from fastapi import HTTPException, status
+
     try:
         token = await oauth.google.authorize_access_token(request)
     except Exception as e:
@@ -171,13 +204,64 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         user = UserService.get_by_email(db, email)
 
     if not user:
-        # New user - return status 'new' without token
-        return Response(ok=True, data=AuthStatus(status="new", user=None))
+        # New user
+        auth_token = create_auth_token(google_id, email, is_new=True)
+        return Response(ok=True, data=AuthStatus(status="new", auth_token=auth_token))
 
-    # Existing user - generate token
+    # Existing user
+    auth_token = create_auth_token(google_id, email, is_new=False)
+
+    if user.qualification == Qualification.PENDING:
+        auth_status = "pending"
+    else:
+        auth_status = "active"
+
+    return Response(ok=True, data=AuthStatus(status=auth_status, auth_token=auth_token))
+
+
+@router.post(
+    "/signin",
+    response_model=Response[AuthResult],
+    summary="Sign in existing user",
+    description="Exchange auth token for JWT access token (existing users only).",
+    responses={
+        200: {"description": "Signin successful, returns access token and user"},
+        400: {"description": "Invalid auth token or user not registered"},
+    },
+)
+async def signin(request: SigninRequest, db: Session = Depends(get_db)):
+    """
+    Sign in an existing user with an auth token.
+
+    This endpoint exchanges the temporary auth_token (from OAuth callback)
+    for a JWT access token. Only works for registered users.
+
+    If the auth_token indicates a new user, this endpoint will return an error
+    directing them to use `/auth/signup` instead.
+    """
+    payload = decode_auth_token(request.auth_token)
+
+    if payload.get("is_new"):
+        raise UserNotRegisteredError()
+
+    google_id = payload["google_id"]
+    email = payload["email"]
+
+    # Find user
+    user = UserService.get_by_google_id(db, google_id)
+    if not user:
+        user = UserService.get_by_email(db, email)
+
+    if not user:
+        raise UserNotRegisteredError()
+
+    # Update google_id if user was found by email
+    if not user.google_id:
+        UserService.update(db, user, google_id=google_id)
+
+    # Generate JWT
     access_token = create_access_token(user.id, user.email, user.google_id)
 
-    # Determine status
     if user.qualification == Qualification.PENDING:
         auth_status = "pending"
     else:
@@ -185,22 +269,22 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
 
     return Response(
         ok=True,
-        data={
-            "status": auth_status,
-            "token": Token(access_token=access_token),
-            "user": user,
-        },
+        data=AuthResult(
+            status=auth_status,
+            token=Token(access_token=access_token),
+            user=user,
+        ),
     )
 
 
 @router.post(
     "/signup",
-    response_model=Response[Token],
+    response_model=Response[AuthResult],
     summary="Complete user signup",
-    description="Complete registration after OAuth authentication.",
+    description="Complete registration with auth token and user details.",
     responses={
-        200: {"description": "Signup successful, returns access token"},
-        501: {"description": "Not implemented - requires OAuth session"},
+        200: {"description": "Signup successful, returns access token and user"},
+        400: {"description": "Invalid auth token"},
     },
 )
 async def signup(request: SignupRequest, db: Session = Depends(get_db)):
@@ -210,25 +294,57 @@ async def signup(request: SignupRequest, db: Session = Depends(get_db)):
     This endpoint should be called after receiving a 'new' status from
     the OAuth callback. It creates the user record and returns an access token.
 
-    **Note**: This endpoint requires an active OAuth session to associate
-    the Google account with the new user.
+    For idempotency, if the user already exists (same google_id or email),
+    this endpoint will return the existing user instead of creating a duplicate.
     """
-    # This should be called with OAuth context, but for idempotency
-    # we'll check by email if provided in request
-    # In a real implementation, you'd get google_id from OAuth session
+    payload = decode_auth_token(request.auth_token)
 
-    # For now, we'll create user with email
-    # This is a simplified version - in production you'd need OAuth session
+    google_id = payload["google_id"]
+    email = payload["email"]
 
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Signup endpoint requires OAuth session implementation",
+    # Check for existing user (idempotency)
+    user = UserService.get_by_google_id(db, google_id)
+    if not user:
+        user = UserService.get_by_email(db, email)
+
+    if user:
+        # User already exists - return existing user (idempotency)
+        if not user.google_id:
+            UserService.update(db, user, google_id=google_id)
+    else:
+        # Create new user
+        user = UserService.create(
+            db,
+            google_id=google_id,
+            email=email,
+            name=request.name,
+            phone=request.phone,
+            affiliation=request.affiliation,
+            bio=request.bio,
+            github_username=request.github_username,
+        )
+
+    # Generate JWT
+    access_token = create_access_token(user.id, user.email, user.google_id)
+
+    if user.qualification == Qualification.PENDING:
+        auth_status = "pending"
+    else:
+        auth_status = "active"
+
+    return Response(
+        ok=True,
+        data=AuthResult(
+            status=auth_status,
+            token=Token(access_token=access_token),
+            user=user,
+        ),
     )
 
 
 @router.get(
     "/me",
-    response_model=Response[AuthStatus],
+    response_model=Response[AuthResult],
     summary="Get current auth status",
     description="Returns the current user's authentication status and profile.",
     responses={
@@ -251,4 +367,16 @@ async def get_auth_status(
     else:
         auth_status = "active"
 
-    return Response(ok=True, data=AuthStatus(status=auth_status, user=current_user))
+    # Generate a fresh token
+    access_token = create_access_token(
+        current_user.id, current_user.email, current_user.google_id
+    )
+
+    return Response(
+        ok=True,
+        data=AuthResult(
+            status=auth_status,
+            token=Token(access_token=access_token),
+            user=current_user,
+        ),
+    )

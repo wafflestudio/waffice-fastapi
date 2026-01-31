@@ -59,3 +59,17 @@ class NoLeaderError(AppError):
         self, message: str = "At least one leader is required when creating a project"
     ):
         super().__init__("NO_LEADER_IN_PROJECT", message, 400)
+
+
+class InvalidAuthTokenError(AppError):
+    """Invalid or expired auth token"""
+
+    def __init__(self, message: str = "Invalid or expired auth token"):
+        super().__init__("INVALID_AUTH_TOKEN", message, 400)
+
+
+class UserNotRegisteredError(AppError):
+    """User not found during signin (needs signup)"""
+
+    def __init__(self, message: str = "User not found, please signup first"):
+        super().__init__("USER_NOT_REGISTERED", message, 400)

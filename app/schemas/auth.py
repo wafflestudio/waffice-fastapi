@@ -31,7 +31,30 @@ class AuthStatus(BaseModel):
     status: Literal["new", "pending", "active"] = Field(
         description="Current authentication state: 'new' (needs signup), 'pending' (awaiting approval), 'active' (approved)"
     )
-    user: UserDetail | None = Field(
-        default=None,
-        description="User details if authenticated. Null for 'new' status.",
+    auth_token: str = Field(
+        description="Temporary auth token for signin/signup. Valid for 10 minutes.",
+        examples=["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."],
+    )
+
+
+class AuthResult(BaseModel):
+    """
+    Authentication result after signin/signup.
+
+    Contains the JWT access token and user details.
+    """
+
+    status: Literal["pending", "active"] = Field(
+        description="User status: 'pending' (awaiting approval), 'active' (approved)"
+    )
+    token: Token = Field(description="JWT access token for API authentication")
+    user: UserDetail = Field(description="User details")
+
+
+class SigninRequest(BaseModel):
+    """Request body for signing in with an auth token."""
+
+    auth_token: str = Field(
+        description="Temporary auth token received from OAuth callback",
+        examples=["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."],
     )
