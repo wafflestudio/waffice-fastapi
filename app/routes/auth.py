@@ -224,6 +224,8 @@ async def google_token_exchange(
 
     The auth_token is valid for 10 minutes.
     """
+    import sys
+
     import httpx
     from fastapi import HTTPException, status
 
@@ -237,18 +239,25 @@ async def google_token_exchange(
         "grant_type": "authorization_code",
     }
 
+    logger.info(f"Google token exchange request: redirect_uri={request.redirect_uri}")
+    sys.stdout.flush()
+
     async with httpx.AsyncClient() as client:
         try:
             token_response = await client.post(token_url, data=token_data)
+            logger.info(f"Google token response status: {token_response.status_code}")
+            sys.stdout.flush()
             if token_response.status_code != 200:
                 logger.error(f"Google token exchange failed: {token_response.text}")
+                sys.stdout.flush()
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Failed to exchange authorization code",
+                    detail=f"Failed to exchange authorization code: {token_response.text}",
                 )
             tokens = token_response.json()
         except httpx.RequestError as e:
             logger.error(f"Google token request error: {e}")
+            sys.stdout.flush()
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Failed to connect to Google",
@@ -267,13 +276,18 @@ async def google_token_exchange(
         from google.auth.transport import requests as google_requests
         from google.oauth2 import id_token as google_id_token
 
+        logger.info("Verifying ID token with Google")
+        sys.stdout.flush()
         user_info = google_id_token.verify_oauth2_token(
             id_token,
             google_requests.Request(),
             GOOGLE_CLIENT_ID,
         )
+        logger.info(f"ID token verified, email={user_info.get('email')}")
+        sys.stdout.flush()
     except ValueError as e:
         logger.error(f"Failed to verify ID token: {e}")
+        sys.stdout.flush()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Failed to decode user information",
