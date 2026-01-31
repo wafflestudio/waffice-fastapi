@@ -9,62 +9,156 @@ from app.schemas.user import UserBrief
 
 # === Request ===
 class MemberInput(BaseModel):
-    user_id: int
-    role: MemberRole
-    position: str | None = Field(None, max_length=100)
+    """Input for adding or specifying a project member."""
+
+    user_id: int = Field(description="ID of the user to add as member")
+    role: MemberRole = Field(
+        description="Member's role: 'leader' (can manage project) or 'member' (regular participant)"
+    )
+    position: str | None = Field(
+        default=None,
+        max_length=100,
+        description="Member's position or responsibility in the project",
+        examples=["Backend Developer", "Project Manager", "Designer"],
+    )
 
 
 class ProjectCreateRequest(BaseModel):
-    name: str = Field(..., min_length=1, max_length=200)
-    description: str | None = Field(None, max_length=5000)
-    status: ProjectStatus = ProjectStatus.ACTIVE
-    started_at: date
-    ended_at: date | None = None
-    websites: list[Website] | None = None
-    members: list[MemberInput] = Field(..., min_length=1)
+    """Request body for creating a new project."""
+
+    name: str = Field(
+        min_length=1,
+        max_length=200,
+        description="Project name",
+        examples=["Waffle App", "Internal Dashboard"],
+    )
+    description: str | None = Field(
+        default=None,
+        max_length=5000,
+        description="Detailed project description. Supports markdown.",
+        examples=["A mobile app for ordering waffles with real-time tracking."],
+    )
+    status: ProjectStatus = Field(
+        default=ProjectStatus.ACTIVE,
+        description=(
+            "Project status: "
+            "'active' (ongoing development), "
+            "'maintenance' (stable, minimal updates), "
+            "'ended' (completed or discontinued)"
+        ),
+    )
+    started_at: date = Field(
+        description="Project start date",
+        examples=["2024-01-15"],
+    )
+    ended_at: date | None = Field(
+        default=None,
+        description="Project end date. Null for ongoing projects.",
+        examples=["2024-06-30"],
+    )
+    websites: list[Website] | None = Field(
+        default=None,
+        description="Project-related links (repository, demo, documentation)",
+    )
+    members: list[MemberInput] = Field(
+        min_length=1,
+        description="Initial project members. Must include at least one leader.",
+    )
 
 
 class ProjectUpdateRequest(BaseModel):
-    name: str | None = Field(None, min_length=1, max_length=200)
-    description: str | None = Field(None, max_length=5000)
-    status: ProjectStatus | None = None
-    started_at: date | None = None
-    ended_at: date | None = None
-    websites: list[Website] | None = None
+    """Request body for updating project details. All fields are optional."""
+
+    name: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=200,
+        description="Project name",
+    )
+    description: str | None = Field(
+        default=None,
+        max_length=5000,
+        description="Detailed project description",
+    )
+    status: ProjectStatus | None = Field(
+        default=None,
+        description="Project status: 'active', 'maintenance', or 'ended'",
+    )
+    started_at: date | None = Field(
+        default=None,
+        description="Project start date",
+    )
+    ended_at: date | None = Field(
+        default=None,
+        description="Project end date",
+    )
+    websites: list[Website] | None = Field(
+        default=None,
+        description="Project-related links",
+    )
 
 
 class MemberUpdateRequest(BaseModel):
-    role: MemberRole | None = None
-    position: str | None = Field(None, max_length=100)
+    """Request body for updating a project member's role or position."""
+
+    role: MemberRole | None = Field(
+        default=None,
+        description="New role: 'leader' or 'member'. Cannot demote the last leader.",
+    )
+    position: str | None = Field(
+        default=None,
+        max_length=100,
+        description="New position or responsibility",
+    )
 
 
 # === Response ===
 class MemberDetail(BaseModel):
-    id: int
-    user: UserBrief
-    role: MemberRole
-    position: str | None
-    joined_at: date | None
-    left_at: date | None
+    """Project member information including user details and role."""
+
+    id: int = Field(description="Unique membership record identifier")
+    user: UserBrief = Field(description="Member's user information")
+    role: MemberRole = Field(
+        description="Member's role: 'leader' (project manager) or 'member' (participant)"
+    )
+    position: str | None = Field(
+        description="Member's position or responsibility in the project"
+    )
+    joined_at: date | None = Field(description="Date when member joined the project")
+    left_at: date | None = Field(
+        description="Date when member left the project. Null for active members."
+    )
 
     model_config = {"from_attributes": True}
 
 
 class ProjectBrief(BaseModel):
-    id: int
-    name: str
-    status: ProjectStatus
-    started_at: date
-    created_at: int
+    """Summary project information for list views."""
+
+    id: int = Field(description="Unique project identifier")
+    name: str = Field(description="Project name")
+    status: ProjectStatus = Field(
+        description="Current status: 'active', 'maintenance', or 'ended'"
+    )
+    started_at: date = Field(description="Project start date")
+    created_at: int = Field(
+        description="Unix timestamp when project record was created"
+    )
 
     model_config = {"from_attributes": True}
 
 
 class ProjectDetail(ProjectBrief):
-    description: str | None
-    ended_at: date | None
-    websites: list[Website] | None
-    members: list[MemberDetail]
+    """Complete project information including members."""
+
+    description: str | None = Field(description="Detailed project description")
+    ended_at: date | None = Field(
+        description="Project end date. Null for ongoing projects."
+    )
+    websites: list[Website] | None = Field(description="Project-related links")
+    members: list[MemberDetail] = Field(
+        description="Active project members (excludes members who have left)"
+    )
 
     model_config = {"from_attributes": True}
 

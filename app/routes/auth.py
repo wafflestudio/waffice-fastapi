@@ -57,18 +57,92 @@ def create_access_token(user_id: int, email: str, google_id: str | None) -> str:
     return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
 
 
-@router.get("/google")
+@router.get(
+    "/google",
+    summary="Initiate Google OAuth login",
+    description="Redirects the user to Google's OAuth consent page. After authentication, Google redirects back to `/auth/google/callback`.",
+    responses={
+        302: {"description": "Redirect to Google OAuth consent page"},
+    },
+)
 async def google_login(request: Request):
-    """Initiate Google OAuth login"""
+    """
+    Start the Google OAuth login flow.
+
+    This endpoint redirects users to Google's OAuth consent page where they
+    can authorize the application to access their profile and email.
+
+    After successful authorization, Google redirects to `/auth/google/callback`
+    with an authorization code.
+    """
     redirect_uri = GOOGLE_REDIRECT_URI
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 
-@router.get("/google/callback")
+@router.get(
+    "/google/callback",
+    summary="Handle Google OAuth callback",
+    description="Processes the OAuth callback from Google and returns authentication status.",
+    responses={
+        200: {
+            "description": "Authentication successful",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "new_user": {
+                            "summary": "New user (needs signup)",
+                            "value": {
+                                "ok": True,
+                                "data": {"status": "new", "user": None},
+                            },
+                        },
+                        "pending_user": {
+                            "summary": "Pending user (awaiting approval)",
+                            "value": {
+                                "ok": True,
+                                "data": {
+                                    "status": "pending",
+                                    "token": {
+                                        "access_token": "eyJ...",
+                                        "token_type": "bearer",
+                                    },
+                                    "user": {"id": 1, "name": "John", "...": "..."},
+                                },
+                            },
+                        },
+                        "active_user": {
+                            "summary": "Active user (approved)",
+                            "value": {
+                                "ok": True,
+                                "data": {
+                                    "status": "active",
+                                    "token": {
+                                        "access_token": "eyJ...",
+                                        "token_type": "bearer",
+                                    },
+                                    "user": {"id": 1, "name": "John", "...": "..."},
+                                },
+                            },
+                        },
+                    }
+                }
+            },
+        },
+        400: {"description": "OAuth authorization failed or missing user info"},
+    },
+)
 async def google_callback(request: Request, db: Session = Depends(get_db)):
     """
-    Handle Google OAuth callback.
-    Returns auth status: 'new' (needs signup), 'pending', or 'active'.
+    Handle the OAuth callback from Google.
+
+    This endpoint is called by Google after user authorization. It processes
+    the authorization code and determines the user's authentication status:
+
+    - **new**: User not found in database. Frontend should redirect to signup.
+    - **pending**: User exists but awaiting admin approval. Limited API access.
+    - **active**: User approved. Full API access based on qualification level.
+
+    For existing users, a JWT token is returned for subsequent API calls.
     """
     try:
         token = await oauth.google.authorize_access_token(request)
@@ -122,11 +196,25 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     )
 
 
-@router.post("/signup", response_model=Response[Token])
+@router.post(
+    "/signup",
+    response_model=Response[Token],
+    summary="Complete user signup",
+    description="Complete registration after OAuth authentication.",
+    responses={
+        200: {"description": "Signup successful, returns access token"},
+        501: {"description": "Not implemented - requires OAuth session"},
+    },
+)
 async def signup(request: SignupRequest, db: Session = Depends(get_db)):
     """
-    Complete user signup after OAuth.
-    Idempotent: returns existing user if already signed up.
+    Complete user signup after OAuth authentication.
+
+    This endpoint should be called after receiving a 'new' status from
+    the OAuth callback. It creates the user record and returns an access token.
+
+    **Note**: This endpoint requires an active OAuth session to associate
+    the Google account with the new user.
     """
     # This should be called with OAuth context, but for idempotency
     # we'll check by email if provided in request
@@ -141,11 +229,26 @@ async def signup(request: SignupRequest, db: Session = Depends(get_db)):
     )
 
 
-@router.get("/me", response_model=Response[AuthStatus])
+@router.get(
+    "/me",
+    response_model=Response[AuthStatus],
+    summary="Get current auth status",
+    description="Returns the current user's authentication status and profile.",
+    responses={
+        200: {"description": "Current authentication status"},
+        401: {"description": "Not authenticated - invalid or missing token"},
+    },
+)
 async def get_auth_status(
     current_user: User = Depends(get_current_user),
 ):
-    """Get current authentication status"""
+    """
+    Get the current user's authentication status.
+
+    Returns the user's status ('pending' or 'active') along with their
+    full profile information. Useful for checking session validity and
+    determining available features based on approval status.
+    """
     if current_user.qualification == Qualification.PENDING:
         auth_status = "pending"
     else:
