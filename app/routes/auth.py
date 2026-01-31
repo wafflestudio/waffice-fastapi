@@ -256,7 +256,7 @@ async def google_token_exchange(
                 "verify_signature": False,
                 "verify_aud": False,
                 "verify_at_hash": False,
-            }
+            },
         )
     except Exception as e:
         logger.error(f"Failed to decode ID token: {e}")

@@ -1,6 +1,7 @@
 """
 End-to-End test scenarios covering all critical flows.
 """
+
 from datetime import date
 
 import pytest
