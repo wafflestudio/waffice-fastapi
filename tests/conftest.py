@@ -2,6 +2,9 @@ import os
 import time
 from datetime import timedelta
 
+# Set TESTING env before importing app to skip migrations in lifespan
+os.environ["TESTING"] = "1"
+
 import pytest
 from fastapi.testclient import TestClient
 from jose import jwt

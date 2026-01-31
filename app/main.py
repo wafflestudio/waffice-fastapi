@@ -12,7 +12,9 @@ import app.models
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    config.run_migrations()
+    # Skip migrations during tests (tests use create_all directly)
+    if os.getenv("TESTING") != "1":
+        config.run_migrations()
     yield
 
 
