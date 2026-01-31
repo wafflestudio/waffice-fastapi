@@ -1466,6 +1466,7 @@ dependencies = [
     { name = "pytest" },
     { name = "python-dotenv" },
     { name = "python-jose", extra = ["cryptography"] },
+    { name = "requests" },
     { name = "sqlalchemy" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -1493,6 +1494,7 @@ requires-dist = [
     { name = "pytest", specifier = ">=8.4.2" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
     { name = "python-jose", extras = ["cryptography"], specifier = ">=3.5.0" },
+    { name = "requests", specifier = ">=2.32.5" },
     { name = "sqlalchemy", specifier = ">=2.0.43" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.37.0" },
 ]
