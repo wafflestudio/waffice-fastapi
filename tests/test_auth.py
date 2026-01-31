@@ -125,9 +125,7 @@ class TestSigninEndpoint:
 
     def test_signin_new_user_token_fails(self, client, db):
         """Signin with auth token for new user should fail."""
-        auth_token = create_auth_token(
-            "new_google_id", "new@example.com", is_new=True
-        )
+        auth_token = create_auth_token("new_google_id", "new@example.com", is_new=True)
 
         response = client.post("/auth/signin", json={"auth_token": auth_token})
 

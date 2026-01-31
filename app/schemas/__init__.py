@@ -1,4 +1,10 @@
-from app.schemas.auth import AuthResult, AuthStatus, SigninRequest, Token
+from app.schemas.auth import (
+    AuthResult,
+    AuthStatus,
+    GoogleTokenRequest,
+    SigninRequest,
+    Token,
+)
 from app.schemas.common import CursorPage, Response, Website
 from app.schemas.history import HistoryDetail
 from app.schemas.project import (
@@ -27,6 +33,7 @@ __all__ = [
     "Token",
     "AuthStatus",
     "AuthResult",
+    "GoogleTokenRequest",
     "SigninRequest",
     "SignupRequest",
     "ProfileUpdateRequest",

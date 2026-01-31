@@ -58,3 +58,16 @@ class SigninRequest(BaseModel):
         description="Temporary auth token received from OAuth callback",
         examples=["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."],
     )
+
+
+class GoogleTokenRequest(BaseModel):
+    """Request body for exchanging Google authorization code for auth token."""
+
+    code: str = Field(
+        description="Authorization code received from Google OAuth callback",
+        examples=["4/0AX4XfWh..."],
+    )
+    redirect_uri: str = Field(
+        description="The redirect URI used in the OAuth flow (must match the one used to get the code)",
+        examples=["https://myapp.com/auth/callback"],
+    )

@@ -21,6 +21,7 @@ from app.models import Qualification, User
 from app.schemas import (
     AuthResult,
     AuthStatus,
+    GoogleTokenRequest,
     Response,
     SigninRequest,
     SignupRequest,
@@ -92,7 +93,7 @@ def decode_auth_token(auth_token: str) -> dict:
 @router.get(
     "/google",
     summary="Initiate Google OAuth login",
-    description="Redirects the user to Google's OAuth consent page. After authentication, Google redirects back to `/auth/redirect`.",
+    description="Redirects the user to Google's OAuth consent page. After authentication, Google redirects to the configured redirect URI.",
     responses={
         302: {"description": "Redirect to Google OAuth consent page"},
     },
@@ -104,21 +105,21 @@ async def google_login(request: Request):
     This endpoint redirects users to Google's OAuth consent page where they
     can authorize the application to access their profile and email.
 
-    After successful authorization, Google redirects to `/auth/redirect`
+    After successful authorization, Google redirects to the configured redirect URI
     with an authorization code.
     """
     redirect_uri = GOOGLE_REDIRECT_URI
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 
-@router.get(
-    "/redirect",
+@router.post(
+    "/google/token",
     response_model=Response[AuthStatus],
-    summary="Handle Google OAuth callback",
-    description="Processes the OAuth callback from Google and returns an auth token.",
+    summary="Exchange Google authorization code for auth token",
+    description="Frontend calls this endpoint with the authorization code received from Google OAuth callback.",
     responses={
         200: {
-            "description": "Authentication successful",
+            "description": "Code exchange successful",
             "content": {
                 "application/json": {
                     "examples": {
@@ -132,18 +133,8 @@ async def google_login(request: Request):
                                 },
                             },
                         },
-                        "pending_user": {
-                            "summary": "Pending user (use signin endpoint)",
-                            "value": {
-                                "ok": True,
-                                "data": {
-                                    "status": "pending",
-                                    "auth_token": "eyJ...",
-                                },
-                            },
-                        },
-                        "active_user": {
-                            "summary": "Active user (use signin endpoint)",
+                        "existing_user": {
+                            "summary": "Existing user (use signin)",
                             "value": {
                                 "ok": True,
                                 "data": {
@@ -156,37 +147,76 @@ async def google_login(request: Request):
                 }
             },
         },
-        400: {"description": "OAuth authorization failed or missing user info"},
+        400: {"description": "Invalid authorization code or OAuth error"},
     },
 )
-async def google_callback(request: Request, db: Session = Depends(get_db)):
+async def google_token_exchange(
+    request: GoogleTokenRequest, db: Session = Depends(get_db)
+):
     """
-    Handle the OAuth callback from Google.
+    Exchange Google authorization code for an auth token.
 
-    This endpoint is called by Google after user authorization. It processes
-    the authorization code and returns an auth_token for subsequent signin/signup:
+    This endpoint is called by the frontend after receiving the authorization
+    code from Google OAuth callback. It exchanges the code for user info and
+    returns an auth_token for subsequent signin/signup.
 
-    - **new**: User not found in database. Use `/auth/signup` with auth_token.
-    - **pending**: User exists but awaiting approval. Use `/auth/signin` with auth_token.
-    - **active**: User approved. Use `/auth/signin` with auth_token.
+    Flow:
+    1. Frontend initiates OAuth (user clicks login)
+    2. Google redirects to frontend with `code`
+    3. Frontend calls this endpoint with `code` and `redirect_uri`
+    4. Backend exchanges code for user info
+    5. Backend returns `auth_token` with status
 
     The auth_token is valid for 10 minutes.
     """
+    import httpx
     from fastapi import HTTPException, status
 
-    try:
-        token = await oauth.google.authorize_access_token(request)
-    except Exception as e:
-        logger.error(f"OAuth authorization failed: {e}")
+    # Exchange code for tokens with Google
+    token_url = "https://oauth2.googleapis.com/token"
+    token_data = {
+        "code": request.code,
+        "client_id": GOOGLE_CLIENT_ID,
+        "client_secret": GOOGLE_CLIENT_SECRET,
+        "redirect_uri": request.redirect_uri,
+        "grant_type": "authorization_code",
+    }
+
+    async with httpx.AsyncClient() as client:
+        try:
+            token_response = await client.post(token_url, data=token_data)
+            if token_response.status_code != 200:
+                logger.error(f"Google token exchange failed: {token_response.text}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Failed to exchange authorization code",
+                )
+            tokens = token_response.json()
+        except httpx.RequestError as e:
+            logger.error(f"Google token request error: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to connect to Google",
+            )
+
+    # Get user info from Google
+    id_token = tokens.get("id_token")
+    if not id_token:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="OAuth authorization failed",
+            detail="No ID token received from Google",
         )
 
-    user_info = token.get("userinfo")
-    if not user_info:
+    # Decode ID token to get user info (Google's ID tokens are JWTs)
+    try:
+        # We don't verify the signature here since we just received it from Google
+        # In production, you might want to verify using Google's public keys
+        user_info = jwt.decode(id_token, options={"verify_signature": False})
+    except Exception as e:
+        logger.error(f"Failed to decode ID token: {e}")
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Failed to get user info"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to decode user information",
         )
 
     google_id = user_info.get("sub")
