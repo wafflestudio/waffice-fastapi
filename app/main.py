@@ -12,7 +12,7 @@ import app.models
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    config.create_all()
+    config.run_migrations()
     yield
 
 

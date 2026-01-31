@@ -5,6 +5,7 @@ config 패키지 초기화 모듈
 """
 
 from .database import Base, Engine as engine, SessionLocal, create_all, get_db
+from .migration import run_migrations
 
 __all__ = [
     "Base",
@@ -12,4 +13,5 @@ __all__ = [
     "engine",
     "get_db",
     "create_all",
+    "run_migrations",
 ]

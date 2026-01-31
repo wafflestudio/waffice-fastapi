@@ -47,9 +47,29 @@ uv run pytest tests/test_file.py -v
 uv run pytest tests/test_file.py::test_function_name -v
 ```
 
+### Database Migrations (Alembic)
+```bash
+# Generate new migration after model changes
+uv run alembic revision --autogenerate -m "description"
+
+# Apply all pending migrations
+uv run alembic upgrade head
+
+# Rollback one migration
+uv run alembic downgrade -1
+
+# Show current revision
+uv run alembic current
+
+# Show migration history
+uv run alembic history
+```
+
+Migrations run automatically on app startup via `run_migrations()` in lifespan. Uses MySQL advisory locking for safe multi-pod deployments.
+
 ### Database Reset (dev only)
 ```bash
-uv run python -c "from app.config.database import Base, engine; from app import models; Base.metadata.drop_all(bind=engine); Base.metadata.create_all(bind=engine)"
+docker compose down -v && docker compose up -d
 ```
 
 ## Architecture
@@ -125,7 +145,7 @@ All timestamps are Unix epoch integers (BigInteger). Use `int(time.time())` for 
 
 ### Testing
 
-Tests use SQLite in-memory database. Available fixtures in `tests/conftest.py`:
+Tests use testcontainers MySQL for realistic database testing. Available fixtures in `tests/conftest.py`:
 - `db`: Fresh database session
 - `client`: TestClient with test db
 - User fixtures: `pending_user`, `associate_user`, `regular_user`, `active_user`, `admin_user`
