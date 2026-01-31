@@ -10,10 +10,7 @@ This project uses **uv** for Python package management (Python 3.11+) and **mise
 
 ### Setup and Dependencies
 ```bash
-# Install and sync dependencies
 uv sync --dev
-
-# Install pre-commit hooks
 uv run pre-commit install
 ```
 
@@ -24,23 +21,14 @@ docker compose up -d
 
 # Run FastAPI server
 uv run uvicorn app.main:app --reload
-
-# Run on specific host/port
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Access at:
-- Swagger UI: http://127.0.0.1:8000/docs
-- Redoc: http://127.0.0.1:8000/redoc
+Access at: http://127.0.0.1:8000/docs (Swagger UI)
 
 ### Code Quality
 ```bash
-# Run all pre-commit checks
+# Run all pre-commit checks (recommended)
 uv run pre-commit run --all-files
-
-# Check formatting (Linux/Mac: ./lint.sh, Windows: lint.bat)
-uv run black --check .
-uv run isort --check-only .
 
 # Apply formatting
 uv run black .
@@ -53,117 +41,98 @@ uv run isort .
 uv run pytest
 
 # Run specific test file
-uv run pytest tests/test_file.py
+uv run pytest tests/test_file.py -v
 
-# Run with verbose output
-uv run pytest -v
+# Run single test function
+uv run pytest tests/test_file.py::test_function_name -v
 ```
 
-### Database Operations
+### Database Reset (dev only)
 ```bash
-# Reset database (dev only) - drops and recreates all tables
 uv run python -c "from app.config.database import Base, engine; from app import models; Base.metadata.drop_all(bind=engine); Base.metadata.create_all(bind=engine)"
 ```
 
 ## Architecture
 
-### Layered Architecture Pattern
-The codebase follows a 3-layer architecture:
-
+### Layered Architecture
 ```
-Routes (HTTP) -> Controllers (Business Logic) -> Models (Data Access)
+Routes (HTTP) -> Deps (Auth/Authorization) -> Services (Business Logic) -> Models (Data)
 ```
 
-- **Routes** (`app/routes/`): Define API endpoints using FastAPI routers. Handle HTTP concerns (request/response, status codes). Use dependency injection for database sessions.
+- **Routes** (`app/routes/`): FastAPI routers defining API endpoints. Handle HTTP concerns only.
+- **Deps** (`app/deps/`): FastAPI dependencies for authentication and authorization.
+- **Services** (`app/services/`): Business logic. Accept db session and data, return entities or None.
+- **Models** (`app/models/`): SQLAlchemy ORM models.
+- **Schemas** (`app/schemas/`): Pydantic models for request/response validation.
+- **Exceptions** (`app/exceptions.py`): Structured application errors.
 
-- **Controllers** (`app/controllers/`): Contain business logic. Accept database session and validated data. Return data or None (not HTTP exceptions).
+### Data Models
 
-- **Models** (`app/models/`): SQLAlchemy ORM models defining database schema and relationships.
+**Core Entities:**
+- `User`: Member with profile, qualification level, admin flag. Soft-delete via `deleted_at`.
+- `Project`: Projects with status (active/maintenance/ended).
+- `ProjectMember`: Many-to-many linking Users to Projects with role (leader/member).
+- `UserHistory`: Audit log tracking user events (qualification changes, project joins, etc.).
 
-- **Schemas** (`app/schemas/`): Pydantic models for request/response validation and serialization.
+**Enums** (`app/models/enums.py`):
+- `Qualification`: PENDING → ASSOCIATE → REGULAR → ACTIVE (membership levels)
+- `ProjectStatus`: ACTIVE, MAINTENANCE, ENDED
+- `MemberRole`: LEADER, MEMBER
+- `HistoryAction`: Audit event types
 
-- **Config** (`app/config/`): Database connection and configuration setup.
+### Authorization Pattern
 
-### Key Components
-
-**Database Session Management**:
+Auth dependencies in `app/deps/auth.py`:
 ```python
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-```
-Use `db: Session = Depends(get_db)` in route functions for automatic session injection and cleanup.
-
-**Data Models**:
-- `User`: Main entity with profile, privileges, timestamps. Has one-to-many relationship with UserHistory (cascade delete).
-- `UserPending`: Users awaiting approval/enrollment. Independent table with no relationships.
-- `UserHistory`: Tracks user events (join, left, discipline, project changes). Many-to-one relationship with User.
-
-**Time Handling**: All timestamps are stored as Unix epoch timestamps (BigInteger). Use `int(time.time())` for current time.
-
-**Response Format**: All API responses follow `{"ok": boolean, ...}` format. Controllers return data or None; routes convert to appropriate HTTP responses.
-
-**Error Handling**:
-- Controllers return None for "not found" cases
-- Routes convert None to HTTPException with appropriate status codes
-- IntegrityError from SQLAlchemy indicates constraint violations (e.g., duplicate keys)
-
-### Configuration
-
-#### Environment Variables
-
-**Local Development (ENV=local)**:
-- `ENV`: Set to `local` for local development
-- `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `DB_NAME`: MySQL connection details
-- Default: localhost:3306 when MySQL runs in Docker and FastAPI on host
-
-**Dev/Production Deployment (ENV=dev or ENV=prod)**:
-- `ENV`: Set to `dev` or `prod`
-- `AWS_SECRET_NAME`: Name of the AWS Secrets Manager secret containing DB credentials
-- `AWS_REGION`: AWS region (default: ap-northeast-2)
-
-**AWS Secrets Manager Secret Format**:
-The secret should be stored as JSON with the following structure:
-```json
-{
-  "username": "db_user",
-  "password": "db_password",
-  "host": "db.example.com",
-  "port": "3306",
-  "dbname": "database_name"
-}
+get_current_user       # Any authenticated user
+require_associate      # qualification != PENDING
+require_regular        # qualification in (REGULAR, ACTIVE)
+require_admin          # is_admin == True
 ```
 
-**Database Connection**:
-- Local: Uses `.env` file values directly
-- Dev/Prod: Fetches credentials from AWS Secrets Manager via boto3
-- Connection string: `mysql+pymysql://USER:PASSWORD@HOST:PORT/DB_NAME`
+Project-level auth in `app/deps/project.py`:
+```python
+require_leader_or_admin  # Must be project leader or admin
+```
+
+### Exception Handling
+
+Custom exceptions in `app/exceptions.py` extend `AppError`:
+```python
+class AppError(Exception):
+    def __init__(self, code: str, message: str, status_code: int = 400)
+```
+
+Common exceptions: `UnauthorizedError`, `ForbiddenError`, `NotFoundError`, `LastLeaderError`, etc.
+
+Global exception handler in `app/main.py` converts to JSON: `{"ok": False, "error": code, "message": ...}`
+
+### Response Format
+
+All API responses follow: `{"ok": boolean, "data": ..., "message": ...}`
+
+Use `Response[T]` from schemas to wrap return data in routes.
+
+### Time Handling
+
+All timestamps are Unix epoch integers (BigInteger). Use `int(time.time())` for current time.
 
 ### Adding New Features
 
-1. **Add new endpoint**:
-   - Create/update Pydantic schema in `app/schemas/`
-   - Add controller function in `app/controllers/`
-   - Add route in `app/routes/` with appropriate decorators and Depends(get_db)
-   - Register router in `app/main.py` if creating new route file
+1. **New endpoint**: Schema → Service → Route → Register in `app/main.py`
+2. **New model**: Create in `app/models/`, import in `app/models/__init__.py`
+3. **Schema changes**: Use `model_config = {"from_attributes": True}` for ORM compatibility
 
-2. **Add new model**:
-   - Create model class inheriting from Base in `app/models/`
-   - Import model in `app/models/__init__.py`
-   - Tables auto-create on app startup via `Base.metadata.create_all(bind=engine)`
-   - For production, use Alembic migrations (alembic package is installed)
+### Testing
 
-3. **Modify existing model**:
-   - Update SQLAlchemy model in `app/models/`
-   - For dev: reset database using command above
-   - For production: create Alembic migration
+Tests use SQLite in-memory database. Available fixtures in `tests/conftest.py`:
+- `db`: Fresh database session
+- `client`: TestClient with test db
+- User fixtures: `pending_user`, `associate_user`, `regular_user`, `active_user`, `admin_user`
+- Token fixtures: `pending_token`, `associate_token`, `regular_token`, `active_token`, `admin_token`
 
-### Important Patterns
+### Configuration
 
-- Enum types (UserType, UserPrivilege, UserHistoryType) defined in schemas ensure type safety
-- Use `model_config = {"from_attributes": True}` in Pydantic response schemas for SQLAlchemy ORM compatibility
-- User enrollment is atomic: moves record from UserPending to User table (insert + delete)
-- Pre-commit hooks automatically run Black, isort, and Ruff before commits
+**Local (ENV=local)**: Uses `.env` file for `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `DB_NAME`
+
+**Dev/Prod (ENV=dev/prod)**: Fetches credentials from AWS Secrets Manager via `AWS_SECRET_NAME`
