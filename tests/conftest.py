@@ -1,23 +1,46 @@
+import atexit
 import os
 import time
 from datetime import timedelta
 
-# Set TESTING env before importing app to skip migrations in lifespan
-os.environ["TESTING"] = "1"
+from testcontainers.mysql import MySqlContainer
 
+# ----------------------------------------------------------------------
+# Start testcontainers and set env vars BEFORE any app imports
+# ----------------------------------------------------------------------
+_mysql = MySqlContainer(
+    image="mysql:8.0",
+    username="test",
+    password="test",
+    dbname="testdb",
+)
+_mysql.start()
+
+# Register cleanup
+atexit.register(_mysql.stop)
+
+# Set environment variables for database.py
+os.environ["DB_HOST"] = _mysql.get_container_host_ip()
+os.environ["DB_PORT"] = str(_mysql.get_exposed_port(3306))
+os.environ["DB_USER"] = "test"
+os.environ["DB_PASSWORD"] = "test"
+os.environ["DB_NAME"] = "testdb"
+
+# ----------------------------------------------------------------------
+# Now import app modules (they will use the env vars above)
+# ----------------------------------------------------------------------
 import pytest
 from fastapi.testclient import TestClient
 from jose import jwt
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
-from testcontainers.mysql import MySqlContainer
 
-from app.config.database import Base, get_db
+from app.config.database import Base, Engine, get_db
 from app.main import app
 from app.models import Qualification, User
 from app.services import UserService
 
-# Must match app/deps/auth.py default
+# JWT config (must match app/deps/auth.py default)
 JWT_SECRET_KEY = (
     os.getenv("JWT_SECRET_KEY")
     or os.getenv("APP_SECRET_KEY")
@@ -27,46 +50,24 @@ JWT_ALGORITHM = "HS256"
 
 
 @pytest.fixture(scope="session")
-def mysql_container():
-    """Start MySQL container for the test session."""
-    with MySqlContainer(
-        image="mysql:8.0",
-        username="test",
-        password="test",
-        dbname="testdb",
-    ) as mysql:
-        yield mysql
-
-
-@pytest.fixture(scope="session")
-def engine(mysql_container):
-    """Create SQLAlchemy engine connected to the MySQL container."""
-    # Build pymysql connection URL directly from container info
-    host = mysql_container.get_container_host_ip()
-    port = mysql_container.get_exposed_port(3306)
-    connection_url = f"mysql+pymysql://test:test@{host}:{port}/testdb?charset=utf8mb4"
-    engine = create_engine(
-        connection_url,
-        echo=False,
-        future=True,
-        pool_pre_ping=True,
-    )
-    return engine
+def engine():
+    """Return the app's configured engine (connected to testcontainers)."""
+    return Engine
 
 
 @pytest.fixture(scope="session")
 def tables(engine):
-    """Create all tables once per session."""
-    Base.metadata.create_all(bind=engine)
+    """Tables are created by migrations in app lifespan. Just yield."""
+    # Migrations already ran when app was imported (via lifespan)
     yield
-    Base.metadata.drop_all(bind=engine)
+    # Cleanup is optional since container will be destroyed anyway
 
 
 @pytest.fixture(scope="function")
 def db(engine, tables) -> Session:
     """Create a fresh database session for each test with table truncation."""
-    Session = sessionmaker(bind=engine, autocommit=False, autoflush=False)
-    session = Session()
+    TestSession = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+    session = TestSession()
 
     yield session
 
