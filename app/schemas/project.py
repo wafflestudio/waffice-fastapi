@@ -1,159 +1,78 @@
-# app/schemas/project.py
-from __future__ import annotations
+from datetime import date
 
-from datetime import date, datetime
-from enum import Enum
-from typing import List, Optional
+from pydantic import BaseModel, model_validator
 
-from pydantic import AnyUrl, BaseModel, Field
-
-# =========================
-# ENUM
-# =========================
+from app.models.enums import MemberRole, ProjectStatus
+from app.schemas.common import Website
+from app.schemas.user import UserBrief
 
 
-class ProjectStatus(str, Enum):
-    active = "active"
-    maintenance = "maintenance"
-    ended = "ended"
-
-
-class ProjectMemberRole(str, Enum):
-    leader = "leader"
-    member = "member"
-
-
-# =========================
-# PROJECT
-# =========================
-
-
-class ProjectBase(BaseModel):
-    name: str = Field(..., min_length=1, max_length=128)
-    description: Optional[str] = None
-    status: ProjectStatus = ProjectStatus.active
-    start_date: date
-    end_date: Optional[date] = None
-
-
-class ProjectCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=128)
-    description: Optional[str] = None
-    start_date: date
-    end_date: Optional[date] = None
-    status: ProjectStatus = ProjectStatus.active
-
-
-class ProjectUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=128)
-    description: Optional[str] = None
-    start_date: Optional[date] = None
-    end_date: Optional[date] = None
-    status: Optional[ProjectStatus] = None
-
-
-# Forward refs용 Out 타입들을 아래에서 정의하기 위해 먼저 선언
-class ProjectWebsiteOut(BaseModel):
-    id: int
-    project_id: int
-    label: Optional[str] = None
-    url: AnyUrl
-    kind: Optional[str] = None
-    is_primary: bool = False
-    ord: int = 0
-    ctime: datetime
-    mtime: datetime
-
-    model_config = {"from_attributes": True}
-
-
-class ProjectMemberOut(BaseModel):
-    id: int
-    project_id: int
+# === Request ===
+class MemberInput(BaseModel):
     user_id: int
-    role: ProjectMemberRole
-    position: str
-    start_date: date
-    end_date: Optional[date] = None
-    ctime: datetime
-    mtime: datetime
-
-    model_config = {"from_attributes": True}
+    role: MemberRole
+    position: str | None = None
 
 
-class Project(ProjectBase):
+class ProjectCreateRequest(BaseModel):
+    name: str
+    description: str | None = None
+    status: ProjectStatus = ProjectStatus.ACTIVE
+    started_at: date
+    ended_at: date | None = None
+    websites: list[Website] | None = None
+    members: list[MemberInput]
+
+
+class ProjectUpdateRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    status: ProjectStatus | None = None
+    started_at: date | None = None
+    ended_at: date | None = None
+    websites: list[Website] | None = None
+
+
+class MemberUpdateRequest(BaseModel):
+    role: MemberRole | None = None
+    position: str | None = None
+
+
+# === Response ===
+class MemberDetail(BaseModel):
     id: int
-    ctime: datetime
-    mtime: datetime
-
-    websites: List[ProjectWebsiteOut] = []
-    members: List[ProjectMemberOut] = []
+    user: UserBrief
+    role: MemberRole
+    position: str | None
+    joined_at: date | None
+    left_at: date | None
 
     model_config = {"from_attributes": True}
 
 
-# =========================
-# PROJECT WEBSITE
-# =========================
-
-
-class ProjectWebsiteBase(BaseModel):
-    project_id: int
-    label: Optional[str] = Field(None, max_length=128)
-    url: AnyUrl
-    kind: Optional[str] = Field(None, max_length=64)
-    is_primary: bool = False
-    ord: int = 0
-
-
-class ProjectWebsiteCreate(ProjectWebsiteBase):
-    pass
-
-
-class ProjectWebsiteUpdate(BaseModel):
-    label: Optional[str] = Field(None, max_length=128)
-    url: Optional[AnyUrl] = None
-    kind: Optional[str] = Field(None, max_length=64)
-    is_primary: Optional[bool] = None
-    ord: Optional[int] = None
-
-
-class ProjectWebsite(ProjectWebsiteBase):
+class ProjectBrief(BaseModel):
     id: int
-    ctime: datetime
-    mtime: datetime
+    name: str
+    status: ProjectStatus
+    started_at: date
+    created_at: int
 
     model_config = {"from_attributes": True}
 
 
-# =========================
-# PROJECT MEMBER
-# =========================
-
-
-class ProjectMemberBase(BaseModel):
-    project_id: int
-    user_id: int
-    role: ProjectMemberRole = ProjectMemberRole.member
-    position: str = Field(..., min_length=1, max_length=32)
-    start_date: date
-    end_date: Optional[date] = None
-
-
-class ProjectMemberCreate(ProjectMemberBase):
-    pass
-
-
-class ProjectMemberUpdate(BaseModel):
-    role: Optional[ProjectMemberRole] = None
-    position: Optional[str] = Field(None, min_length=1, max_length=32)
-    start_date: Optional[date] = None
-    end_date: Optional[date] = None
-
-
-class ProjectMember(ProjectMemberBase):
-    id: int
-    ctime: datetime
-    mtime: datetime
+class ProjectDetail(ProjectBrief):
+    description: str | None
+    ended_at: date | None
+    websites: list[Website] | None
+    members: list[MemberDetail]
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="before")
+    @classmethod
+    def filter_active_members(cls, data):
+        """Filter out inactive members"""
+        if hasattr(data, "members"):
+            # Filter to only active members (left_at is None)
+            data.members = [m for m in data.members if m.left_at is None]
+        return data

@@ -113,10 +113,11 @@ SessionLocal = sessionmaker(
 )
 
 # ----------------------------------------------------------------------
-# IMPORTANT: Use Base from app.models (do NOT declare a new Base here)
+# Declarative Base
 # ----------------------------------------------------------------------
-# This ensures a single metadata is used across the whole app.
-from app.models import Base  # noqa: E402
+from sqlalchemy.orm import declarative_base
+
+Base = declarative_base()
 
 
 # ----------------------------------------------------------------------

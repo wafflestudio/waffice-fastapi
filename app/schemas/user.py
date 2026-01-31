@@ -1,76 +1,64 @@
-# app/schemas/user.py
-from datetime import datetime
-from enum import Enum
-from typing import List, Optional
+from pydantic import BaseModel
 
-from pydantic import BaseModel, EmailStr, Field
-
-from .user_link import UserLinkOut
+from app.models.enums import Qualification
+from app.schemas.common import Website
 
 
-# --------------------------------------------------------
-# ENUMS
-# --------------------------------------------------------
-class UserType(str, Enum):
-    programmer = "programmer"
-    designer = "designer"
+# === Request ===
+class SignupRequest(BaseModel):
+    name: str
+    phone: str | None = None
+    affiliation: str | None = None
+    bio: str | None = None
+    github_username: str | None = None
 
 
-class UserPrivilege(str, Enum):
-    associate = "associate"
-    regular = "regular"
-    active = "active"
+class ProfileUpdateRequest(BaseModel):
+    phone: str | None = None
+    affiliation: str | None = None
+    bio: str | None = None
+    avatar_url: str | None = None
+    github_username: str | None = None
+    slack_id: str | None = None
+    websites: list[Website] | None = None
 
 
-# --------------------------------------------------------
-# BASE
-# --------------------------------------------------------
-class UserBase(BaseModel):
-    google_id: str
-    type: UserType
-    privilege: UserPrivilege
-    admin: int = Field(0, ge=0, le=2)
+class UserUpdateRequest(ProfileUpdateRequest):
+    """Admin용"""
 
-    profile_phone: Optional[str] = None
-    profile_email: Optional[EmailStr] = None
-    profile_major: Optional[str] = None
-    profile_cardinal: Optional[str] = None
-    profile_position: Optional[str] = None
-    profile_work: Optional[str] = None
-    profile_intro: Optional[str] = None
-
-    id_github: Optional[str] = None
-    id_slack: Optional[str] = None
-    receive_email: bool = True
-    receive_sms: bool = True
+    name: str | None = None
+    qualification: Qualification | None = None
+    is_admin: bool | None = None
 
 
-# --------------------------------------------------------
-# RESPONSE MODEL
-# --------------------------------------------------------
-class User(UserBase):
+class ApproveRequest(BaseModel):
+    qualification: Qualification
+
+
+# === Response ===
+class UserBrief(BaseModel):
     id: int
-    ctime: datetime
-    mtime: datetime
-    time_quit: Optional[datetime] = None
-    time_stop: Optional[datetime] = None
-
-    links: List[UserLinkOut] = []
+    name: str
+    email: str
+    avatar_url: str | None
 
     model_config = {"from_attributes": True}
 
 
-# --------------------------------------------------------
-# CREATE MODEL (REQUEST BODY)
-# --------------------------------------------------------
-class UserCreate(BaseModel):
-    google_id: str
-    type: UserType
-    privilege: UserPrivilege = UserPrivilege.associate
-    admin: int = 0
+class UserDetail(BaseModel):
+    id: int
+    email: str
+    name: str
+    generation: str
+    qualification: Qualification
+    is_admin: bool
+    phone: str | None
+    affiliation: str | None
+    bio: str | None
+    avatar_url: str | None
+    github_username: str | None
+    slack_id: str | None
+    websites: list[Website] | None
+    created_at: int
 
-    profile_email: Optional[EmailStr] = None
-    profile_major: Optional[str] = None
-    profile_cardinal: Optional[str] = None
-    profile_position: Optional[str] = None
-    profile_work: Optional[str] = None
+    model_config = {"from_attributes": True}

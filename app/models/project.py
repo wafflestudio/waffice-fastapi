@@ -1,138 +1,41 @@
-# app/models/project.py
-from datetime import date, datetime
-from typing import Optional
-
 from sqlalchemy import (
-    Boolean,
+    JSON,
+    BigInteger,
+    Column,
     Date,
-    DateTime,
-    Enum as SAEnum,
-    ForeignKey,
+    Enum,
+    Index,
     Integer,
     String,
     Text,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import relationship
 
-from app.models import Base
-
-ProjectStatus = ("active", "maintenance", "ended")
-ProjectMemberRole = ("leader", "member")
-
-
-class Project(Base):
-    __tablename__ = "waffice_projects"
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(String(128), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(
-        SAEnum(*ProjectStatus, name="project_status"),
-        nullable=False,
-        default=ProjectStatus[0],
-    )
-    start_date: Mapped[date] = mapped_column(Date, nullable=False)
-    end_date: Mapped[Optional[date]] = mapped_column(Date)
-    ctime: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        default=datetime.now,
-    )
-    mtime: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        default=datetime.now,
-    )
-    websites: Mapped[list["ProjectWebsite"]] = relationship(
-        "ProjectWebsite",
-        back_populates="project",
-        cascade="all, delete-orphan",
-        lazy="selectin",
-    )
-    members: Mapped[list["ProjectMember"]] = relationship(
-        "ProjectMember",
-        back_populates="project",
-        cascade="all, delete-orphan",
-        lazy="selectin",
-    )
-
-    def __repr__(self) -> str:
-        return f"<Project(id={self.id}, name={self.name!r}, status={self.status})>"
+from app.config.database import Base
+from app.models.base import SoftDeleteMixin, TimestampMixin
+from app.models.enums import ProjectStatus
 
 
-class ProjectWebsite(Base):
-    __tablename__ = "waffice_project_websites"
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    project_id: Mapped[int] = mapped_column(
-        ForeignKey("waffice_projects.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    label: Mapped[Optional[str]] = mapped_column(String(128))
-    url: Mapped[str] = mapped_column(String(1024), nullable=False)
-    kind: Mapped[Optional[str]] = mapped_column(String(64))
-    is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    ord: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    ctime: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        default=datetime.now,
-    )
-    mtime: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        default=datetime.now,
-    )
-    project: Mapped["Project"] = relationship(
-        "Project",
-        back_populates="websites",
-        lazy="selectin",
+class Project(Base, TimestampMixin, SoftDeleteMixin):
+    __tablename__ = "projects"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    status = Column(Enum(ProjectStatus), nullable=False, default=ProjectStatus.ACTIVE)
+
+    started_at = Column(Date, nullable=False)
+    ended_at = Column(Date, nullable=True)
+
+    websites = Column(JSON, nullable=True)
+
+    # Relationships
+    members = relationship(
+        "ProjectMember", back_populates="project", cascade="all, delete-orphan"
     )
 
-    def __repr__(self) -> str:
-        return f"<ProjectWebsite(project_id={self.project_id}, url={self.url[:50]}...)>"
-
-
-class ProjectMember(Base):
-    __tablename__ = "waffice_project_members"
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    project_id: Mapped[int] = mapped_column(
-        ForeignKey("waffice_projects.id", ondelete="CASCADE"),
-        nullable=False,
+    __table_args__ = (
+        Index("idx_projects_status", "status"),
+        Index("idx_projects_created_at", "created_at"),
     )
-    user_id: Mapped[int] = mapped_column(
-        ForeignKey("waffice_users.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    role: Mapped[str] = mapped_column(
-        SAEnum(*ProjectMemberRole, name="project_member_role"),
-        nullable=False,
-        default=ProjectMemberRole[1],  # member
-    )
-    position: Mapped[str] = mapped_column(String(32), nullable=False)
-    start_date: Mapped[date] = mapped_column(Date, nullable=False)
-    end_date: Mapped[Optional[date]] = mapped_column(Date)
-    ctime: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        default=datetime.now,
-    )
-    mtime: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        default=datetime.now,
-    )
-    project: Mapped["Project"] = relationship(
-        "Project",
-        back_populates="members",
-        lazy="selectin",
-    )
-    user = relationship(
-        "WafficeUser",
-        lazy="selectin",
-    )
-
-    def __repr__(self) -> str:
-        return (
-            f"<ProjectMember(project_id={self.project_id}, user_id={self.user_id}, "
-            f"role={self.role}, position={self.position})>"
-        )

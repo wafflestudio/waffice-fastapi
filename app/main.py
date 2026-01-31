@@ -48,14 +48,31 @@ app.add_middleware(SessionMiddleware, secret_key=APP_SECRET_KEY)
 
 
 # ==============================
+# EXCEPTION HANDLERS
+# ==============================
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+from app.exceptions import AppError
+
+
+@app.exception_handler(AppError)
+async def app_error_handler(request: Request, exc: AppError):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"ok": False, "error": exc.code, "message": exc.message},
+    )
+
+
+# ==============================
 # ROUTERS
 # ==============================
-from app.routes import auth_route, project_route, user_route, userhist_route
+from app.routes import auth, projects, upload, users
 
-app.include_router(user_route.router)
-app.include_router(userhist_route.router)
-app.include_router(auth_route.router)
-app.include_router(project_route.router)
+app.include_router(auth.router, prefix="/auth", tags=["Auth"])
+app.include_router(users.router, prefix="/users", tags=["Users"])
+app.include_router(projects.router, prefix="/projects", tags=["Projects"])
+app.include_router(upload.router, prefix="/upload", tags=["Upload"])
 
 
 # ==============================
