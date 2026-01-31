@@ -423,6 +423,146 @@ class TestErrorCases:
         assert response.json()["error"] == "CANNOT_REMOVE_SELF"
 
 
+class TestCriticalSecurityFixes:
+    """Tests for critical security and logic fixes"""
+
+    def test_cannot_demote_last_leader(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        admin_user: User,
+    ):
+        """Cannot demote the last leader to member role (Issue #3)"""
+        # Create project with single leader
+        project_response = client.post(
+            "/projects",
+            json={
+                "name": "Last Leader Demotion Test",
+                "started_at": str(date.today()),
+                "members": [
+                    {"user_id": admin_user.id, "role": "leader"},
+                ],
+            },
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        project_id = project_response.json()["data"]["id"]
+
+        # Try to demote the only leader to member
+        response = client.patch(
+            f"/projects/{project_id}/members/{admin_user.id}",
+            json={"role": "member"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"] == "LAST_LEADER_CANNOT_BE_REMOVED"
+
+    def test_project_creation_transaction_rollback(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        admin_user: User,
+    ):
+        """Project creation with invalid member should not leave partial data (Issue #4)"""
+        from app.services import ProjectService
+
+        # Count projects before
+        initial_count = len(ProjectService.list(db, limit=100)[0])
+
+        # Try to create project with non-existent user
+        response = client.post(
+            "/projects",
+            json={
+                "name": "Transaction Test Project",
+                "started_at": str(date.today()),
+                "members": [
+                    {"user_id": admin_user.id, "role": "leader"},
+                    {"user_id": 999999, "role": "member"},  # Non-existent user
+                ],
+            },
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        assert response.status_code == 404
+
+        # Verify no partial project was created
+        final_count = len(ProjectService.list(db, limit=100)[0])
+        assert final_count == initial_count
+
+    def test_project_name_length_validation(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        admin_user: User,
+    ):
+        """Project name must be between 1-200 characters (Issue #5)"""
+        # Empty name should fail
+        response = client.post(
+            "/projects",
+            json={
+                "name": "",
+                "started_at": str(date.today()),
+                "members": [{"user_id": admin_user.id, "role": "leader"}],
+            },
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert response.status_code == 422  # Validation error
+
+        # Name too long should fail
+        response = client.post(
+            "/projects",
+            json={
+                "name": "x" * 201,
+                "started_at": str(date.today()),
+                "members": [{"user_id": admin_user.id, "role": "leader"}],
+            },
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert response.status_code == 422  # Validation error
+
+    def test_project_description_length_validation(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        admin_user: User,
+    ):
+        """Project description must be <= 5000 characters (Issue #5)"""
+        # Description too long should fail
+        response = client.post(
+            "/projects",
+            json={
+                "name": "Valid Name",
+                "description": "x" * 5001,
+                "started_at": str(date.today()),
+                "members": [{"user_id": admin_user.id, "role": "leader"}],
+            },
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert response.status_code == 422  # Validation error
+
+    def test_project_requires_at_least_one_member(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+    ):
+        """Project must have at least one member (Issue #5)"""
+        response = client.post(
+            "/projects",
+            json={
+                "name": "No Members Project",
+                "started_at": str(date.today()),
+                "members": [],
+            },
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert response.status_code == 422  # Validation error
+
+
 class TestIdempotency:
     """Test 5: 멱등성 검증"""
 

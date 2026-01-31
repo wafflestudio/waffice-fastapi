@@ -131,7 +131,7 @@ class MemberService:
             actor_id=actor_id,
         )
 
-        db.commit()
+        # Note: caller should commit the transaction
         db.refresh(member)
         return member
 
@@ -172,8 +172,7 @@ class MemberService:
             },
             actor_id=actor_id,
         )
-
-        db.commit()
+        # Note: caller should commit the transaction
 
     @staticmethod
     def change(
@@ -186,9 +185,19 @@ class MemberService:
         """
         Change member role/position by ending current membership and creating new one.
         Logs history entry.
+
+        Raises:
+            LastLeaderError: If demoting the last leader to member role
         """
         old_role = member.role
         old_position = member.position
+        new_role = role if role is not None else old_role
+
+        # Check if demoting the last leader
+        if old_role == MemberRole.LEADER and new_role == MemberRole.MEMBER:
+            leader_count = MemberService.count_leaders(db, member.project_id)
+            if leader_count <= 1:
+                raise LastLeaderError("Cannot demote the last leader")
 
         # End current membership
         member.left_at = date.today()
@@ -223,6 +232,6 @@ class MemberService:
             actor_id=actor_id,
         )
 
-        db.commit()
+        # Note: caller should commit the transaction
         db.refresh(new_member)
         return new_member

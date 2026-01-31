@@ -10,7 +10,19 @@ from app.models import Qualification, User
 from app.services import UserService
 
 # JWT Configuration
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", os.getenv("APP_SECRET_KEY", "change-me"))
+_jwt_secret = os.getenv("JWT_SECRET_KEY") or os.getenv("APP_SECRET_KEY")
+if not _jwt_secret:
+    import warnings
+
+    if os.getenv("ENV", "local") in ("dev", "prod"):
+        raise RuntimeError("JWT_SECRET_KEY must be set in dev/prod environments")
+    warnings.warn(
+        "JWT_SECRET_KEY not set, using insecure default. Set JWT_SECRET_KEY in production.",
+        stacklevel=1,
+    )
+    _jwt_secret = "insecure-dev-only-key"
+
+JWT_SECRET_KEY = _jwt_secret
 JWT_ALGORITHM = "HS256"
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/google")

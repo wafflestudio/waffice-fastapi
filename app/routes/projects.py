@@ -54,17 +54,18 @@ async def create_project(
     if not has_leader:
         raise NoLeaderError()
 
-    # Create project
-    project_data = request.model_dump(exclude={"members"})
-    project = ProjectService.create(db, **project_data)
-
-    # Add members
+    # Validate all members exist before creating anything
     for member_input in request.members:
-        # Verify user exists
         user = UserService.get(db, member_input.user_id)
         if not user:
             raise NotFoundError(f"User {member_input.user_id} not found")
 
+    # Create project
+    project_data = request.model_dump(exclude={"members"})
+    project = ProjectService.create(db, **project_data)
+
+    # Add members (all validated above)
+    for member_input in request.members:
         MemberService.add(
             db=db,
             project_id=project.id,
@@ -73,6 +74,9 @@ async def create_project(
             position=member_input.position,
             actor_id=admin.id,
         )
+
+    # Commit the entire transaction (project + all members)
+    db.commit()
 
     # Reload project with members
     project = ProjectService.get_with_members(db, project.id)
@@ -156,6 +160,7 @@ async def add_project_member(
         position=member_input.position,
         actor_id=user.id,
     )
+    db.commit()
 
     # Return updated project
     project = ProjectService.get_with_members(db, project_id)
@@ -180,13 +185,17 @@ async def update_project_member(
         raise NotFoundError("Member not found in this project")
 
     # Update member
-    MemberService.change(
-        db=db,
-        member=member,
-        role=request.role,
-        position=request.position,
-        actor_id=current_user.id,
-    )
+    try:
+        MemberService.change(
+            db=db,
+            member=member,
+            role=request.role,
+            position=request.position,
+            actor_id=current_user.id,
+        )
+    except ServiceLastLeaderError:
+        raise LastLeaderError()
+    db.commit()
 
     # Return updated project
     project = ProjectService.get_with_members(db, project_id)
@@ -218,6 +227,7 @@ async def remove_project_member(
         raise LastLeaderError()
     except ServiceCannotRemoveSelfError:
         raise CannotRemoveSelfError()
+    db.commit()
 
     # Return updated project
     project = ProjectService.get_with_members(db, project_id)

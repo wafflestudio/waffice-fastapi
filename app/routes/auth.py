@@ -1,3 +1,4 @@
+import logging
 import os
 from datetime import timedelta
 
@@ -6,14 +7,14 @@ from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from jose import jwt
 from sqlalchemy.orm import Session
-from starlette.responses import RedirectResponse
 
 from app.config.database import get_db
 from app.deps.auth import get_current_user
-from app.exceptions import InvalidQualificationError
 from app.models import Qualification, User
 from app.schemas import AuthStatus, Response, SignupRequest, Token
 from app.services import UserService
+
+logger = logging.getLogger(__name__)
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
@@ -21,9 +22,9 @@ GOOGLE_REDIRECT_URI = os.getenv(
     "GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/google/callback"
 )
 
-# JWT Configuration
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", os.getenv("APP_SECRET_KEY", "change-me"))
-JWT_ALGORITHM = "HS256"
+# JWT Configuration - import from deps to ensure single source of truth
+from app.deps.auth import JWT_ALGORITHM, JWT_SECRET_KEY
+
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))
 
 oauth = OAuth()
@@ -72,9 +73,10 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     try:
         token = await oauth.google.authorize_access_token(request)
     except Exception as e:
+        logger.error(f"OAuth authorization failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"OAuth authorization failed: {str(e)}",
+            detail="OAuth authorization failed",
         )
 
     user_info = token.get("userinfo")

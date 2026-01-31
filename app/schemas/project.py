@@ -1,6 +1,6 @@
 from datetime import date
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from app.models.enums import MemberRole, ProjectStatus
 from app.schemas.common import Website
@@ -11,22 +11,22 @@ from app.schemas.user import UserBrief
 class MemberInput(BaseModel):
     user_id: int
     role: MemberRole
-    position: str | None = None
+    position: str | None = Field(None, max_length=100)
 
 
 class ProjectCreateRequest(BaseModel):
-    name: str
-    description: str | None = None
+    name: str = Field(..., min_length=1, max_length=200)
+    description: str | None = Field(None, max_length=5000)
     status: ProjectStatus = ProjectStatus.ACTIVE
     started_at: date
     ended_at: date | None = None
     websites: list[Website] | None = None
-    members: list[MemberInput]
+    members: list[MemberInput] = Field(..., min_length=1)
 
 
 class ProjectUpdateRequest(BaseModel):
-    name: str | None = None
-    description: str | None = None
+    name: str | None = Field(None, min_length=1, max_length=200)
+    description: str | None = Field(None, max_length=5000)
     status: ProjectStatus | None = None
     started_at: date | None = None
     ended_at: date | None = None
@@ -35,7 +35,7 @@ class ProjectUpdateRequest(BaseModel):
 
 class MemberUpdateRequest(BaseModel):
     role: MemberRole | None = None
-    position: str | None = None
+    position: str | None = Field(None, max_length=100)
 
 
 # === Response ===

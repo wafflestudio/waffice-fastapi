@@ -75,10 +75,10 @@ class ProjectService:
 
     @staticmethod
     def create(db: Session, **data) -> Project:
-        """Create a new project"""
+        """Create a new project. Call db.commit() after to persist."""
         project = Project(**data)
         db.add(project)
-        db.commit()
+        db.flush()
         db.refresh(project)
         return project
 
