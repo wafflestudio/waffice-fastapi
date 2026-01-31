@@ -41,9 +41,9 @@ while [ $iteration -lt $MAX_ITERATIONS ]; do
     echo -e "${YELLOW}--- Iteration $iteration / $MAX_ITERATIONS ---${NC}"
     echo "--- Iteration $iteration: $(date) ---" >> "$LOG_FILE"
 
-    # Run Claude with the prompt
+    # Run Claude with the prompt (skip permission prompts for automation)
     # Capture output to check for completion signal
-    OUTPUT=$(claude --print "$PROMPT" 2>&1) || true
+    OUTPUT=$(claude --dangerously-skip-permissions --print "$PROMPT" 2>&1) || true
 
     # Log output
     echo "$OUTPUT" >> "$LOG_FILE"
