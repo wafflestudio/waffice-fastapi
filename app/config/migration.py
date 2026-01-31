@@ -3,10 +3,10 @@
 import logging
 from contextlib import contextmanager
 
-from alembic import command
-from alembic.config import Config
 from sqlalchemy import text
 
+from alembic import command
+from alembic.config import Config
 from app.config.database import Engine
 
 logger = logging.getLogger(__name__)
