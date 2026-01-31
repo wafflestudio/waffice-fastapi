@@ -269,6 +269,7 @@ async def google_token_exchange(
 
     # Verify and decode ID token using Google's public keys
     try:
+        print("[AUTH] Importing google.auth modules...", flush=True)
         from google.auth.transport import requests as google_requests
         from google.oauth2 import id_token as google_id_token
 
@@ -279,11 +280,11 @@ async def google_token_exchange(
             GOOGLE_CLIENT_ID,
         )
         print(f"[AUTH] ID token verified, email={user_info.get('email')}", flush=True)
-    except ValueError as e:
-        print(f"[AUTH] Failed to verify ID token: {e}", flush=True)
+    except Exception as e:
+        print(f"[AUTH] Failed to verify ID token: {type(e).__name__}: {e}", flush=True)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to decode user information",
+            detail=f"Failed to decode user information: {e}",
         )
 
     google_id = user_info.get("sub")
