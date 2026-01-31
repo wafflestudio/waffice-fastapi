@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.config.database import get_db
 from app.config.secrets import (
+    ENV,
     FRONTEND_ORIGIN,
     GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET,
@@ -146,7 +147,7 @@ async def google_login(request: Request, redirect_uri: str | None = None):
             detail=f"Invalid redirect_uri. Allowed origins: {get_allowed_origins()}",
         )
 
-    return await oauth.google.authorize_redirect(request, validated_uri)
+    return await oauth.google.authorize_redirect(request, redirect_uri=validated_uri)
 
 
 @router.post(
@@ -387,7 +388,8 @@ async def signup(request: SignupRequest, db: Session = Depends(get_db)):
         if not user.google_id:
             UserService.update(db, user, google_id=google_id)
     else:
-        # Create new user
+        # Create new user (auto-admin in dev environment)
+        is_dev = ENV in ["local", "dev"]
         user = UserService.create(
             db,
             google_id=google_id,
@@ -397,6 +399,8 @@ async def signup(request: SignupRequest, db: Session = Depends(get_db)):
             affiliation=request.affiliation,
             bio=request.bio,
             github_username=request.github_username,
+            qualification=Qualification.ACTIVE if is_dev else Qualification.PENDING,
+            is_admin=is_dev,
         )
 
     # Generate JWT
