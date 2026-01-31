@@ -1,5 +1,4 @@
 import logging
-import os
 from datetime import timedelta
 
 # Google OAuth configuration
@@ -9,23 +8,21 @@ from jose import jwt
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
-from app.deps.auth import get_current_user
+from app.config.secrets import (
+    GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET,
+    GOOGLE_REDIRECT_URI,
+    JWT_EXPIRE_HOURS,
+    JWT_SECRET_KEY,
+)
+from app.deps.auth import JWT_ALGORITHM, get_current_user
 from app.models import Qualification, User
 from app.schemas import AuthStatus, Response, SignupRequest, Token
 from app.services import UserService
 
 logger = logging.getLogger(__name__)
 
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
-GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
-GOOGLE_REDIRECT_URI = os.getenv(
-    "GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/google/callback"
-)
-
-# JWT Configuration - import from deps to ensure single source of truth
-from app.deps.auth import JWT_ALGORITHM, JWT_SECRET_KEY
-
-JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))
+JWT_EXPIRE_MINUTES = JWT_EXPIRE_HOURS * 60
 
 oauth = OAuth()
 oauth.register(

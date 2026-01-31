@@ -1,12 +1,13 @@
 # app/utils/jwt_auth.py
 
-import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
+
+from app.config.secrets import JWT_EXPIRE_HOURS, JWT_SECRET_KEY
 
 # =========================
 # CLAIM OBJECT
@@ -22,13 +23,7 @@ from jose import JWTError, jwt
 # }
 # =========================
 
-# =========================
-# JWT CONFIG
-# =========================
-
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", os.getenv("APP_SECRET_KEY", "change-me"))
 JWT_ALGORITHM = "HS256"
-JWT_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "2"))
 
 # Authorization: Bearer <token> 에서 토큰 뽑아오는 dependency
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token-not-used")

@@ -30,6 +30,10 @@ COPY --from=builder /app/.venv /app/.venv
 # Copy application code
 COPY app ./app
 
+# Copy alembic for migrations
+COPY alembic.ini ./
+COPY alembic ./alembic
+
 # Build argument for environment
 ARG ENV=dev
 ENV ENV=${ENV}

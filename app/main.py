@@ -1,5 +1,4 @@
 # app/main.py
-import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -8,6 +7,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 import app.config as config
 import app.models
+from app.config.secrets import APP_SECRET_KEY, ENV, FRONTEND_ORIGIN
 
 
 @asynccontextmanager
@@ -21,19 +21,16 @@ app = FastAPI(lifespan=lifespan)
 # ==============================
 # CORS / SESSION (OAuth 용)
 # ==============================
-ENV = os.getenv("ENV", "local")
-APP_SECRET_KEY = os.getenv("APP_SECRET_KEY", "I hate math")
-
 # CORS origins 설정
 if ENV in ["local", "dev"]:
     # 개발 환경에서는 localhost:3000 허용
     allowed_origins = [
         "http://localhost:3000",
-        os.getenv("FRONTEND_ORIGIN", "http://localhost:3000"),
+        FRONTEND_ORIGIN,
     ]
 else:
     # Production 환경에서는 실제 도메인만 허용
-    allowed_origins = [os.getenv("FRONTEND_ORIGIN", "https://your-domain.com")]
+    allowed_origins = [FRONTEND_ORIGIN]
 
 app.add_middleware(
     CORSMiddleware,
