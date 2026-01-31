@@ -9,9 +9,9 @@ from sqlalchemy.orm import Session
 
 from app.config.database import get_db
 from app.config.secrets import (
+    FRONTEND_ORIGIN,
     GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET,
-    GOOGLE_REDIRECT_URI,
     JWT_EXPIRE_HOURS,
     JWT_SECRET_KEY,
 )
@@ -90,26 +90,63 @@ def decode_auth_token(auth_token: str) -> dict:
         raise InvalidAuthTokenError()
 
 
+def get_allowed_origins() -> set[str]:
+    """Returns the set of allowed frontend origins for OAuth redirect."""
+    origins = {"http://localhost:3000"}
+    if FRONTEND_ORIGIN:
+        origins.add(FRONTEND_ORIGIN.rstrip("/"))
+    return origins
+
+
+def validate_redirect_uri(redirect_uri: str) -> str | None:
+    """
+    Validate redirect_uri against whitelist.
+    Returns the validated redirect_uri or None if invalid.
+    """
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(redirect_uri)
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        if origin in get_allowed_origins():
+            return redirect_uri
+    except Exception:
+        pass
+    return None
+
+
 @router.get(
     "/google",
     summary="Initiate Google OAuth login",
-    description="Redirects the user to Google's OAuth consent page. After authentication, Google redirects to the configured redirect URI.",
+    description="Redirects the user to Google's OAuth consent page. After authentication, Google redirects to the specified redirect_uri.",
     responses={
         302: {"description": "Redirect to Google OAuth consent page"},
+        400: {"description": "Invalid redirect_uri"},
     },
 )
-async def google_login(request: Request):
+async def google_login(request: Request, redirect_uri: str | None = None):
     """
     Start the Google OAuth login flow.
 
     This endpoint redirects users to Google's OAuth consent page where they
     can authorize the application to access their profile and email.
 
-    After successful authorization, Google redirects to the configured redirect URI
-    with an authorization code.
+    The redirect_uri must be from an allowed origin (localhost:3000 or FRONTEND_ORIGIN).
+    If not provided, defaults to {FRONTEND_ORIGIN}/auth/callback.
     """
-    redirect_uri = GOOGLE_REDIRECT_URI
-    return await oauth.google.authorize_redirect(request, redirect_uri)
+    from fastapi import HTTPException, status
+
+    if redirect_uri is None:
+        redirect_uri = f"{FRONTEND_ORIGIN}/auth/callback"
+
+    validated_uri = validate_redirect_uri(redirect_uri)
+    if not validated_uri:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid redirect_uri. Allowed origins: {get_allowed_origins()}",
+        )
+
+    return await oauth.google.authorize_redirect(request, validated_uri)
 
 
 @router.post(
