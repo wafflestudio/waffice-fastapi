@@ -138,7 +138,8 @@ async def get_my_projects(
     },
 )
 async def list_users(
-    cursor: int | None = Query(
+    cursor: int
+    | None = Query(
         None, description="Pagination cursor (user ID). Omit for first page."
     ),
     limit: int = Query(

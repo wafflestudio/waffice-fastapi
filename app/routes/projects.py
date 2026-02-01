@@ -42,7 +42,8 @@ router = APIRouter()
     },
 )
 async def list_projects(
-    cursor: int | None = Query(
+    cursor: int
+    | None = Query(
         None, description="Pagination cursor (project ID). Omit for first page."
     ),
     limit: int = Query(
