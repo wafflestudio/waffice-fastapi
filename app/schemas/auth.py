@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 from app.schemas.user import UserDetail
 
@@ -69,4 +69,27 @@ class GoogleTokenRequest(BaseModel):
     redirect_uri: str = Field(
         description="The redirect URI used in the OAuth flow (must match the one used to get the code)",
         examples=["https://myapp.com/auth/callback"],
+    )
+
+
+class DevSigninRequest(BaseModel):
+    """Request body for development-only signin. Only available in local/dev environments."""
+
+    email: EmailStr = Field(
+        description="User email for dev signin",
+        examples=["admin@dev.local"],
+    )
+    name: str = Field(
+        min_length=1,
+        max_length=255,
+        description="User name for dev signin",
+        examples=["Admin User"],
+    )
+    is_admin: bool = Field(
+        default=False,
+        description="Whether the user should be an admin",
+    )
+    qualification: Literal["pending", "associate", "regular", "active"] = Field(
+        default="active",
+        description="User qualification level",
     )

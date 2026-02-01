@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.config.cookies import ACCESS_TOKEN_COOKIE_NAME, get_cookie_settings
 from app.config.database import get_db
 from app.config.secrets import (
+    ENV,
     FRONTEND_ORIGIN,
     GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET,
@@ -22,6 +23,7 @@ from app.models import Qualification, User
 from app.schemas import (
     AuthResult,
     AuthStatus,
+    DevSigninRequest,
     GoogleTokenRequest,
     Response,
     SigninRequest,
@@ -44,6 +46,9 @@ oauth.register(
 )
 
 router = APIRouter()
+
+# Separate router for dev-only endpoints (conditionally included in main.py)
+dev_router = APIRouter()
 
 
 def set_auth_cookie(response: FastAPIResponse, access_token: str) -> None:
@@ -515,3 +520,93 @@ async def logout(response: FastAPIResponse):
     """
     clear_auth_cookie(response)
     return Response(ok=True, data=None)
+
+
+@dev_router.post(
+    "/signin-dev",
+    response_model=Response[AuthResult],
+    summary="Development-only signin",
+    description="Sign in with mock credentials for testing. Only available in local/dev environments.",
+    responses={
+        200: {"description": "Signin successful"},
+    },
+)
+async def signin_dev(
+    request: DevSigninRequest,
+    response: FastAPIResponse,
+    db: Session = Depends(get_db),
+):
+    """
+    Development-only signin endpoint for testing without Google OAuth.
+
+    This endpoint allows signing in with any email/name combination for testing purposes.
+    It creates a new user if one doesn't exist, or updates an existing user's
+    is_admin and qualification fields.
+
+    This router is only included in local/dev environments (see main.py).
+    """
+    from fastapi import HTTPException, status
+
+    # Map qualification string to enum
+    qualification_map = {
+        "pending": Qualification.PENDING,
+        "associate": Qualification.ASSOCIATE,
+        "regular": Qualification.REGULAR,
+        "active": Qualification.ACTIVE,
+    }
+    qualification = qualification_map[request.qualification]
+
+    # Check for existing user by email
+    user = UserService.get_by_email(db, request.email)
+
+    if user:
+        # Update existing user's admin status and qualification
+        UserService.update(
+            db, user, is_admin=request.is_admin, qualification=qualification
+        )
+    else:
+        # Create new user with dev google_id
+        # Handle race condition: if concurrent request created user, catch and retry
+        from sqlalchemy.exc import IntegrityError
+
+        dev_google_id = f"dev_{request.email}"
+        try:
+            user = UserService.create(
+                db,
+                google_id=dev_google_id,
+                email=request.email,
+                name=request.name,
+                qualification=qualification,
+                is_admin=request.is_admin,
+            )
+        except IntegrityError:
+            db.rollback()
+            user = UserService.get_by_email(db, request.email)
+            if user:
+                UserService.update(
+                    db, user, is_admin=request.is_admin, qualification=qualification
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to create or find user",
+                )
+
+    # Generate JWT
+    access_token = create_access_token(user.id, user.email, user.google_id)
+
+    # Set auth cookie
+    set_auth_cookie(response, access_token)
+
+    if user.qualification == Qualification.PENDING:
+        auth_status = "pending"
+    else:
+        auth_status = "active"
+
+    return Response(
+        ok=True,
+        data=AuthResult(
+            status=auth_status,
+            user=user,
+        ),
+    )

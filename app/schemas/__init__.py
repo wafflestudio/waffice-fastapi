@@ -1,6 +1,7 @@
 from app.schemas.auth import (
     AuthResult,
     AuthStatus,
+    DevSigninRequest,
     GoogleTokenRequest,
     SigninRequest,
     Token,
@@ -35,6 +36,7 @@ __all__ = [
     "AuthResult",
     "GoogleTokenRequest",
     "SigninRequest",
+    "DevSigninRequest",
     "SignupRequest",
     "ProfileUpdateRequest",
     "UserUpdateRequest",

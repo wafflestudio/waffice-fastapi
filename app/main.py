@@ -76,6 +76,10 @@ app.include_router(users.router, prefix="/users", tags=["Users"])
 app.include_router(projects.router, prefix="/projects", tags=["Projects"])
 app.include_router(upload.router, prefix="/upload", tags=["Upload"])
 
+# Dev-only auth endpoints (only included in local/dev environments)
+if ENV in ("local", "dev"):
+    app.include_router(auth.dev_router, prefix="/auth", tags=["Auth (Dev)"])
+
 
 # ==============================
 # HEALTH CHECK
