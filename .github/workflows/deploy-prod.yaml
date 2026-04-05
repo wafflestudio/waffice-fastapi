@@ -19,16 +19,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Login to Oracle Cloud Infrastructure Registry
+        uses: docker/login-action@v3
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ap-northeast-2
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+          registry: yny.ocir.io
+          username: ${{ secrets.OCIR_USERNAME }}
+          password: ${{ secrets.OCIR_AUTH_TOKEN }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -47,7 +43,7 @@ jobs:
           provenance: false
           sbom: false
           tags: |
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.meta.outputs.timestamp }}
+            yny.ocir.io/ax1dvc8vmenm/${{ env.ECR_REPOSITORY }}:${{ steps.meta.outputs.timestamp }}
           build-args: |
             ENV=prod
           cache-from: type=gha
@@ -56,5 +52,5 @@ jobs:
       - name: Image digest
         run: |
           echo "Image pushed successfully to ${{ env.ENVIRONMENT }}!"
-          echo "Repository: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}"
+          echo "Repository: yny.ocir.io/ax1dvc8vmenm/${{ env.ECR_REPOSITORY }}"
           echo "Tag: ${{ steps.meta.outputs.timestamp }}"
