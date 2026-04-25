@@ -21,7 +21,7 @@ ENV = os.getenv("ENV") or os.getenv("SPRING_PROFILES_ACTIVE") or "local"
 
 @lru_cache(maxsize=1)
 def _get_secrets_from_aws() -> dict[str, Any]:
-    """*Deprecated*
+    """*deprecated*
     Fetch all secrets from AWS Secrets Manager."""
     secret_name = f"{ENV}/waffice-server"
     region_name = os.getenv("AWS_REGION", "ap-northeast-2")
@@ -35,16 +35,40 @@ def _get_secrets_from_aws() -> dict[str, Any]:
         raise RuntimeError(f"Failed to retrieve secrets from AWS: {e}")
 
     return json.loads(response["SecretString"])
+  
+@lru_cache(maxsize=1)
+def _get_secrets_from_k8s() -> dict[str, Any]:
+  return {
+            # Database
+            "username": os.getenv("username"),
+            "password": os.getenv("password"),
+            "host": os.getenv("host", "localhost"),
+            "port": os.getenv("port", "3306"),
+            "dbname": os.getenv("dbname"),
+            # Google OAuth
+            "GOOGLE_CLIENT_ID": os.getenv("GOOGLE_CLIENT_ID", ""),
+            "GOOGLE_CLIENT_SECRET": os.getenv("GOOGLE_CLIENT_SECRET", ""),
+            "GOOGLE_REDIRECT_URI": os.getenv(
+                "GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/google/callback"
+            ),
+            # Frontend
+            "FRONTEND_ORIGIN": os.getenv("FRONTEND_ORIGIN", "http://localhost:3000"),
+            # JWT / App
+            "APP_SECRET_KEY": os.getenv("APP_SECRET_KEY", "insecure-dev-only-key"),
+            "JWT_SECRET_KEY": os.getenv("JWT_SECRET_KEY", "insecure-dev-only-key"),
+            "JWT_EXPIRE_HOURS": os.getenv("JWT_EXPIRE_HOURS", "24"),
+        }
 
 
 @lru_cache(maxsize=1)
 def get_secrets() -> dict[str, Any]:
     """
     Get all application secrets.
-    - Local/Dev/Prod: from environment variables
+    - Local: from environment variables
+    - Dev/Prod: from AWS Secrets Manager
     """
-    if ENV in ["local", "dev", "prod"]:
-        # Local/Dev/Prod environment: use .env file or environment variables
+    if ENV == "local":
+        # Local environment: use .env file
         return {
             # Database
             "username": os.getenv("DB_USER"),
@@ -65,9 +89,9 @@ def get_secrets() -> dict[str, Any]:
             "JWT_SECRET_KEY": os.getenv("JWT_SECRET_KEY", "insecure-dev-only-key"),
             "JWT_EXPIRE_HOURS": os.getenv("JWT_EXPIRE_HOURS", "24"),
         }
-
-    raise RuntimeError(f"Unsupported environment: {ENV}")
-    # Dev/Prod: fetch from AWS Secrets Manager
+    
+    # Dev/Prod: fetch from k8s secrets (mounted as env vars)
+    return _get_secrets_from_k8s()
     # return _get_secrets_from_aws()
 
 
