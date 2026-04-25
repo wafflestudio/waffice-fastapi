@@ -21,7 +21,8 @@ ENV = os.getenv("ENV") or os.getenv("SPRING_PROFILES_ACTIVE") or "local"
 
 @lru_cache(maxsize=1)
 def _get_secrets_from_aws() -> dict[str, Any]:
-    """Fetch all secrets from AWS Secrets Manager."""
+    """*Deprecated*
+    Fetch all secrets from AWS Secrets Manager."""
     secret_name = f"{ENV}/waffice-server"
     region_name = os.getenv("AWS_REGION", "ap-northeast-2")
 
@@ -40,11 +41,10 @@ def _get_secrets_from_aws() -> dict[str, Any]:
 def get_secrets() -> dict[str, Any]:
     """
     Get all application secrets.
-    - Local: from environment variables
-    - Dev/Prod: from AWS Secrets Manager
+    - Local/Dev/Prod: from environment variables
     """
-    if ENV == "local":
-        # Local environment: use .env file
+    if ENV in ["local", "dev", "prod"]:
+        # Local/Dev/Prod environment: use .env file or environment variables
         return {
             # Database
             "username": os.getenv("DB_USER"),
@@ -66,8 +66,9 @@ def get_secrets() -> dict[str, Any]:
             "JWT_EXPIRE_HOURS": os.getenv("JWT_EXPIRE_HOURS", "24"),
         }
 
+    raise RuntimeError(f"Unsupported environment: {ENV}")
     # Dev/Prod: fetch from AWS Secrets Manager
-    return _get_secrets_from_aws()
+    # return _get_secrets_from_aws()
 
 
 # Convenience accessors
