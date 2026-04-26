@@ -35,29 +35,30 @@ def _get_secrets_from_aws() -> dict[str, Any]:
         raise RuntimeError(f"Failed to retrieve secrets from AWS: {e}")
 
     return json.loads(response["SecretString"])
-  
+
+
 @lru_cache(maxsize=1)
 def _get_secrets_from_k8s() -> dict[str, Any]:
-  return {
-            # Database
-            "username": os.getenv("username"),
-            "password": os.getenv("password"),
-            "host": os.getenv("host", "localhost"),
-            "port": os.getenv("port", "3306"),
-            "dbname": os.getenv("dbname"),
-            # Google OAuth
-            "GOOGLE_CLIENT_ID": os.getenv("GOOGLE_CLIENT_ID", ""),
-            "GOOGLE_CLIENT_SECRET": os.getenv("GOOGLE_CLIENT_SECRET", ""),
-            "GOOGLE_REDIRECT_URI": os.getenv(
-                "GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/google/callback"
-            ),
-            # Frontend
-            "FRONTEND_ORIGIN": os.getenv("FRONTEND_ORIGIN", "http://localhost:3000"),
-            # JWT / App
-            "APP_SECRET_KEY": os.getenv("APP_SECRET_KEY", "insecure-dev-only-key"),
-            "JWT_SECRET_KEY": os.getenv("JWT_SECRET_KEY", "insecure-dev-only-key"),
-            "JWT_EXPIRE_HOURS": os.getenv("JWT_EXPIRE_HOURS", "24"),
-        }
+    return {
+        # Database
+        "username": os.getenv("username"),
+        "password": os.getenv("password"),
+        "host": os.getenv("host", "localhost"),
+        "port": os.getenv("port", "3306"),
+        "dbname": os.getenv("dbname"),
+        # Google OAuth
+        "GOOGLE_CLIENT_ID": os.getenv("GOOGLE_CLIENT_ID", ""),
+        "GOOGLE_CLIENT_SECRET": os.getenv("GOOGLE_CLIENT_SECRET", ""),
+        "GOOGLE_REDIRECT_URI": os.getenv(
+            "GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/google/callback"
+        ),
+        # Frontend
+        "FRONTEND_ORIGIN": os.getenv("FRONTEND_ORIGIN", "http://localhost:3000"),
+        # JWT / App
+        "APP_SECRET_KEY": os.getenv("APP_SECRET_KEY", "insecure-dev-only-key"),
+        "JWT_SECRET_KEY": os.getenv("JWT_SECRET_KEY", "insecure-dev-only-key"),
+        "JWT_EXPIRE_HOURS": os.getenv("JWT_EXPIRE_HOURS", "24"),
+    }
 
 
 @lru_cache(maxsize=1)
@@ -89,7 +90,7 @@ def get_secrets() -> dict[str, Any]:
             "JWT_SECRET_KEY": os.getenv("JWT_SECRET_KEY", "insecure-dev-only-key"),
             "JWT_EXPIRE_HOURS": os.getenv("JWT_EXPIRE_HOURS", "24"),
         }
-    
+
     # Dev/Prod: fetch from k8s secrets (mounted as env vars)
     return _get_secrets_from_k8s()
     # return _get_secrets_from_aws()
