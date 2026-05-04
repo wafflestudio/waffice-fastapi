@@ -26,3 +26,10 @@ class HistoryAction(str, Enum):
     PROJECT_JOINED = "project_joined"
     PROJECT_LEFT = "project_left"
     PROJECT_ROLE_CHANGED = "project_role_changed"
+
+
+class GraduationStatus(str, Enum):
+    UNDERGRADUATE = "학부생"
+    GRADUATED = "졸업생"
+    LEAVE_OF_ABSENCE = "휴학생"
+    GRADUATE_STUDENT = "대학원생"
