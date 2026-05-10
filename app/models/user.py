@@ -13,7 +13,7 @@ from sqlalchemy.orm import relationship
 
 from app.config.database import Base
 from app.models.base import SoftDeleteMixin, TimestampMixin
-from app.models.enums import Qualification
+from app.models.enums import GraduationStatus, Qualification
 
 
 class User(Base, TimestampMixin, SoftDeleteMixin):
@@ -45,6 +45,9 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     github_username = Column(String(100), nullable=True)
     slack_id = Column(String(100), nullable=True)
     websites = Column(JSON, nullable=True)
+    graduation_status = Column(
+        Enum(GraduationStatus), nullable=False, default=GraduationStatus.UNDERGRADUATE
+    )
 
     # Relationships
     histories = relationship(

@@ -155,6 +155,10 @@ class UserDetail(BaseModel):
             "PENDING < ASSOCIATE < REGULAR < ACTIVE"
         )
     )
+    graduation_status: str = Field(
+        description=("Graduation status of the user. One of [학부생, 졸업생, 휴학생, 대학원생]"),
+        examples=["학부생", "졸업생", "휴학생", "대학원생"],
+    )
     is_admin: bool = Field(
         description="Whether user has admin privileges for user/project management"
     )
