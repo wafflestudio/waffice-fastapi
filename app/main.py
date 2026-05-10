@@ -1,4 +1,5 @@
 # app/main.py
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -12,7 +13,10 @@ from app.config.secrets import APP_SECRET_KEY, ENV, FRONTEND_ORIGIN
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    config.run_migrations()
+    # Run migrations in a thread pool to avoid blocking the event loop
+    # in async context
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, config.run_migrations)
     yield
 
 
@@ -41,9 +45,11 @@ app.add_middleware(
 )
 
 # CSRF protection - requires X-Requested-With header for state-changing requests
-from app.middleware import CSRFMiddleware
+# Disabled in local/dev environments for easier testing in /docs
+if ENV not in ["local", "dev"]:
+    from app.middleware import CSRFMiddleware
 
-app.add_middleware(CSRFMiddleware)
+    app.add_middleware(CSRFMiddleware)
 
 # Google OAuth 에서 state, code 저장할 세션
 app.add_middleware(SessionMiddleware, secret_key=APP_SECRET_KEY)
