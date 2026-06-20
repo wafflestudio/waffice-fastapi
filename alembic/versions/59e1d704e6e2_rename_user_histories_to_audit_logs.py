@@ -25,12 +25,13 @@ def upgrade() -> None:
 
     if "audit_logs" not in existing_tables:
         op.rename_table("user_histories", "audit_logs")
-        op.drop_index("idx_histories_user_id", table_name="audit_logs")
-        op.drop_index("idx_histories_action", table_name="audit_logs")
-        op.drop_index("idx_histories_created_at", table_name="audit_logs")
+        # Create new indexes before dropping old ones (FK constraint requires index)
         op.create_index("idx_audit_logs_user_id", "audit_logs", ["user_id"])
         op.create_index("idx_audit_logs_action", "audit_logs", ["action"])
         op.create_index("idx_audit_logs_created_at", "audit_logs", ["created_at"])
+        op.drop_index("idx_histories_user_id", table_name="audit_logs")
+        op.drop_index("idx_histories_action", table_name="audit_logs")
+        op.drop_index("idx_histories_created_at", table_name="audit_logs")
 
     if "user_histories" in existing_tables:
         op.drop_table("user_histories")
