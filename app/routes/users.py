@@ -489,7 +489,9 @@ async def update_user_activity(
     if not activity or activity.user_id != user_id:
         raise NotFoundError("Activity not found")
 
-    updated = ActivityService.update(db, activity, **request.model_dump(exclude_unset=True))
+    updated = ActivityService.update(
+        db, activity, **request.model_dump(exclude_unset=True)
+    )
     return Response(ok=True, data=updated)
 
 

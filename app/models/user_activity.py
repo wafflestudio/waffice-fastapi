@@ -1,6 +1,15 @@
 import time
 
-from sqlalchemy import BigInteger, Column, Enum, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import (
+    BigInteger,
+    Column,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.orm import relationship
 
 from app.config.database import Base

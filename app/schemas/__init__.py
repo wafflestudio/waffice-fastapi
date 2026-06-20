@@ -1,4 +1,8 @@
-from app.schemas.activity import ActivityCreateRequest, ActivityDetail, ActivityUpdateRequest
+from app.schemas.activity import (
+    ActivityCreateRequest,
+    ActivityDetail,
+    ActivityUpdateRequest,
+)
 from app.schemas.audit_log import AuditLogDetail
 from app.schemas.auth import (
     AuthResult,
