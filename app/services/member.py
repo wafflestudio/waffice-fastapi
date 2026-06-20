@@ -5,7 +5,7 @@ from datetime import date
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
-from app.models import HistoryAction, MemberRole, ProjectMember
+from app.models import AuditAction, MemberRole, ProjectMember
 
 
 class LastLeaderError(Exception):
@@ -115,13 +115,13 @@ class MemberService:
 
         # Log history
         from app.models import Project
-        from app.services.history import HistoryService
+        from app.services.audit_log import AuditLogService
 
         project = db.query(Project).filter(Project.id == project_id).first()
-        HistoryService.log(
+        AuditLogService.log(
             db=db,
             user_id=user_id,
-            action=HistoryAction.PROJECT_JOINED,
+            action=AuditAction.PROJECT_JOINED,
             payload={
                 "project_id": project_id,
                 "project_name": project.name if project else "Unknown",
@@ -159,13 +159,13 @@ class MemberService:
 
         # Log history
         from app.models import Project
-        from app.services.history import HistoryService
+        from app.services.audit_log import AuditLogService
 
         project = db.query(Project).filter(Project.id == member.project_id).first()
-        HistoryService.log(
+        AuditLogService.log(
             db=db,
             user_id=member.user_id,
-            action=HistoryAction.PROJECT_LEFT,
+            action=AuditAction.PROJECT_LEFT,
             payload={
                 "project_id": member.project_id,
                 "project_name": project.name if project else "Unknown",
@@ -216,12 +216,12 @@ class MemberService:
         db.flush()
 
         # Log history
-        from app.services.history import HistoryService
+        from app.services.audit_log import AuditLogService
 
-        HistoryService.log(
+        AuditLogService.log(
             db=db,
             user_id=member.user_id,
-            action=HistoryAction.PROJECT_ROLE_CHANGED,
+            action=AuditAction.PROJECT_ROLE_CHANGED,
             payload={
                 "project_id": member.project_id,
                 "from_role": old_role.value,
