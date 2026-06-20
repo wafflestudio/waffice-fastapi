@@ -32,8 +32,8 @@ def upgrade() -> None:
         op.drop_index("idx_histories_user_id", table_name="audit_logs")
         op.drop_index("idx_histories_action", table_name="audit_logs")
         op.drop_index("idx_histories_created_at", table_name="audit_logs")
-
-    if "user_histories" in existing_tables:
+    elif "user_histories" in existing_tables:
+        # audit_logs already exists separately — drop the leftover user_histories
         op.drop_table("user_histories")
 
 
