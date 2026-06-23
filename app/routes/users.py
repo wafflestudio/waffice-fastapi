@@ -457,6 +457,9 @@ async def create_user_activity(
     if not user:
         raise NotFoundError("User not found")
 
+    if not ProjectService.get(db, request.project_id):
+        raise NotFoundError("Project not found")
+
     activity = ActivityService.create(db, user_id, **request.model_dump())
     return Response(ok=True, data=activity)
 
@@ -488,9 +491,11 @@ async def update_user_activity(
     if not activity or activity.user_id != user_id:
         raise NotFoundError("Activity not found")
 
-    updated = ActivityService.update(
-        db, activity, **request.model_dump(exclude_unset=True)
-    )
+    update_data = request.model_dump(exclude_unset=True)
+    if "project_id" in update_data and not ProjectService.get(db, update_data["project_id"]):
+        raise NotFoundError("Project not found")
+
+    updated = ActivityService.update(db, activity, **update_data)
     return Response(ok=True, data=updated)
 
 

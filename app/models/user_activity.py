@@ -23,8 +23,10 @@ class UserActivity(Base):
     user_id = Column(
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
+    project_id = Column(
+        Integer, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True
+    )
 
-    team_name = Column(String(200), nullable=False)
     position = Column(String(100), nullable=False)
     start_date = Column(BigInteger, nullable=False)
     end_date = Column(BigInteger, nullable=True)
@@ -40,5 +42,13 @@ class UserActivity(Base):
     )
 
     user = relationship("User", back_populates="activities")
+    project = relationship("Project")
 
-    __table_args__ = (Index("idx_activities_user_id", "user_id"),)
+    @property
+    def project_name(self) -> str | None:
+        return self.project.name if self.project else None
+
+    __table_args__ = (
+        Index("idx_activities_user_id", "user_id"),
+        Index("idx_activities_project_id", "project_id"),
+    )
