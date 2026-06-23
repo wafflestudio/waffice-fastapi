@@ -19,7 +19,7 @@ class AuditLogService:
             user_id=user_id, action=action, payload=payload, actor_id=actor_id
         )
         db.add(entry)
-        db.commit()
+        db.flush()
         db.refresh(entry)
         return entry
 

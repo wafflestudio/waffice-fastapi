@@ -363,9 +363,7 @@ async def approve_user(
         raise InvalidQualificationError("Cannot approve user to pending status")
 
     old_qual = user.qualification
-    user = UserService.update(db, user, qualification=request.qualification)
 
-    # Log qualification change
     AuditLogService.log(
         db=db,
         user_id=user.id,
@@ -374,6 +372,7 @@ async def approve_user(
         actor_id=admin.id,
     )
 
+    user = UserService.update(db, user, qualification=request.qualification)
     return Response(ok=True, data=user)
 
 
