@@ -38,3 +38,9 @@ class GraduationStatus(str, Enum):
 class ActivityStatus(str, Enum):
     ACTIVE = "active"
     INACTIVE = "inactive"
+
+
+class NotificationChannel(str, Enum):
+    EMAIL = "email"
+    SMS = "sms"
+    BOTH = "both"

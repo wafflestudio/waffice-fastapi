@@ -13,7 +13,7 @@ from sqlalchemy.orm import relationship
 
 from app.config.database import Base
 from app.models.base import SoftDeleteMixin, TimestampMixin
-from app.models.enums import GraduationStatus, Qualification
+from app.models.enums import GraduationStatus, NotificationChannel, Qualification
 
 
 class User(Base, TimestampMixin, SoftDeleteMixin):
@@ -52,6 +52,14 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     # Academic / professional info
     student_id = Column(String(50), nullable=True)
     department = Column(String(100), nullable=True)
+
+    # Notification preferences
+    contact_email = Column(String(255), nullable=True)
+    notification_channel = Column(
+        Enum(NotificationChannel),
+        nullable=False,
+        default=NotificationChannel.EMAIL,
+    )
 
     # Relationships
     audit_logs = relationship(

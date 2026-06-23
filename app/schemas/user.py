@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 
-from app.models.enums import GraduationStatus, Qualification
+from app.models.enums import GraduationStatus, NotificationChannel, Qualification
 from app.schemas.common import Website
 
 
@@ -98,6 +98,15 @@ class ProfileUpdateRequest(BaseModel):
         description="Department or major",
         max_length=100,
     )
+    contact_email: str | None = Field(
+        default=None,
+        description="Preferred contact email for notifications (defaults to login email)",
+        max_length=255,
+    )
+    notification_channel: NotificationChannel | None = Field(
+        default=None,
+        description="Preferred notification channel: email, sms, or both",
+    )
 
 
 class UserUpdateRequest(ProfileUpdateRequest):
@@ -190,6 +199,8 @@ class UserDetail(BaseModel):
     websites: list[Website] | None = Field(description="External websites or links")
     student_id: str | None = Field(description="Student ID (e.g., 2021-14205)")
     department: str | None = Field(description="Department or major")
+    contact_email: str | None = Field(description="Preferred contact email for notifications")
+    notification_channel: NotificationChannel = Field(description="Preferred notification channel")
     created_at: int = Field(
         description="Unix timestamp when user was created",
         examples=[1706745600],
