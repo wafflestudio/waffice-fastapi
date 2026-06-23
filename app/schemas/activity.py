@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.models.enums import ActivityStatus
 
@@ -23,6 +23,13 @@ class ActivityUpdateRequest(BaseModel):
     end_date: int | None = Field(default=None)
     status: ActivityStatus | None = Field(default=None)
     description: str | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def reject_null_on_required_fields(self):
+        for field in ("team_name", "position", "start_date", "status"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null")
+        return self
 
 
 class ActivityDetail(BaseModel):
