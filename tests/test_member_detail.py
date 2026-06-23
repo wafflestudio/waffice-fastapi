@@ -426,3 +426,35 @@ class TestProfileUpdate:
             headers={"Authorization": f"Bearer {pending_token}"},
         )
         assert response.status_code == 403
+
+    def test_user_can_update_notification_fields(
+        self,
+        client: TestClient,
+        regular_token: str,
+    ):
+        """User can update contact_email and notification_channel."""
+        response = client.patch(
+            "/users/me",
+            json={
+                "contact_email": "contact@example.com",
+                "notification_channel": "sms",
+            },
+            headers={"Authorization": f"Bearer {regular_token}"},
+        )
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert data["contact_email"] == "contact@example.com"
+        assert data["notification_channel"] == "sms"
+
+    def test_invalid_notification_channel_returns_422(
+        self,
+        client: TestClient,
+        regular_token: str,
+    ):
+        """Invalid notification_channel value returns 422."""
+        response = client.patch(
+            "/users/me",
+            json={"notification_channel": "kakao"},
+            headers={"Authorization": f"Bearer {regular_token}"},
+        )
+        assert response.status_code == 422
