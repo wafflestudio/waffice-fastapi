@@ -199,8 +199,12 @@ class UserDetail(BaseModel):
     websites: list[Website] | None = Field(description="External websites or links")
     student_id: str | None = Field(description="Student ID (e.g., 2021-14205)")
     department: str | None = Field(description="Department or major")
-    contact_email: str | None = Field(description="Preferred contact email for notifications")
-    notification_channel: NotificationChannel = Field(description="Preferred notification channel")
+    contact_email: str | None = Field(
+        description="Preferred contact email for notifications"
+    )
+    notification_channel: NotificationChannel = Field(
+        description="Preferred notification channel"
+    )
     created_at: int = Field(
         description="Unix timestamp when user was created",
         examples=[1706745600],

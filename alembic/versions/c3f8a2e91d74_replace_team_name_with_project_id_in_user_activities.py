@@ -38,7 +38,9 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.add_column(
         "user_activities",
-        sa.Column("team_name", sa.String(length=200), nullable=False, server_default=""),
+        sa.Column(
+            "team_name", sa.String(length=200), nullable=False, server_default=""
+        ),
     )
     op.drop_index("idx_activities_project_id", table_name="user_activities")
     op.drop_constraint(

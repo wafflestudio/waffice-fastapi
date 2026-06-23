@@ -492,7 +492,9 @@ async def update_user_activity(
         raise NotFoundError("Activity not found")
 
     update_data = request.model_dump(exclude_unset=True)
-    if "project_id" in update_data and not ProjectService.get(db, update_data["project_id"]):
+    if "project_id" in update_data and not ProjectService.get(
+        db, update_data["project_id"]
+    ):
         raise NotFoundError("Project not found")
 
     updated = ActivityService.update(db, activity, **update_data)
