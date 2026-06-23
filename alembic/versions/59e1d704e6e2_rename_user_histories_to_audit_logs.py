@@ -39,3 +39,9 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.rename_table("audit_logs", "user_histories")
+    op.create_index("idx_histories_user_id", "user_histories", ["user_id"])
+    op.create_index("idx_histories_action", "user_histories", ["action"])
+    op.create_index("idx_histories_created_at", "user_histories", ["created_at"])
+    op.drop_index("idx_audit_logs_user_id", table_name="user_histories")
+    op.drop_index("idx_audit_logs_action", table_name="user_histories")
+    op.drop_index("idx_audit_logs_created_at", table_name="user_histories")
