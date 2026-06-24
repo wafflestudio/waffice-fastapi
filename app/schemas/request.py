@@ -2,7 +2,7 @@ from enum import Enum
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.models.enums import ActivityStatus, ApprovalStatus
+from app.models.enums import ActivityStatus, ApprovalStatus, MemberRole
 from app.schemas.project import ProjectBrief
 from app.schemas.user import UserBrief
 
@@ -35,7 +35,7 @@ class RequestKindFilter(str, Enum):
 
 class ActivityPayload(BaseModel):
     project_id: int
-    position: str = Field(max_length=100)
+    position: MemberRole
     start_date: int
     end_date: int | None = None
     status: ActivityStatus = ActivityStatus.ACTIVE
@@ -43,7 +43,7 @@ class ActivityPayload(BaseModel):
 
 
 class ActivityPatchPayload(BaseModel):
-    position: str | None = Field(default=None, max_length=100)
+    position: MemberRole | None = None
     start_date: int | None = None
     end_date: int | None = None
     status: ActivityStatus | None = None
@@ -78,7 +78,7 @@ class ApprovalRequestCreateRequest(BaseModel):
     activity_id: int | None = None
     after: ActivityPayload | None = None
     reason: str = Field(min_length=1, max_length=2000)
-    approver_ids: list[int] = Field(default_factory=list)
+    reviewer_ids: list[int] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_request_body(self):
@@ -100,7 +100,7 @@ class ApprovalRequestCreateRequest(BaseModel):
 class ApprovalRequestUpdateRequest(BaseModel):
     reason: str | None = Field(default=None, min_length=1, max_length=2000)
     after: ActivityPayload | None = None
-    approver_ids: list[int] | None = None
+    reviewer_ids: list[int] | None = None
 
 
 class ApprovalReviewRequest(BaseModel):
@@ -116,7 +116,7 @@ class ApprovalRejectRequest(BaseModel):
     comment: str = Field(min_length=1, max_length=2000)
 
 
-class ApproverDetail(BaseModel):
+class RequestReviewerDetail(BaseModel):
     id: int
     user: UserBrief
     project_id: int | None
@@ -127,7 +127,6 @@ class ApproverDetail(BaseModel):
 class ApprovalRequestListItem(BaseModel):
     id: int
     requester: UserBrief
-    requester_generation: str
     request_kind: RequestKind
     status: ApprovalStatus
     created_at: int
@@ -137,10 +136,9 @@ class ApprovalRequestListItem(BaseModel):
 class ApprovalRequestDetail(BaseModel):
     id: int
     requester: UserBrief
-    requester_generation: str
     project: ProjectBrief | None
-    reviewer: UserBrief | None
-    approvers: list[ApproverDetail]
+    reviewed_by: UserBrief | None
+    reviewers: list[RequestReviewerDetail]
     status: ApprovalStatus
     body: ApprovalRequestBody
     review_comment: str | None

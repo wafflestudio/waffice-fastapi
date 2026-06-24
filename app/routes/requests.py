@@ -14,11 +14,11 @@ from app.schemas import (
     ApprovalRequestUpdateRequest,
     ApprovalReviewRequest,
     ApprovalReviewWithEditsRequest,
-    ApproverDetail,
     CursorPage,
     ProjectBrief,
     RequestKind,
     RequestKindFilter,
+    RequestReviewerDetail,
     RequestScope,
     RequestStatusFilter,
     Response,
@@ -34,7 +34,6 @@ def to_list_item(approval_request) -> ApprovalRequestListItem:
     return ApprovalRequestListItem(
         id=approval_request.id,
         requester=UserBrief.model_validate(approval_request.requester),
-        requester_generation=approval_request.requester.generation,
         request_kind=RequestKind(body.request_kind),
         status=approval_request.status,
         created_at=approval_request.created_at,
@@ -46,21 +45,20 @@ def to_detail(approval_request) -> ApprovalRequestDetail:
     return ApprovalRequestDetail(
         id=approval_request.id,
         requester=UserBrief.model_validate(approval_request.requester),
-        requester_generation=approval_request.requester.generation,
         project=(
             ProjectBrief.model_validate(approval_request.project)
             if approval_request.project
             else None
         ),
-        reviewer=(
-            UserBrief.model_validate(approval_request.reviewer)
-            if approval_request.reviewer
+        reviewed_by=(
+            UserBrief.model_validate(approval_request.reviewed_by)
+            if approval_request.reviewed_by
             else None
         ),
-        approvers=[
-            ApproverDetail.model_validate(approver)
-            for approver in approval_request.approvers
-            if approver.deleted_at is None
+        reviewers=[
+            RequestReviewerDetail.model_validate(reviewer)
+            for reviewer in approval_request.reviewers
+            if reviewer.deleted_at is None
         ],
         status=approval_request.status,
         body=ApprovalRequestBody.model_validate(approval_request.body),
@@ -105,7 +103,6 @@ async def list_requests(
     scope: RequestScope = Query(default=RequestScope.RECEIVED),
     status: RequestStatusFilter = Query(default=RequestStatusFilter.PENDING),
     request_kind: RequestKindFilter = Query(default=RequestKindFilter.ALL),
-    q: str | None = Query(default=None, description="Requester name/generation search"),
     cursor: int | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     current_user: User = Depends(require_regular),
@@ -117,7 +114,6 @@ async def list_requests(
         scope=scope,
         status=status,
         request_kind=request_kind,
-        q=q,
         cursor=cursor,
         limit=limit,
     )

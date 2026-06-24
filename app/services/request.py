@@ -9,10 +9,10 @@ from app.exceptions import AppError, ForbiddenError, NotFoundError
 from app.models import (
     ApprovalRequest,
     ApprovalStatus,
-    Approver,
     MemberRole,
     Project,
     ProjectMember,
+    RequestReviewer,
     User,
     UserActivity,
 )
@@ -56,8 +56,8 @@ class RequestService:
             .options(
                 joinedload(ApprovalRequest.requester),
                 joinedload(ApprovalRequest.project),
-                joinedload(ApprovalRequest.reviewer),
-                joinedload(ApprovalRequest.approvers).joinedload(Approver.user),
+                joinedload(ApprovalRequest.reviewed_by),
+                joinedload(ApprovalRequest.reviewers).joinedload(RequestReviewer.user),
             )
             .filter(
                 and_(
@@ -95,19 +95,19 @@ class RequestService:
         RequestService.ensure_project_exists(db, data["project_id"])
 
     @staticmethod
-    def replace_approvers(
+    def replace_reviewers(
         db: Session,
         approval_request: ApprovalRequest,
-        approver_ids: list[int],
+        reviewer_ids: list[int],
     ) -> None:
-        approval_request.approvers.clear()
+        approval_request.reviewers.clear()
         seen: set[int] = set()
-        for user_id in approver_ids:
+        for user_id in reviewer_ids:
             if user_id in seen:
                 continue
             RequestService.ensure_user_exists(db, user_id)
-            approval_request.approvers.append(
-                Approver(
+            approval_request.reviewers.append(
+                RequestReviewer(
                     user_id=user_id,
                     project_id=approval_request.project_id,
                 )
@@ -176,7 +176,7 @@ class RequestService:
         db.add(approval_request)
         db.flush()
 
-        RequestService.replace_approvers(db, approval_request, request.approver_ids)
+        RequestService.replace_reviewers(db, approval_request, request.reviewer_ids)
         db.commit()
         return RequestService.get(db, approval_request.id)
 
@@ -187,8 +187,8 @@ class RequestService:
             .options(
                 joinedload(ApprovalRequest.requester),
                 joinedload(ApprovalRequest.project),
-                joinedload(ApprovalRequest.reviewer),
-                joinedload(ApprovalRequest.approvers).joinedload(Approver.user),
+                joinedload(ApprovalRequest.reviewed_by),
+                joinedload(ApprovalRequest.reviewers).joinedload(RequestReviewer.user),
             )
             .filter(ApprovalRequest.deleted_at.is_(None))
         )
@@ -203,12 +203,12 @@ class RequestService:
             )
         )
         explicit_approver = (
-            db.query(Approver.id)
+            db.query(RequestReviewer.id)
             .filter(
                 and_(
-                    Approver.approval_request_id == ApprovalRequest.id,
-                    Approver.user_id == user.id,
-                    Approver.deleted_at.is_(None),
+                    RequestReviewer.approval_request_id == ApprovalRequest.id,
+                    RequestReviewer.user_id == user.id,
+                    RequestReviewer.deleted_at.is_(None),
                 )
             )
             .exists()
@@ -226,7 +226,6 @@ class RequestService:
         scope: RequestScope,
         status: RequestStatusFilter,
         request_kind: RequestKindFilter,
-        q: str | None,
         cursor: int | None,
         limit: int,
     ) -> tuple[list[ApprovalRequest], int | None]:
@@ -256,10 +255,6 @@ class RequestService:
                 ApprovalRequest.body["request_kind"].as_string()
                 == mapped_request_kind.value
             )
-
-        if q:
-            like = f"%{q}%"
-            query = query.filter(or_(User.name.like(like), User.generation.like(like)))
 
         if cursor is not None:
             query = query.filter(ApprovalRequest.created_at < cursor)
@@ -308,12 +303,12 @@ class RequestService:
                 return True
 
         return (
-            db.query(Approver)
+            db.query(RequestReviewer)
             .filter(
                 and_(
-                    Approver.approval_request_id == approval_request.id,
-                    Approver.user_id == actor.id,
-                    Approver.deleted_at.is_(None),
+                    RequestReviewer.approval_request_id == approval_request.id,
+                    RequestReviewer.user_id == actor.id,
+                    RequestReviewer.deleted_at.is_(None),
                 )
             )
             .first()
@@ -375,8 +370,8 @@ class RequestService:
         if request.reason is not None:
             body["reason"] = request.reason
 
-        if request.approver_ids is not None:
-            RequestService.replace_approvers(db, approval_request, request.approver_ids)
+        if request.reviewer_ids is not None:
+            RequestService.replace_reviewers(db, approval_request, request.reviewer_ids)
 
         approval_request.body = body
         db.commit()
@@ -549,7 +544,7 @@ class RequestService:
         body: dict,
     ) -> None:
         approval_request.status = status
-        approval_request.reviewer_id = actor.id
+        approval_request.reviewed_by_id = actor.id
         approval_request.reviewed_at = int(time.time())
         approval_request.review_comment = comment
         approval_request.body = body

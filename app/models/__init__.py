@@ -10,7 +10,7 @@ from app.models.enums import (
 )
 from app.models.project import Project
 from app.models.project_member import ProjectMember
-from app.models.request import ApprovalRequest, Approver
+from app.models.request import ApprovalRequest, RequestReviewer
 from app.models.user import User
 from app.models.user_activity import UserActivity
 
@@ -28,5 +28,5 @@ __all__ = [
     "Project",
     "ProjectMember",
     "ApprovalRequest",
-    "Approver",
+    "RequestReviewer",
 ]

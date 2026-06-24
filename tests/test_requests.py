@@ -22,7 +22,7 @@ def create_project_with_leader(db: Session, leader: User):
         project_id=project.id,
         user_id=leader.id,
         role=MemberRole.LEADER,
-        position="Lead",
+        position=MemberRole.LEADER.value,
         actor_id=leader.id,
     )
     db.commit()
@@ -33,7 +33,7 @@ def create_activity(db: Session, user: User, project_id: int | None = None):
     activity = UserActivity(
         user_id=user.id,
         project_id=project_id,
-        position="부원",
+        position=MemberRole.MEMBER.value,
         start_date=1,
         end_date=2,
         status=ActivityStatus.ACTIVE,
@@ -53,7 +53,7 @@ def request_payload(project_id: int, user_id: int, *, kind: str = "create") -> d
     if kind != "delete":
         payload["after"] = {
             "project_id": project_id,
-            "position": "팀장",
+            "position": "leader",
             "start_date": 10,
             "end_date": 20,
             "status": "active",
@@ -107,7 +107,7 @@ class TestActivityApprovalRequests:
         assert response.status_code == 200
         body = response.json()["data"]["body"]
         assert body["activity_id"] == activity.id
-        assert body["before"]["position"] == "부원"
+        assert body["before"]["position"] == "member"
         assert body["before"]["project_id"] == project.id
 
     def test_update_request_cannot_change_activity_project(
@@ -158,7 +158,7 @@ class TestActivityApprovalRequests:
             json={
                 "after": {
                     "project_id": other_project.id,
-                    "position": "팀장",
+                    "position": "leader",
                     "start_date": 10,
                     "end_date": 20,
                     "status": "active",
@@ -241,10 +241,10 @@ class TestActivityApprovalRequests:
         assert response.status_code == 200
         data = response.json()["data"]
         assert data["status"] == "approved"
-        assert data["body"]["review"]["final"]["position"] == "팀장"
+        assert data["body"]["review"]["final"]["position"] == "leader"
         activities = db.query(UserActivity).filter_by(user_id=regular_user.id).all()
         assert len(activities) == 1
-        assert activities[0].position == "팀장"
+        assert activities[0].position == "leader"
 
     def test_approve_with_edits_updates_activity_and_stores_diff(
         self,
@@ -270,17 +270,17 @@ class TestActivityApprovalRequests:
             f"/requests/{request_id}/approve-with-edits",
             json={
                 "comment": "기간만 조정합니다",
-                "reviewer_patch": {"position": "리드", "end_date": 30},
+                "reviewer_patch": {"position": "member", "end_date": 30},
             },
             headers=auth(active_token),
         )
 
         assert response.status_code == 200
         data = response.json()["data"]
-        assert data["body"]["review"]["final"]["position"] == "리드"
-        assert data["body"]["review"]["diff"]["position"]["requested"] == "팀장"
+        assert data["body"]["review"]["final"]["position"] == "member"
+        assert data["body"]["review"]["diff"]["position"]["requested"] == "leader"
         db.refresh(activity)
-        assert activity.position == "리드"
+        assert activity.position == "member"
         assert activity.end_date == 30
 
     def test_reject_requires_comment_and_does_not_change_activity(
@@ -319,7 +319,7 @@ class TestActivityApprovalRequests:
         assert response.status_code == 200
         assert response.json()["data"]["status"] == "rejected"
         db.refresh(activity)
-        assert activity.position == "부원"
+        assert activity.position == "member"
 
     def test_approve_delete_request_deletes_activity(
         self,
@@ -343,7 +343,7 @@ class TestActivityApprovalRequests:
 
         assert create_response.status_code == 200
         request_data = create_response.json()["data"]
-        assert request_data["body"]["before"]["position"] == "부원"
+        assert request_data["body"]["before"]["position"] == "member"
         assert request_data["body"]["after"] is None
 
         response = client.post(
@@ -408,10 +408,10 @@ class TestActivityApprovalRequests:
             json={
                 "request_kind": "create",
                 "target_user_id": regular_user.id,
-                "approver_ids": [active_user.id],
+                "reviewer_ids": [active_user.id],
                 "after": {
                     "project_id": project.id,
-                    "position": "부원",
+                    "position": "member",
                     "start_date": 10,
                     "end_date": None,
                     "status": "active",

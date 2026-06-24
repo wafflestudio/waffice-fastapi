@@ -17,7 +17,7 @@ class ApprovalRequest(Base, TimestampMixin, SoftDeleteMixin):
     requester_id = Column(
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    reviewer_id = Column(
+    reviewed_by_id = Column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
@@ -28,26 +28,26 @@ class ApprovalRequest(Base, TimestampMixin, SoftDeleteMixin):
     review_comment = Column(Text, nullable=True)
     reviewed_at = Column(BigInteger, nullable=True)
 
-    approvers = relationship(
-        "Approver",
+    reviewers = relationship(
+        "RequestReviewer",
         back_populates="approval_request",
         cascade="all, delete-orphan",
     )
     project = relationship("Project", foreign_keys=[project_id])
     requester = relationship("User", foreign_keys=[requester_id])
-    reviewer = relationship("User", foreign_keys=[reviewer_id])
+    reviewed_by = relationship("User", foreign_keys=[reviewed_by_id])
 
     __table_args__ = (
         Index("idx_approval_requests_status", "status"),
         Index("idx_approval_requests_created_at", "created_at"),
         Index("idx_approval_requests_project_id", "project_id"),
         Index("idx_approval_requests_requester_id", "requester_id"),
-        Index("idx_approval_requests_reviewer_id", "reviewer_id"),
+        Index("idx_approval_requests_reviewed_by_id", "reviewed_by_id"),
     )
 
 
-class Approver(Base, TimestampMixin, SoftDeleteMixin):
-    __tablename__ = "approvers"
+class RequestReviewer(Base, TimestampMixin, SoftDeleteMixin):
+    __tablename__ = "request_reviewers"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
 
@@ -63,18 +63,18 @@ class Approver(Base, TimestampMixin, SoftDeleteMixin):
 
     approval_request = relationship(
         "ApprovalRequest",
-        back_populates="approvers",
+        back_populates="reviewers",
         foreign_keys=[approval_request_id],
     )
     user = relationship("User", foreign_keys=[user_id])
     project = relationship("Project", foreign_keys=[project_id])
 
     __table_args__ = (
-        Index("idx_approvers_approval_request_id", "approval_request_id"),
-        Index("idx_approvers_user_id", "user_id"),
-        Index("idx_approvers_project_id", "project_id"),
+        Index("idx_request_reviewers_approval_request_id", "approval_request_id"),
+        Index("idx_request_reviewers_user_id", "user_id"),
+        Index("idx_request_reviewers_project_id", "project_id"),
         Index(
-            "idx_approvers_request_user",
+            "idx_request_reviewers_request_user",
             "approval_request_id",
             "user_id",
             unique=True,
