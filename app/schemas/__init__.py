@@ -23,7 +23,6 @@ from app.schemas.project import (
     ProjectUpdateRequest,
 )
 from app.schemas.request import (
-    ActivityKind,
     ActivityPatchPayload,
     ActivityPayload,
     ApprovalRejectRequest,
@@ -81,7 +80,6 @@ __all__ = [
     "ActivityUpdateRequest",
     "ActivityDetail",
     "RequestKind",
-    "ActivityKind",
     "RequestScope",
     "RequestStatusFilter",
     "RequestKindFilter",

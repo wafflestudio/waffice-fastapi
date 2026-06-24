@@ -1,4 +1,3 @@
-import time
 from datetime import date
 
 from fastapi.testclient import TestClient
@@ -47,13 +46,7 @@ def create_activity(db: Session, user: User, project_id: int | None = None):
 
 def request_payload(project_id: int, user_id: int, *, kind: str = "create") -> dict:
     payload = {
-        "action_type": {
-            "create": "history_create",
-            "update": "history_update",
-            "delete": "history_delete",
-        }[kind],
         "request_kind": kind,
-        "activity_kind": "project",
         "target_user_id": user_id,
         "reason": "활동 이력 반영 요청",
     }
@@ -394,31 +387,37 @@ class TestActivityApprovalRequests:
         assert response.status_code == 400
         assert response.json()["error"] == "REQUEST_ALREADY_PROCESSED"
 
-    def test_executive_request_visible_to_explicit_approver(
+    def test_project_request_visible_to_explicit_approver(
         self,
         client: TestClient,
+        db: Session,
         regular_user: User,
         regular_token: str,
         active_user: User,
         active_token: str,
     ):
+        project = ProjectService.create(
+            db,
+            name="Explicit Approver Project",
+            started_at=date.today(),
+        )
+        db.commit()
+
         response = client.post(
             "/requests",
             json={
-                "action_type": "history_create",
                 "request_kind": "create",
-                "activity_kind": "executive",
                 "target_user_id": regular_user.id,
                 "approver_ids": [active_user.id],
                 "after": {
-                    "project_id": None,
-                    "position": "집행부원",
-                    "start_date": int(time.time()),
+                    "project_id": project.id,
+                    "position": "부원",
+                    "start_date": 10,
                     "end_date": None,
                     "status": "active",
                     "description": None,
                 },
-                "reason": "운영 활동 추가",
+                "reason": "프로젝트 활동 추가",
             },
             headers=auth(regular_token),
         )

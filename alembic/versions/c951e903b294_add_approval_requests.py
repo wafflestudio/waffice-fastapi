@@ -30,16 +30,6 @@ def upgrade() -> None:
             sa.Enum("PENDING", "APPROVED", "REJECTED", name="approvalstatus"),
             nullable=False,
         ),
-        sa.Column(
-            "action_type",
-            sa.Enum(
-                "USER_JOIN",
-                "HISTORY_CREATE",
-                "HISTORY_UPDATE",
-                name="approvalactiontype",
-            ),
-            nullable=False,
-        ),
         sa.Column("body", sa.Text(), nullable=True),
         sa.Column("created_at", sa.BigInteger(), nullable=False),
         sa.Column("updated_at", sa.BigInteger(), nullable=False),
@@ -47,12 +37,6 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["project_id"], ["projects.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["requester_id"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index(
-        "idx_approval_requests_action_type",
-        "approval_requests",
-        ["action_type"],
-        unique=False,
     )
     op.create_index(
         "idx_approval_requests_created_at",
@@ -107,5 +91,4 @@ def downgrade() -> None:
 
     op.drop_index("idx_approval_requests_status", table_name="approval_requests")
     op.drop_index("idx_approval_requests_created_at", table_name="approval_requests")
-    op.drop_index("idx_approval_requests_action_type", table_name="approval_requests")
     op.drop_table("approval_requests")

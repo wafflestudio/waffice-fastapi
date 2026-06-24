@@ -3,7 +3,7 @@ from sqlalchemy.orm import relationship
 
 from app.config.database import Base
 from app.models.base import SoftDeleteMixin, TimestampMixin
-from app.models.enums import ApprovalActionType, ApprovalStatus
+from app.models.enums import ApprovalStatus
 
 
 class ApprovalRequest(Base, TimestampMixin, SoftDeleteMixin):
@@ -24,7 +24,6 @@ class ApprovalRequest(Base, TimestampMixin, SoftDeleteMixin):
     status = Column(
         Enum(ApprovalStatus), nullable=False, default=ApprovalStatus.PENDING
     )
-    action_type = Column(Enum(ApprovalActionType), nullable=False)
     body = Column(JSON, nullable=False)
     review_comment = Column(Text, nullable=True)
     reviewed_at = Column(BigInteger, nullable=True)
@@ -41,7 +40,6 @@ class ApprovalRequest(Base, TimestampMixin, SoftDeleteMixin):
     __table_args__ = (
         Index("idx_approval_requests_status", "status"),
         Index("idx_approval_requests_created_at", "created_at"),
-        Index("idx_approval_requests_action_type", "action_type"),
         Index("idx_approval_requests_project_id", "project_id"),
         Index("idx_approval_requests_requester_id", "requester_id"),
         Index("idx_approval_requests_reviewer_id", "reviewer_id"),

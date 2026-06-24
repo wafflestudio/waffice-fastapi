@@ -20,11 +20,6 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute(
-        "ALTER TABLE approval_requests MODIFY action_type "
-        "ENUM('USER_JOIN','HISTORY_CREATE','HISTORY_UPDATE','HISTORY_DELETE') "
-        "NOT NULL"
-    )
     op.drop_constraint(
         "approval_requests_ibfk_1", "approval_requests", type_="foreignkey"
     )
@@ -104,10 +99,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute(
-        "UPDATE approval_requests SET action_type = 'HISTORY_UPDATE' "
-        "WHERE action_type = 'HISTORY_DELETE'"
-    )
     op.drop_constraint(
         "fk_approvers_project_id_projects", "approvers", type_="foreignkey"
     )
@@ -163,7 +154,3 @@ def downgrade() -> None:
     op.drop_column("approval_requests", "reviewed_at")
     op.drop_column("approval_requests", "review_comment")
     op.drop_column("approval_requests", "reviewer_id")
-    op.execute(
-        "ALTER TABLE approval_requests MODIFY action_type "
-        "ENUM('USER_JOIN','HISTORY_CREATE','HISTORY_UPDATE') NOT NULL"
-    )

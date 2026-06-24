@@ -1,7 +1,6 @@
 from app.models.audit_log import AuditLog
 from app.models.enums import (
     ActivityStatus,
-    ApprovalActionType,
     ApprovalStatus,
     AuditAction,
     GraduationStatus,
@@ -23,7 +22,6 @@ __all__ = [
     "ProjectStatus",
     "MemberRole",
     "ApprovalStatus",
-    "ApprovalActionType",
     "User",
     "AuditLog",
     "UserActivity",

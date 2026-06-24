@@ -50,10 +50,3 @@ class ApprovalStatus(str, Enum):
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
-
-
-class ApprovalActionType(str, Enum):
-    USER_JOIN = "user_join"
-    HISTORY_CREATE = "history_create"
-    HISTORY_UPDATE = "history_update"
-    HISTORY_DELETE = "history_delete"

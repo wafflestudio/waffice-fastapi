@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.exceptions import AppError, ForbiddenError, NotFoundError
 from app.models import (
-    ApprovalActionType,
     ApprovalRequest,
     ApprovalStatus,
     Approver,
@@ -18,7 +17,6 @@ from app.models import (
     UserActivity,
 )
 from app.schemas.request import (
-    ActivityKind,
     ApprovalRequestCreateRequest,
     ApprovalRequestUpdateRequest,
     ApprovalReviewWithEditsRequest,
@@ -94,9 +92,7 @@ class RequestService:
 
     @staticmethod
     def validate_activity_payload(db: Session, data: dict) -> None:
-        project_id = data.get("project_id")
-        if project_id is not None:
-            RequestService.ensure_project_exists(db, project_id)
+        RequestService.ensure_project_exists(db, data["project_id"])
 
     @staticmethod
     def replace_approvers(
@@ -145,21 +141,11 @@ class RequestService:
             if not activity or activity.user_id != target_user_id:
                 raise NotFoundError("Activity not found")
             before = RequestService.activity_snapshot(activity)
+            if activity.project_id is None:
+                raise InvalidApprovalRequestError(
+                    "Project activity request requires a project activity"
+                )
             if request.request_kind == RequestKind.UPDATE:
-                if (
-                    request.activity_kind == ActivityKind.PROJECT
-                    and activity.project_id is None
-                ):
-                    raise InvalidApprovalRequestError(
-                        "Project update request requires a project activity"
-                    )
-                if (
-                    request.activity_kind == ActivityKind.EXECUTIVE
-                    and activity.project_id is not None
-                ):
-                    raise InvalidApprovalRequestError(
-                        "Executive update request requires an executive activity"
-                    )
                 if after["project_id"] != activity.project_id:
                     raise InvalidApprovalRequestError(
                         "Activity project cannot be changed by an update request"
@@ -167,29 +153,9 @@ class RequestService:
                 project_id = activity.project_id
             if request.request_kind == RequestKind.DELETE:
                 project_id = activity.project_id
-                if (
-                    request.activity_kind == ActivityKind.PROJECT
-                    and activity.project_id is None
-                ):
-                    raise InvalidApprovalRequestError(
-                        "Project delete request requires a project activity"
-                    )
-                if (
-                    request.activity_kind == ActivityKind.EXECUTIVE
-                    and activity.project_id is not None
-                ):
-                    raise InvalidApprovalRequestError(
-                        "Executive delete request requires an executive activity"
-                    )
-
-        if request.activity_kind == ActivityKind.EXECUTIVE and not request.approver_ids:
-            raise InvalidApprovalRequestError(
-                "Executive activity requests require at least one approver"
-            )
 
         body = {
             "request_kind": request.request_kind.value,
-            "activity_kind": request.activity_kind.value,
             "target_user_id": target_user_id,
             "activity_id": request.activity_id,
             "before": before,
@@ -205,7 +171,6 @@ class RequestService:
             project_id=project_id,
             requester_id=actor.id,
             status=ApprovalStatus.PENDING,
-            action_type=request.action_type,
             body=body,
         )
         db.add(approval_request)
@@ -282,12 +247,15 @@ class RequestService:
             query = query.filter(ApprovalRequest.status == ApprovalStatus(status.value))
 
         if request_kind != RequestKindFilter.ALL:
-            action_type = {
-                RequestKindFilter.CREATE: ApprovalActionType.HISTORY_CREATE,
-                RequestKindFilter.UPDATE: ApprovalActionType.HISTORY_UPDATE,
-                RequestKindFilter.DELETE: ApprovalActionType.HISTORY_DELETE,
+            mapped_request_kind = {
+                RequestKindFilter.CREATE: RequestKind.CREATE,
+                RequestKindFilter.UPDATE: RequestKind.UPDATE,
+                RequestKindFilter.DELETE: RequestKind.DELETE,
             }[request_kind]
-            query = query.filter(ApprovalRequest.action_type == action_type)
+            query = query.filter(
+                ApprovalRequest.body["request_kind"].as_string()
+                == mapped_request_kind.value
+            )
 
         if q:
             like = f"%{q}%"
@@ -388,23 +356,11 @@ class RequestService:
         RequestService.ensure_pending(approval_request)
 
         body = dict(approval_request.body)
-        activity_kind = ActivityKind(body["activity_kind"])
 
         if request.after is not None:
             if RequestKind(body["request_kind"]) == RequestKind.DELETE:
                 raise InvalidApprovalRequestError("Delete requests cannot update after")
             after = request.after.model_dump(mode="json")
-            if activity_kind == ActivityKind.PROJECT and after["project_id"] is None:
-                raise InvalidApprovalRequestError(
-                    "Project activity requires project_id"
-                )
-            if (
-                activity_kind == ActivityKind.EXECUTIVE
-                and after["project_id"] is not None
-            ):
-                raise InvalidApprovalRequestError(
-                    "Executive activity requires project_id to be null"
-                )
             RequestService.validate_activity_payload(db, after)
             if (
                 RequestKind(body["request_kind"]) == RequestKind.UPDATE
@@ -420,10 +376,6 @@ class RequestService:
             body["reason"] = request.reason
 
         if request.approver_ids is not None:
-            if activity_kind == ActivityKind.EXECUTIVE and not request.approver_ids:
-                raise InvalidApprovalRequestError(
-                    "Executive activity requests require at least one approver"
-                )
             RequestService.replace_approvers(db, approval_request, request.approver_ids)
 
         approval_request.body = body
@@ -457,14 +409,15 @@ class RequestService:
             RequestService.validate_activity_payload(db, final)
         body = approval_request.body
         target_user_id = body["target_user_id"]
+        request_kind = RequestKind(body["request_kind"])
 
-        if approval_request.action_type == ApprovalActionType.HISTORY_CREATE:
+        if request_kind == RequestKind.CREATE:
             activity = UserActivity(user_id=target_user_id, **final)
             db.add(activity)
             db.flush()
             return activity
 
-        if approval_request.action_type == ApprovalActionType.HISTORY_UPDATE:
+        if request_kind == RequestKind.UPDATE:
             activity = (
                 db.query(UserActivity)
                 .filter(UserActivity.id == body["activity_id"])
@@ -477,7 +430,7 @@ class RequestService:
             db.flush()
             return activity
 
-        if approval_request.action_type == ApprovalActionType.HISTORY_DELETE:
+        if request_kind == RequestKind.DELETE:
             activity = (
                 db.query(UserActivity)
                 .filter(UserActivity.id == body["activity_id"])
@@ -489,7 +442,7 @@ class RequestService:
             db.flush()
             return None
 
-        raise InvalidApprovalRequestError("Unsupported action type")
+        raise InvalidApprovalRequestError("Unsupported request kind")
 
     @staticmethod
     def approve(

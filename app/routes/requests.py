@@ -35,9 +35,7 @@ def to_list_item(approval_request) -> ApprovalRequestListItem:
         id=approval_request.id,
         requester=UserBrief.model_validate(approval_request.requester),
         requester_generation=approval_request.requester.generation,
-        action_type=approval_request.action_type,
         request_kind=RequestKind(body.request_kind),
-        activity_kind=body.activity_kind,
         status=approval_request.status,
         created_at=approval_request.created_at,
         reviewed_at=approval_request.reviewed_at,
@@ -64,7 +62,6 @@ def to_detail(approval_request) -> ApprovalRequestDetail:
             for approver in approval_request.approvers
             if approver.deleted_at is None
         ],
-        action_type=approval_request.action_type,
         status=approval_request.status,
         body=ApprovalRequestBody.model_validate(approval_request.body),
         review_comment=approval_request.review_comment,
