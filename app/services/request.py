@@ -145,6 +145,26 @@ class RequestService:
             if not activity or activity.user_id != target_user_id:
                 raise NotFoundError("Activity not found")
             before = RequestService.activity_snapshot(activity)
+            if request.request_kind == RequestKind.UPDATE:
+                if (
+                    request.activity_kind == ActivityKind.PROJECT
+                    and activity.project_id is None
+                ):
+                    raise InvalidApprovalRequestError(
+                        "Project update request requires a project activity"
+                    )
+                if (
+                    request.activity_kind == ActivityKind.EXECUTIVE
+                    and activity.project_id is not None
+                ):
+                    raise InvalidApprovalRequestError(
+                        "Executive update request requires an executive activity"
+                    )
+                if after["project_id"] != activity.project_id:
+                    raise InvalidApprovalRequestError(
+                        "Activity project cannot be changed by an update request"
+                    )
+                project_id = activity.project_id
             if request.request_kind == RequestKind.DELETE:
                 project_id = activity.project_id
                 if (
@@ -386,6 +406,13 @@ class RequestService:
                     "Executive activity requires project_id to be null"
                 )
             RequestService.validate_activity_payload(db, after)
+            if (
+                RequestKind(body["request_kind"]) == RequestKind.UPDATE
+                and body["before"]["project_id"] != after["project_id"]
+            ):
+                raise InvalidApprovalRequestError(
+                    "Activity project cannot be changed by an update request"
+                )
             body["after"] = after
             approval_request.project_id = after["project_id"]
 

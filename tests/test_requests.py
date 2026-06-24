@@ -117,6 +117,67 @@ class TestActivityApprovalRequests:
         assert body["before"]["position"] == "부원"
         assert body["before"]["project_id"] == project.id
 
+    def test_update_request_cannot_change_activity_project(
+        self,
+        client: TestClient,
+        db: Session,
+        regular_user: User,
+        regular_token: str,
+        active_user: User,
+    ):
+        original_project = create_project_with_leader(db, active_user)
+        other_project = create_project_with_leader(db, active_user)
+        activity = create_activity(db, regular_user, original_project.id)
+        payload = request_payload(other_project.id, regular_user.id, kind="update")
+        payload["activity_id"] = activity.id
+
+        response = client.post(
+            "/requests",
+            json=payload,
+            headers=auth(regular_token),
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"] == "INVALID_APPROVAL_REQUEST"
+
+    def test_pending_update_request_cannot_be_moved_to_other_project(
+        self,
+        client: TestClient,
+        db: Session,
+        regular_user: User,
+        regular_token: str,
+        active_user: User,
+    ):
+        original_project = create_project_with_leader(db, active_user)
+        other_project = create_project_with_leader(db, active_user)
+        activity = create_activity(db, regular_user, original_project.id)
+        payload = request_payload(original_project.id, regular_user.id, kind="update")
+        payload["activity_id"] = activity.id
+        create_response = client.post(
+            "/requests",
+            json=payload,
+            headers=auth(regular_token),
+        )
+        request_id = create_response.json()["data"]["id"]
+
+        response = client.patch(
+            f"/requests/{request_id}",
+            json={
+                "after": {
+                    "project_id": other_project.id,
+                    "position": "팀장",
+                    "start_date": 10,
+                    "end_date": 20,
+                    "status": "active",
+                    "description": "활동 설명",
+                }
+            },
+            headers=auth(regular_token),
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"] == "INVALID_APPROVAL_REQUEST"
+
     def test_project_leader_can_list_received_requests(
         self,
         client: TestClient,
