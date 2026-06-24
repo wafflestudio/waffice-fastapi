@@ -3,12 +3,16 @@ from app.models.enums import (
     ActivityStatus,
     AuditAction,
     GraduationStatus,
+    ApprovalActionType,
+    ApprovalStatus,
+    HistoryAction,
     MemberRole,
     ProjectStatus,
     Qualification,
 )
 from app.models.project import Project
 from app.models.project_member import ProjectMember
+from app.models.request import ApprovalRequest, Approver
 from app.models.user import User
 from app.models.user_activity import UserActivity
 
@@ -19,9 +23,14 @@ __all__ = [
     "AuditAction",
     "ProjectStatus",
     "MemberRole",
+    "HistoryAction",
+    "ApprovalStatus",
+    "ApprovalActionType",
     "User",
     "AuditLog",
     "UserActivity",
     "Project",
     "ProjectMember",
+    "ApprovalRequest",
+    "Approver",
 ]
