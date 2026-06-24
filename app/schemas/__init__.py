@@ -1,3 +1,9 @@
+from app.schemas.activity import (
+    ActivityCreateRequest,
+    ActivityDetail,
+    ActivityUpdateRequest,
+)
+from app.schemas.audit_log import AuditLogDetail
 from app.schemas.auth import (
     AuthResult,
     AuthStatus,
@@ -7,7 +13,6 @@ from app.schemas.auth import (
     Token,
 )
 from app.schemas.common import CursorPage, Response, Website
-from app.schemas.history import HistoryDetail
 from app.schemas.project import (
     MemberDetail,
     MemberInput,
@@ -50,7 +55,10 @@ __all__ = [
     "MemberDetail",
     "ProjectBrief",
     "ProjectDetail",
-    "HistoryDetail",
+    "AuditLogDetail",
     "PresignedUrlRequest",
     "PresignedUrlResponse",
+    "ActivityCreateRequest",
+    "ActivityUpdateRequest",
+    "ActivityDetail",
 ]

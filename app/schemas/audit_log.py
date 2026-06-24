@@ -1,19 +1,14 @@
 from pydantic import BaseModel, Field
 
-from app.models.enums import HistoryAction
+from app.models.enums import AuditAction
 from app.schemas.user import UserBrief
 
 
-class HistoryDetail(BaseModel):
-    """
-    Audit log entry tracking user events.
+class AuditLogDetail(BaseModel):
+    """Audit log entry tracking system-generated user events."""
 
-    History actions include qualification changes, admin grants/revokes,
-    and project membership changes.
-    """
-
-    id: int = Field(description="Unique history entry identifier")
-    action: HistoryAction = Field(
+    id: int = Field(description="Unique audit log entry identifier")
+    action: AuditAction = Field(
         description=(
             "Type of action recorded. Values: "
             "'qualification_changed' (membership level changed), "

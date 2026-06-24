@@ -19,7 +19,7 @@ class MemberRole(str, Enum):
     MEMBER = "member"
 
 
-class HistoryAction(str, Enum):
+class AuditAction(str, Enum):
     QUALIFICATION_CHANGED = "qualification_changed"
     ADMIN_GRANTED = "admin_granted"
     ADMIN_REVOKED = "admin_revoked"
@@ -33,3 +33,14 @@ class GraduationStatus(str, Enum):
     GRADUATED = "졸업생"
     LEAVE_OF_ABSENCE = "휴학생"
     GRADUATE_STUDENT = "대학원생"
+
+
+class ActivityStatus(str, Enum):
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+
+
+class NotificationChannel(str, Enum):
+    EMAIL = "email"
+    SMS = "sms"
+    BOTH = "both"

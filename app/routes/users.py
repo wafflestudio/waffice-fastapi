@@ -9,18 +9,21 @@ from app.deps.auth import (
     require_regular,
 )
 from app.exceptions import InvalidQualificationError, NotFoundError
-from app.models import HistoryAction, Qualification, User
+from app.models import AuditAction, Qualification, User
 from app.schemas import (
+    ActivityCreateRequest,
+    ActivityDetail,
+    ActivityUpdateRequest,
     ApproveRequest,
+    AuditLogDetail,
     CursorPage,
-    HistoryDetail,
     ProfileUpdateRequest,
     ProjectBrief,
     Response,
     UserDetail,
     UserUpdateRequest,
 )
-from app.services import HistoryService, ProjectService, UserService
+from app.services import ActivityService, AuditLogService, ProjectService, UserService
 
 router = APIRouter()
 
@@ -77,16 +80,16 @@ async def update_my_profile(
 
 
 @router.get(
-    "/me/history",
-    response_model=Response[list[HistoryDetail]],
-    summary="Get my activity history",
+    "/me/audit-log",
+    response_model=Response[list[AuditLogDetail]],
+    summary="Get my audit log",
     description="Returns the current user's audit log entries.",
     responses={
-        200: {"description": "History retrieved successfully"},
+        200: {"description": "Audit log retrieved successfully"},
         401: {"description": "Not authenticated"},
     },
 )
-async def get_my_history(
+async def get_my_audit_log(
     current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     """
@@ -95,7 +98,7 @@ async def get_my_history(
     Returns audit log entries including qualification changes, admin status
     changes, and project membership events. Sorted by most recent first.
     """
-    histories = HistoryService.list_by_user(db, current_user.id)
+    histories = AuditLogService.list_by_user(db, current_user.id)
     return Response(ok=True, data=histories)
 
 
@@ -255,10 +258,10 @@ async def update_user(
     ):
         old_qual = user.qualification
         new_qual = update_data["qualification"]
-        HistoryService.log(
+        AuditLogService.log(
             db=db,
             user_id=user.id,
-            action=HistoryAction.QUALIFICATION_CHANGED,
+            action=AuditAction.QUALIFICATION_CHANGED,
             payload={"from": old_qual.value, "to": new_qual.value},
             actor_id=admin.id,
         )
@@ -266,18 +269,18 @@ async def update_user(
     # Log admin changes
     if "is_admin" in update_data and update_data["is_admin"] != user.is_admin:
         if update_data["is_admin"]:
-            HistoryService.log(
+            AuditLogService.log(
                 db=db,
                 user_id=user.id,
-                action=HistoryAction.ADMIN_GRANTED,
+                action=AuditAction.ADMIN_GRANTED,
                 payload={},
                 actor_id=admin.id,
             )
         else:
-            HistoryService.log(
+            AuditLogService.log(
                 db=db,
                 user_id=user.id,
-                action=HistoryAction.ADMIN_REVOKED,
+                action=AuditAction.ADMIN_REVOKED,
                 payload={},
                 actor_id=admin.id,
             )
@@ -360,39 +363,38 @@ async def approve_user(
         raise InvalidQualificationError("Cannot approve user to pending status")
 
     old_qual = user.qualification
-    user = UserService.update(db, user, qualification=request.qualification)
 
-    # Log qualification change
-    HistoryService.log(
+    AuditLogService.log(
         db=db,
         user_id=user.id,
-        action=HistoryAction.QUALIFICATION_CHANGED,
+        action=AuditAction.QUALIFICATION_CHANGED,
         payload={"from": old_qual.value, "to": request.qualification.value},
         actor_id=admin.id,
     )
 
+    user = UserService.update(db, user, qualification=request.qualification)
     return Response(ok=True, data=user)
 
 
 @router.get(
-    "/{user_id}/history",
-    response_model=Response[list[HistoryDetail]],
-    summary="Get user's activity history",
+    "/{user_id}/audit-log",
+    response_model=Response[list[AuditLogDetail]],
+    summary="Get user's audit log",
     description="Returns a user's audit log entries. Admin only.",
     responses={
-        200: {"description": "History retrieved successfully"},
+        200: {"description": "Audit log retrieved successfully"},
         401: {"description": "Not authenticated"},
         403: {"description": "Admin access required"},
         404: {"description": "User not found"},
     },
 )
-async def get_user_history(
+async def get_user_audit_log(
     user_id: int,
     _admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     """
-    Get a user's complete activity history.
+    Get a user's complete audit log.
 
     **Requires**: Admin privileges.
 
@@ -403,5 +405,127 @@ async def get_user_history(
     if not user:
         raise NotFoundError("User not found")
 
-    histories = HistoryService.list_by_user(db, user_id)
+    histories = AuditLogService.list_by_user(db, user_id)
     return Response(ok=True, data=histories)
+
+
+# === User activities ===
+@router.get(
+    "/{user_id}/activities",
+    response_model=Response[list[ActivityDetail]],
+    summary="List user's activities",
+    description="Returns all activity records for a user. Admin only.",
+    responses={
+        200: {"description": "Activities retrieved successfully"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "Admin access required"},
+        404: {"description": "User not found"},
+    },
+)
+async def list_user_activities(
+    user_id: int,
+    _admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    user = UserService.get(db, user_id)
+    if not user:
+        raise NotFoundError("User not found")
+
+    activities = ActivityService.list_by_user(db, user_id)
+    return Response(ok=True, data=activities)
+
+
+@router.post(
+    "/{user_id}/activities",
+    response_model=Response[ActivityDetail],
+    summary="Add user activity",
+    description="Add an activity record to a user. Admin only.",
+    responses={
+        200: {"description": "Activity created successfully"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "Admin access required"},
+        404: {"description": "User not found"},
+    },
+)
+async def create_user_activity(
+    user_id: int,
+    request: ActivityCreateRequest,
+    _admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    user = UserService.get(db, user_id)
+    if not user:
+        raise NotFoundError("User not found")
+
+    if not ProjectService.get(db, request.project_id):
+        raise NotFoundError("Project not found")
+
+    activity = ActivityService.create(db, user_id, **request.model_dump())
+    return Response(ok=True, data=activity)
+
+
+@router.patch(
+    "/{user_id}/activities/{activity_id}",
+    response_model=Response[ActivityDetail],
+    summary="Update user activity",
+    description="Update an activity record. Admin only.",
+    responses={
+        200: {"description": "Activity updated successfully"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "Admin access required"},
+        404: {"description": "User or activity not found"},
+    },
+)
+async def update_user_activity(
+    user_id: int,
+    activity_id: int,
+    request: ActivityUpdateRequest,
+    _admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    user = UserService.get(db, user_id)
+    if not user:
+        raise NotFoundError("User not found")
+
+    activity = ActivityService.get(db, activity_id)
+    if not activity or activity.user_id != user_id:
+        raise NotFoundError("Activity not found")
+
+    update_data = request.model_dump(exclude_unset=True)
+    if "project_id" in update_data and not ProjectService.get(
+        db, update_data["project_id"]
+    ):
+        raise NotFoundError("Project not found")
+
+    updated = ActivityService.update(db, activity, **update_data)
+    return Response(ok=True, data=updated)
+
+
+@router.delete(
+    "/{user_id}/activities/{activity_id}",
+    response_model=Response[None],
+    summary="Delete user activity",
+    description="Delete an activity record. Admin only.",
+    responses={
+        200: {"description": "Activity deleted successfully"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "Admin access required"},
+        404: {"description": "User or activity not found"},
+    },
+)
+async def delete_user_activity(
+    user_id: int,
+    activity_id: int,
+    _admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    user = UserService.get(db, user_id)
+    if not user:
+        raise NotFoundError("User not found")
+
+    activity = ActivityService.get(db, activity_id)
+    if not activity or activity.user_id != user_id:
+        raise NotFoundError("Activity not found")
+
+    ActivityService.delete(db, activity)
+    return Response(ok=True, message="Activity deleted successfully")

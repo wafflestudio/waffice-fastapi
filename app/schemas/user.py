@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 
-from app.models.enums import Qualification
+from app.models.enums import GraduationStatus, NotificationChannel, Qualification
 from app.schemas.common import Website
 
 
@@ -44,6 +44,12 @@ class SignupRequest(BaseModel):
 class ProfileUpdateRequest(BaseModel):
     """Request body for updating own profile. All fields are optional."""
 
+    name: str | None = Field(
+        default=None,
+        description="User's display name",
+        min_length=1,
+        max_length=100,
+    )
     phone: str | None = Field(
         default=None,
         description="Contact phone number",
@@ -78,6 +84,29 @@ class ProfileUpdateRequest(BaseModel):
         default=None,
         description="List of external websites or social links",
     )
+    graduation_status: GraduationStatus | None = Field(
+        default=None,
+        description="학부생, 졸업생, 휴학생, 대학원생",
+    )
+    student_id: str | None = Field(
+        default=None,
+        description="Student ID (e.g., 2021-14205)",
+        max_length=50,
+    )
+    department: str | None = Field(
+        default=None,
+        description="Department or major",
+        max_length=100,
+    )
+    contact_email: str | None = Field(
+        default=None,
+        description="Preferred contact email for notifications (defaults to login email)",
+        max_length=255,
+    )
+    notification_channel: NotificationChannel | None = Field(
+        default=None,
+        description="Preferred notification channel: email, sms, or both",
+    )
 
 
 class UserUpdateRequest(ProfileUpdateRequest):
@@ -86,12 +115,6 @@ class UserUpdateRequest(ProfileUpdateRequest):
     Extends ProfileUpdateRequest with admin-only fields.
     """
 
-    name: str | None = Field(
-        default=None,
-        description="User's display name",
-        min_length=1,
-        max_length=100,
-    )
     qualification: Qualification | None = Field(
         default=None,
         description=(
@@ -105,6 +128,11 @@ class UserUpdateRequest(ProfileUpdateRequest):
     is_admin: bool | None = Field(
         default=None,
         description="Whether user has admin privileges",
+    )
+    generation: str | None = Field(
+        default=None,
+        description="Generation/cohort identifier",
+        examples=["24.5", "25.0"],
     )
 
 
@@ -169,6 +197,14 @@ class UserDetail(BaseModel):
     github_username: str | None = Field(description="GitHub username")
     slack_id: str | None = Field(description="Slack member ID")
     websites: list[Website] | None = Field(description="External websites or links")
+    student_id: str | None = Field(description="Student ID (e.g., 2021-14205)")
+    department: str | None = Field(description="Department or major")
+    contact_email: str | None = Field(
+        description="Preferred contact email for notifications"
+    )
+    notification_channel: NotificationChannel = Field(
+        description="Preferred notification channel"
+    )
     created_at: int = Field(
         description="Unix timestamp when user was created",
         examples=[1706745600],

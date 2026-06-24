@@ -42,7 +42,7 @@ class TestUserApprovalFlow:
 
         # Check history was logged
         history_response = client.get(
-            f"/users/{pending.id}/history",
+            f"/users/{pending.id}/audit-log",
             headers={"Authorization": f"Bearer {admin_token}"},
         )
         assert history_response.status_code == 200
@@ -111,7 +111,7 @@ class TestProjectCreationAndMemberManagement:
 
         # Check history was logged for both members
         admin_history = client.get(
-            f"/users/{admin_user.id}/history",
+            f"/users/{admin_user.id}/audit-log",
             headers={"Authorization": f"Bearer {admin_token}"},
         )
         assert admin_history.status_code == 200
