@@ -114,9 +114,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index("idx_request_reviewers_user_id", table_name="request_reviewers")
-    op.drop_index(
-        "idx_request_reviewers_request_user", table_name="request_reviewers"
-    )
+    op.drop_index("idx_request_reviewers_request_user", table_name="request_reviewers")
     op.drop_index("idx_request_reviewers_project_id", table_name="request_reviewers")
     op.drop_index(
         "idx_request_reviewers_approval_request_id", table_name="request_reviewers"

@@ -73,3 +73,17 @@ class UserNotRegisteredError(AppError):
 
     def __init__(self, message: str = "User not found, please signup first"):
         super().__init__("USER_NOT_REGISTERED", message, 400)
+
+
+class InvalidApprovalRequestError(AppError):
+    """Invalid activity approval request"""
+
+    def __init__(self, message: str = "Invalid approval request"):
+        super().__init__("INVALID_APPROVAL_REQUEST", message, 400)
+
+
+class RequestAlreadyProcessedError(AppError):
+    """Approval request has already been processed"""
+
+    def __init__(self, message: str = "Request has already been processed"):
+        super().__init__("REQUEST_ALREADY_PROCESSED", message, 400)

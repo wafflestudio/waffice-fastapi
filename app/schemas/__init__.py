@@ -35,8 +35,8 @@ from app.schemas.request import (
     ApprovalReviewWithEditsRequest,
     RequestKind,
     RequestKindFilter,
-    RequestReviewerDetail,
     RequestReviewBody,
+    RequestReviewerDetail,
     RequestScope,
     RequestStatusFilter,
 )
