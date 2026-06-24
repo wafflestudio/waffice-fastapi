@@ -210,6 +210,128 @@ class TestSignupEndpoint:
         assert data["error"] == "INVALID_AUTH_TOKEN"
 
 
+class TestGoogleRelinkEndpoint:
+    """Tests for the /auth/google/relink endpoint."""
+
+    def test_relink_google_account_updates_user_and_cookie(
+        self, client, db, active_user, active_token
+    ):
+        """Authenticated users can relink to a new Google account."""
+        auth_token = create_auth_token(
+            "new_google_id_for_active", "new_active@example.com", is_new=True
+        )
+
+        response = client.post(
+            "/auth/google/relink",
+            json={"auth_token": auth_token},
+            headers={"Authorization": f"Bearer {active_token}"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ok"] is True
+        assert data["data"]["status"] == "active"
+        assert data["data"]["user"]["id"] == active_user.id
+        assert data["data"]["user"]["email"] == "new_active@example.com"
+        assert "waffice_access_token" in response.cookies
+
+        db.refresh(active_user)
+        assert active_user.google_id == "new_google_id_for_active"
+        assert active_user.email == "new_active@example.com"
+
+        from app.config.secrets import JWT_SECRET_KEY
+
+        cookie_token = response.cookies["waffice_access_token"]
+        payload = jwt.decode(cookie_token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        assert payload["user_id"] == active_user.id
+        assert payload["google_id"] == "new_google_id_for_active"
+        assert payload["email"] == "new_active@example.com"
+
+    def test_relink_google_account_same_account_noop(
+        self, client, db, active_user, active_token
+    ):
+        """Relinking to the same Google account succeeds without changing the user."""
+        auth_token = create_auth_token(
+            active_user.google_id, active_user.email, is_new=False
+        )
+
+        response = client.post(
+            "/auth/google/relink",
+            json={"auth_token": auth_token},
+            headers={"Authorization": f"Bearer {active_token}"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ok"] is True
+        assert data["data"]["user"]["id"] == active_user.id
+        assert data["data"]["user"]["email"] == active_user.email
+
+    def test_relink_google_account_rejects_existing_google_id(
+        self, client, active_token, regular_user
+    ):
+        """Cannot relink to a Google account already owned by another user."""
+        auth_token = create_auth_token(
+            regular_user.google_id, "unused@example.com", is_new=False
+        )
+
+        response = client.post(
+            "/auth/google/relink",
+            json={"auth_token": auth_token},
+            headers={"Authorization": f"Bearer {active_token}"},
+        )
+
+        assert response.status_code == 409
+        data = response.json()
+        assert data["ok"] is False
+        assert data["error"] == "GOOGLE_ACCOUNT_ALREADY_LINKED"
+
+    def test_relink_google_account_rejects_existing_email(
+        self, client, active_token, regular_user
+    ):
+        """Cannot relink to an email already owned by another user."""
+        auth_token = create_auth_token(
+            "unused_google_id", regular_user.email, is_new=True
+        )
+
+        response = client.post(
+            "/auth/google/relink",
+            json={"auth_token": auth_token},
+            headers={"Authorization": f"Bearer {active_token}"},
+        )
+
+        assert response.status_code == 409
+        data = response.json()
+        assert data["ok"] is False
+        assert data["error"] == "EMAIL_ALREADY_IN_USE"
+
+    def test_relink_google_account_requires_auth(self, client):
+        """Unauthenticated users cannot relink Google accounts."""
+        auth_token = create_auth_token(
+            "new_google_id_for_unauth", "unauth@example.com", is_new=True
+        )
+
+        response = client.post(
+            "/auth/google/relink",
+            json={"auth_token": auth_token},
+        )
+
+        assert response.status_code == 401
+
+    def test_relink_google_account_invalid_token(self, client, active_token):
+        """Invalid auth_token returns the standard invalid token error."""
+        response = client.post(
+            "/auth/google/relink",
+            json={"auth_token": "invalid_token"},
+            headers={"Authorization": f"Bearer {active_token}"},
+        )
+
+        assert response.status_code == 400
+        data = response.json()
+        assert data["ok"] is False
+        assert data["error"] == "INVALID_AUTH_TOKEN"
+
+
 class TestGetAuthStatus:
     """Tests for the /auth/me endpoint."""
 
