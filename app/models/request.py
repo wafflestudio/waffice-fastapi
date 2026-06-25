@@ -54,9 +54,6 @@ class RequestReviewer(Base, TimestampMixin, SoftDeleteMixin):
     user_id = Column(
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    project_id = Column(
-        Integer, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True
-    )
     approval_request_id = Column(
         Integer, ForeignKey("approval_requests.id", ondelete="CASCADE"), nullable=False
     )
@@ -67,12 +64,10 @@ class RequestReviewer(Base, TimestampMixin, SoftDeleteMixin):
         foreign_keys=[approval_request_id],
     )
     user = relationship("User", foreign_keys=[user_id])
-    project = relationship("Project", foreign_keys=[project_id])
 
     __table_args__ = (
         Index("idx_request_reviewers_approval_request_id", "approval_request_id"),
         Index("idx_request_reviewers_user_id", "user_id"),
-        Index("idx_request_reviewers_project_id", "project_id"),
         Index(
             "idx_request_reviewers_request_user",
             "approval_request_id",

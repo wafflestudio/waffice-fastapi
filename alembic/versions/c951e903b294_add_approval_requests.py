@@ -74,7 +74,6 @@ def upgrade() -> None:
         "request_reviewers",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("user_id", sa.Integer(), nullable=False),
-        sa.Column("project_id", sa.Integer(), nullable=True),
         sa.Column("approval_request_id", sa.Integer(), nullable=False),
         sa.Column("created_at", sa.BigInteger(), nullable=False),
         sa.Column("updated_at", sa.BigInteger(), nullable=False),
@@ -82,7 +81,6 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["approval_request_id"], ["approval_requests.id"], ondelete="CASCADE"
         ),
-        sa.ForeignKeyConstraint(["project_id"], ["projects.id"], ondelete="SET NULL"),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
@@ -90,12 +88,6 @@ def upgrade() -> None:
         "idx_request_reviewers_approval_request_id",
         "request_reviewers",
         ["approval_request_id"],
-        unique=False,
-    )
-    op.create_index(
-        "idx_request_reviewers_project_id",
-        "request_reviewers",
-        ["project_id"],
         unique=False,
     )
     op.create_index(
@@ -115,7 +107,6 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("idx_request_reviewers_user_id", table_name="request_reviewers")
     op.drop_index("idx_request_reviewers_request_user", table_name="request_reviewers")
-    op.drop_index("idx_request_reviewers_project_id", table_name="request_reviewers")
     op.drop_index(
         "idx_request_reviewers_approval_request_id", table_name="request_reviewers"
     )

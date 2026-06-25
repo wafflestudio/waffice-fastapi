@@ -119,7 +119,6 @@ class ApprovalRejectRequest(BaseModel):
 class RequestReviewerDetail(BaseModel):
     id: int
     user: UserBrief
-    project_id: int | None
 
     model_config = {"from_attributes": True}
 

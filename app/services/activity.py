@@ -50,13 +50,6 @@ class ActivityService:
         return activity
 
     @staticmethod
-    def create_pending(db: Session, user_id: int, **data) -> UserActivity:
-        activity = UserActivity(user_id=user_id, **data)
-        db.add(activity)
-        db.flush()
-        return activity
-
-    @staticmethod
     def update(db: Session, activity: UserActivity, **data) -> UserActivity:
         for key, value in data.items():
             setattr(activity, key, value)
@@ -65,18 +58,6 @@ class ActivityService:
         return activity
 
     @staticmethod
-    def update_pending(db: Session, activity: UserActivity, **data) -> UserActivity:
-        for key, value in data.items():
-            setattr(activity, key, value)
-        db.flush()
-        return activity
-
-    @staticmethod
     def delete(db: Session, activity: UserActivity) -> None:
         db.delete(activity)
         db.commit()
-
-    @staticmethod
-    def delete_pending(db: Session, activity: UserActivity) -> None:
-        db.delete(activity)
-        db.flush()
