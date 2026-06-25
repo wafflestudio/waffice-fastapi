@@ -23,12 +23,12 @@ def upgrade() -> None:
         "users",
         sa.Column(
             "role",
-            sa.Enum("member", "leader", "admin", "admin_and_leader", name="userrole"),
+            sa.Enum("MEMBER", "LEADER", "ADMIN", "ADMIN_AND_LEADER", name="userrole"),
             nullable=False,
-            server_default="member",
+            server_default="MEMBER",
         ),
     )
-    op.execute("UPDATE users SET role = 'admin' WHERE is_admin = 1")
+    op.execute("UPDATE users SET role = 'ADMIN' WHERE is_admin = 1")
     op.drop_index("idx_users_is_admin", table_name="users")
     op.drop_column("users", "is_admin")
     op.create_index("idx_users_role", "users", ["role"])
@@ -40,7 +40,7 @@ def downgrade() -> None:
         sa.Column("is_admin", sa.Boolean(), nullable=False, server_default="0"),
     )
     op.execute(
-        "UPDATE users SET is_admin = 1 WHERE role IN ('admin', 'admin_and_leader')"
+        "UPDATE users SET is_admin = 1 WHERE role IN ('ADMIN', 'ADMIN_AND_LEADER')"
     )
     op.drop_index("idx_users_role", table_name="users")
     op.drop_column("users", "role")
