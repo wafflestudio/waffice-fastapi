@@ -1,13 +1,4 @@
-from sqlalchemy import (
-    JSON,
-    BigInteger,
-    Column,
-    Enum,
-    Index,
-    Integer,
-    String,
-    Text,
-)
+from sqlalchemy import JSON, BigInteger, Column, Enum, Index, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from app.config.database import Base
