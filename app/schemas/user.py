@@ -1,6 +1,11 @@
 from pydantic import BaseModel, Field
 
-from app.models.enums import GraduationStatus, NotificationChannel, Qualification
+from app.models.enums import (
+    GraduationStatus,
+    NotificationChannel,
+    Qualification,
+    UserRole,
+)
 from app.schemas.common import Website
 
 
@@ -125,9 +130,9 @@ class UserUpdateRequest(ProfileUpdateRequest):
             "ACTIVE: fully active member with all privileges"
         ),
     )
-    is_admin: bool | None = Field(
+    role: UserRole | None = Field(
         default=None,
-        description="Whether user has admin privileges",
+        description="User role: member, leader, admin, or admin_and_leader",
     )
     generation: str | None = Field(
         default=None,
@@ -184,11 +189,13 @@ class UserDetail(BaseModel):
         )
     )
     graduation_status: str = Field(
-        description=("Graduation status of the user. One of [학부생, 졸업생, 휴학생, 대학원생]"),
+        description=(
+            "Graduation status of the user. One of [학부생, 졸업생, 휴학생, 대학원생]"
+        ),
         examples=["학부생", "졸업생", "휴학생", "대학원생"],
     )
-    is_admin: bool = Field(
-        description="Whether user has admin privileges for user/project management"
+    role: UserRole = Field(
+        description="User role determining access level: member, leader, admin, or admin_and_leader"
     )
     phone: str | None = Field(description="Contact phone number")
     affiliation: str | None = Field(description="Current organization or company")

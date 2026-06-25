@@ -1,7 +1,6 @@
 from sqlalchemy import (
     JSON,
     BigInteger,
-    Boolean,
     Column,
     Enum,
     Index,
@@ -13,7 +12,12 @@ from sqlalchemy.orm import relationship
 
 from app.config.database import Base
 from app.models.base import SoftDeleteMixin, TimestampMixin
-from app.models.enums import GraduationStatus, NotificationChannel, Qualification
+from app.models.enums import (
+    GraduationStatus,
+    NotificationChannel,
+    Qualification,
+    UserRole,
+)
 
 
 class User(Base, TimestampMixin, SoftDeleteMixin):
@@ -33,7 +37,15 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     qualification = Column(
         Enum(Qualification), nullable=False, default=Qualification.PENDING
     )
-    is_admin = Column(Boolean, nullable=False, default=False)
+    role = Column(Enum(UserRole), nullable=False, default=UserRole.MEMBER)
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role in (UserRole.ADMIN, UserRole.ADMIN_AND_LEADER)
+
+    @property
+    def is_leader(self) -> bool:
+        return self.role in (UserRole.LEADER, UserRole.ADMIN_AND_LEADER)
 
     # Profile (optional)
     phone = Column(String(20), nullable=True)
@@ -82,6 +94,6 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
 
     __table_args__ = (
         Index("idx_users_qualification", "qualification"),
-        Index("idx_users_is_admin", "is_admin"),
+        Index("idx_users_role", "role"),
         Index("idx_users_created_at", "created_at"),
     )

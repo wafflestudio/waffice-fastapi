@@ -9,7 +9,7 @@ from app.deps.auth import (
     require_regular,
 )
 from app.exceptions import InvalidQualificationError, NotFoundError
-from app.models import AuditAction, Qualification, User
+from app.models import AuditAction, Qualification, User, UserRole
 from app.schemas import (
     ActivityCreateRequest,
     ActivityDetail,
@@ -141,8 +141,7 @@ async def get_my_projects(
     },
 )
 async def list_users(
-    cursor: int
-    | None = Query(
+    cursor: int | None = Query(
         None, description="Pagination cursor (user ID). Omit for first page."
     ),
     limit: int = Query(
@@ -266,24 +265,15 @@ async def update_user(
             actor_id=admin.id,
         )
 
-    # Log admin changes
-    if "is_admin" in update_data and update_data["is_admin"] != user.is_admin:
-        if update_data["is_admin"]:
-            AuditLogService.log(
-                db=db,
-                user_id=user.id,
-                action=AuditAction.ADMIN_GRANTED,
-                payload={},
-                actor_id=admin.id,
-            )
-        else:
-            AuditLogService.log(
-                db=db,
-                user_id=user.id,
-                action=AuditAction.ADMIN_REVOKED,
-                payload={},
-                actor_id=admin.id,
-            )
+    # Log role changes
+    if "role" in update_data and update_data["role"] != user.role:
+        AuditLogService.log(
+            db=db,
+            user_id=user.id,
+            action=AuditAction.ROLE_CHANGED,
+            payload={"from": user.role.value, "to": update_data["role"].value},
+            actor_id=admin.id,
+        )
 
     updated_user = UserService.update(db, user, **update_data)
     return Response(ok=True, data=updated_user)

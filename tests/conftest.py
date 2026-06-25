@@ -37,7 +37,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config.database import Base, Engine, get_db
 from app.main import app
-from app.models import Qualification, User
+from app.models import Qualification, User, UserRole
 from app.services import UserService
 
 # JWT config (must match app/deps/auth.py default)
@@ -179,7 +179,7 @@ def admin_user(db: Session) -> User:
         name="Admin User",
         generation="26",
         qualification=Qualification.ACTIVE,
-        is_admin=True,
+        role=UserRole.ADMIN,
         google_id="admin_google_id",
     )
     return user
