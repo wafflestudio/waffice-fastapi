@@ -15,7 +15,6 @@ from app.models import (
     ApprovalRequest,
     ApprovalStatus,
     MemberRole,
-    Project,
     ProjectMember,
     RequestReviewer,
     User,
@@ -30,6 +29,10 @@ from app.schemas.request import (
     RequestScope,
     RequestStatusFilter,
 )
+from app.services.activity import ActivityService
+from app.services.member import MemberService
+from app.services.project import ProjectService
+from app.services.user import UserService
 
 REQUEST_KIND_FILTERS = {
     RequestKindFilter.CREATE: RequestKind.CREATE,
@@ -150,19 +153,7 @@ class RequestWorkflow:
         if include_requester and approval_request.requester_id == actor.id:
             return True
         if approval_request.project_id is not None:
-            leader = (
-                db.query(ProjectMember)
-                .filter(
-                    and_(
-                        ProjectMember.project_id == approval_request.project_id,
-                        ProjectMember.user_id == actor.id,
-                        ProjectMember.role == MemberRole.LEADER,
-                        ProjectMember.left_at.is_(None),
-                    )
-                )
-                .first()
-            )
-            if leader is not None:
+            if MemberService.is_leader(db, approval_request.project_id, actor.id):
                 return True
         return (
             db.query(RequestReviewer)
@@ -180,23 +171,13 @@ class RequestWorkflow:
     @staticmethod
     def _ensure_user_exists(db: Session, user_id: int) -> None:
         """Raise when a referenced active user does not exist."""
-        user = (
-            db.query(User)
-            .filter(and_(User.id == user_id, User.deleted_at.is_(None)))
-            .first()
-        )
-        if not user:
+        if UserService.get(db, user_id) is None:
             raise NotFoundError("User not found")
 
     @staticmethod
     def _ensure_project_exists(db: Session, project_id: int) -> None:
         """Raise when a referenced active project does not exist."""
-        project = (
-            db.query(Project)
-            .filter(and_(Project.id == project_id, Project.deleted_at.is_(None)))
-            .first()
-        )
-        if not project:
+        if ProjectService.get(db, project_id) is None:
             raise NotFoundError("Project not found")
 
     @staticmethod
@@ -204,8 +185,12 @@ class RequestWorkflow:
         db: Session, *, activity_id: int | None, target_user_id: int
     ) -> UserActivity:
         """Fetch an activity only when it belongs to the request target user."""
-        activity = db.query(UserActivity).filter(UserActivity.id == activity_id).first()
-        if not activity or activity.user_id != target_user_id:
+        activity = ActivityService.get_for_user(
+            db,
+            activity_id=activity_id,
+            user_id=target_user_id,
+        )
+        if activity is None:
             raise NotFoundError("Activity not found")
         return activity
 
@@ -238,14 +223,7 @@ class RequestWorkflow:
                 raise InvalidApprovalRequestError(
                     "Project activity request requires a project activity"
                 )
-            before = {
-                "project_id": activity.project_id,
-                "position": activity.position,
-                "start_date": activity.start_date,
-                "end_date": activity.end_date,
-                "status": activity.status.value,
-                "description": activity.description,
-            }
+            before = ActivityService.to_request_snapshot(activity)
             project_id = activity.project_id
             if (
                 request.request_kind == RequestKind.UPDATE
@@ -322,10 +300,7 @@ class RequestWorkflow:
         request_kind = RequestKind(body["request_kind"])
 
         if request_kind == RequestKind.CREATE:
-            activity = UserActivity(user_id=target_user_id, **final)
-            db.add(activity)
-            db.flush()
-            return activity
+            return ActivityService.create_pending(db, target_user_id, **final)
 
         if request_kind == RequestKind.UPDATE:
             activity = RequestWorkflow._get_user_activity(
@@ -333,10 +308,7 @@ class RequestWorkflow:
                 activity_id=body["activity_id"],
                 target_user_id=target_user_id,
             )
-            for key, value in final.items():
-                setattr(activity, key, value)
-            db.flush()
-            return activity
+            return ActivityService.update_pending(db, activity, **final)
 
         if request_kind == RequestKind.DELETE:
             activity = RequestWorkflow._get_user_activity(
@@ -344,8 +316,7 @@ class RequestWorkflow:
                 activity_id=body["activity_id"],
                 target_user_id=target_user_id,
             )
-            db.delete(activity)
-            db.flush()
+            ActivityService.delete_pending(db, activity)
             return None
 
         raise InvalidApprovalRequestError("Unsupported request kind")
@@ -369,6 +340,27 @@ class RequestWorkflow:
 
 class RequestService:
     """Public use cases consumed by request routes."""
+
+    @staticmethod
+    def _commit_and_get(
+        db: Session, approval_request: ApprovalRequest
+    ) -> ApprovalRequest:
+        db.commit()
+        return RequestService.get(db, approval_request.id)
+
+    @staticmethod
+    def _ensure_can_review_pending(
+        db: Session, *, actor: User, approval_request: ApprovalRequest
+    ) -> None:
+        if not RequestWorkflow.can_view_or_review(
+            db,
+            approval_request=approval_request,
+            actor=actor,
+            include_requester=False,
+        ):
+            raise ForbiddenError("Cannot review this request")
+        if approval_request.status != ApprovalStatus.PENDING:
+            raise RequestAlreadyProcessedError()
 
     @staticmethod
     def get(db: Session, request_id: int) -> ApprovalRequest | None:
@@ -420,8 +412,7 @@ class RequestService:
         db.flush()
 
         RequestWorkflow.replace_reviewers(db, approval_request, request.reviewer_ids)
-        db.commit()
-        return RequestService.get(db, approval_request.id)
+        return RequestService._commit_and_get(db, approval_request)
 
     @staticmethod
     def ensure_can_view(
@@ -460,8 +451,7 @@ class RequestService:
             )
 
         approval_request.body = body
-        db.commit()
-        return RequestService.get(db, approval_request.id)
+        return RequestService._commit_and_get(db, approval_request)
 
     @staticmethod
     def delete(db: Session, *, actor: User, approval_request: ApprovalRequest) -> None:
@@ -484,15 +474,11 @@ class RequestService:
         comment: str | None,
     ) -> ApprovalRequest:
         """Approve a pending request exactly as submitted."""
-        if not RequestWorkflow.can_view_or_review(
+        RequestService._ensure_can_review_pending(
             db,
-            approval_request=approval_request,
             actor=actor,
-            include_requester=False,
-        ):
-            raise ForbiddenError("Cannot review this request")
-        if approval_request.status != ApprovalStatus.PENDING:
-            raise RequestAlreadyProcessedError()
+            approval_request=approval_request,
+        )
 
         body = dict(approval_request.body)
         final = dict(body["after"]) if body.get("after") is not None else None
@@ -509,8 +495,7 @@ class RequestService:
             comment=comment,
             body=body,
         )
-        db.commit()
-        return RequestService.get(db, approval_request.id)
+        return RequestService._commit_and_get(db, approval_request)
 
     @staticmethod
     def approve_with_edits(
@@ -521,15 +506,11 @@ class RequestService:
         request: ApprovalReviewWithEditsRequest,
     ) -> ApprovalRequest:
         """Approve a pending non-delete request after applying reviewer edits."""
-        if not RequestWorkflow.can_view_or_review(
+        RequestService._ensure_can_review_pending(
             db,
-            approval_request=approval_request,
             actor=actor,
-            include_requester=False,
-        ):
-            raise ForbiddenError("Cannot review this request")
-        if approval_request.status != ApprovalStatus.PENDING:
-            raise RequestAlreadyProcessedError()
+            approval_request=approval_request,
+        )
 
         body = dict(approval_request.body)
         if RequestKind(body["request_kind"]) == RequestKind.DELETE:
@@ -559,8 +540,7 @@ class RequestService:
             comment=request.comment,
             body=body,
         )
-        db.commit()
-        return RequestService.get(db, approval_request.id)
+        return RequestService._commit_and_get(db, approval_request)
 
     @staticmethod
     def reject(
@@ -571,15 +551,11 @@ class RequestService:
         comment: str,
     ) -> ApprovalRequest:
         """Reject a pending request without changing user activities."""
-        if not RequestWorkflow.can_view_or_review(
+        RequestService._ensure_can_review_pending(
             db,
-            approval_request=approval_request,
             actor=actor,
-            include_requester=False,
-        ):
-            raise ForbiddenError("Cannot review this request")
-        if approval_request.status != ApprovalStatus.PENDING:
-            raise RequestAlreadyProcessedError()
+            approval_request=approval_request,
+        )
 
         RequestWorkflow.mark_reviewed(
             approval_request,
@@ -588,5 +564,4 @@ class RequestService:
             comment=comment,
             body=approval_request.body,
         )
-        db.commit()
-        return RequestService.get(db, approval_request.id)
+        return RequestService._commit_and_get(db, approval_request)
