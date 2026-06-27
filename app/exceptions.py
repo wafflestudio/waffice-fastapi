@@ -73,3 +73,17 @@ class UserNotRegisteredError(AppError):
 
     def __init__(self, message: str = "User not found, please signup first"):
         super().__init__("USER_NOT_REGISTERED", message, 400)
+
+
+class GoogleAccountAlreadyLinkedError(AppError):
+    """Google account is already linked to another user"""
+
+    def __init__(self, message: str = "Google account is already linked"):
+        super().__init__("GOOGLE_ACCOUNT_ALREADY_LINKED", message, 409)
+
+
+class EmailAlreadyInUseError(AppError):
+    """Email is already used by another user"""
+
+    def __init__(self, message: str = "Email is already in use"):
+        super().__init__("EMAIL_ALREADY_IN_USE", message, 409)
