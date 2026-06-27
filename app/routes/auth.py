@@ -24,7 +24,7 @@ from app.exceptions import (
     InvalidAuthTokenError,
     UserNotRegisteredError,
 )
-from app.models import Qualification, User
+from app.models import Qualification, User, UserRole
 from app.schemas import (
     AuthResult,
     AuthStatus,
@@ -508,7 +508,7 @@ async def signup(
             bio=request.bio,
             github_username=request.github_username,
             qualification=Qualification.PENDING,
-            is_admin=False,
+            role=UserRole.MEMBER,
         )
 
     # Generate JWT
@@ -624,9 +624,7 @@ async def signin_dev(
 
     if user:
         # Update existing user's admin status and qualification
-        UserService.update(
-            db, user, is_admin=request.is_admin, qualification=qualification
-        )
+        UserService.update(db, user, role=request.role, qualification=qualification)
     else:
         # Create new user with dev google_id
         # Handle race condition: if concurrent request created user, catch and retry
@@ -640,14 +638,14 @@ async def signin_dev(
                 email=request.email,
                 name=request.name,
                 qualification=qualification,
-                is_admin=request.is_admin,
+                role=request.role,
             )
         except IntegrityError:
             db.rollback()
             user = UserService.get_by_email(db, request.email)
             if user:
                 UserService.update(
-                    db, user, is_admin=request.is_admin, qualification=qualification
+                    db, user, role=request.role, qualification=qualification
                 )
             else:
                 raise HTTPException(
