@@ -50,3 +50,9 @@ class NotificationChannel(str, Enum):
     EMAIL = "email"
     SMS = "sms"
     BOTH = "both"
+
+
+class ApprovalStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"

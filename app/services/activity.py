@@ -20,6 +20,28 @@ class ActivityService:
         return db.query(UserActivity).filter(UserActivity.id == activity_id).first()
 
     @staticmethod
+    def get_for_user(
+        db: Session, *, activity_id: int | None, user_id: int
+    ) -> UserActivity | None:
+        if activity_id is None:
+            return None
+        activity = ActivityService.get(db, activity_id)
+        if activity is None or activity.user_id != user_id:
+            return None
+        return activity
+
+    @staticmethod
+    def to_request_snapshot(activity: UserActivity) -> dict:
+        return {
+            "project_id": activity.project_id,
+            "position": activity.position,
+            "start_date": activity.start_date,
+            "end_date": activity.end_date,
+            "status": activity.status.value,
+            "description": activity.description,
+        }
+
+    @staticmethod
     def create(db: Session, user_id: int, **data) -> UserActivity:
         activity = UserActivity(user_id=user_id, **data)
         db.add(activity)
