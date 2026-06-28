@@ -17,6 +17,29 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # Step 1: add ROLE_CHANGED while keeping old values
+    op.execute(
+        """
+        ALTER TABLE audit_logs MODIFY COLUMN action ENUM(
+            'QUALIFICATION_CHANGED',
+            'ADMIN_GRANTED',
+            'ADMIN_REVOKED',
+            'ROLE_CHANGED',
+            'PROJECT_JOINED',
+            'PROJECT_LEFT',
+            'PROJECT_ROLE_CHANGED'
+        ) NOT NULL
+        """
+    )
+    # Step 2: migrate existing rows
+    op.execute(
+        """
+        UPDATE audit_logs
+        SET action = 'ROLE_CHANGED'
+        WHERE action IN ('ADMIN_GRANTED', 'ADMIN_REVOKED')
+        """
+    )
+    # Step 3: remove old values
     op.execute(
         """
         ALTER TABLE audit_logs MODIFY COLUMN action ENUM(
