@@ -2,6 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field
 
+from app.models.enums import UserRole
 from app.schemas.user import UserDetail
 
 
@@ -85,9 +86,9 @@ class DevSigninRequest(BaseModel):
         description="User name for dev signin",
         examples=["Admin User"],
     )
-    is_admin: bool = Field(
-        default=False,
-        description="Whether the user should be an admin",
+    role: UserRole = Field(
+        default=UserRole.MEMBER,
+        description="User role: member, leader, admin, or admin_and_leader",
     )
     qualification: Literal["pending", "associate", "regular", "active"] = Field(
         default="active",

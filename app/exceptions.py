@@ -75,15 +75,15 @@ class UserNotRegisteredError(AppError):
         super().__init__("USER_NOT_REGISTERED", message, 400)
 
 
-class InvalidApprovalRequestError(AppError):
-    """Invalid activity approval request"""
+class GoogleAccountAlreadyLinkedError(AppError):
+    """Google account is already linked to another user"""
 
-    def __init__(self, message: str = "Invalid approval request"):
-        super().__init__("INVALID_APPROVAL_REQUEST", message, 400)
+    def __init__(self, message: str = "Google account is already linked"):
+        super().__init__("GOOGLE_ACCOUNT_ALREADY_LINKED", message, 409)
 
 
-class RequestAlreadyProcessedError(AppError):
-    """Approval request has already been processed"""
+class EmailAlreadyInUseError(AppError):
+    """Email is already used by another user"""
 
-    def __init__(self, message: str = "Request has already been processed"):
-        super().__init__("REQUEST_ALREADY_PROCESSED", message, 400)
+    def __init__(self, message: str = "Email is already in use"):
+        super().__init__("EMAIL_ALREADY_IN_USE", message, 409)

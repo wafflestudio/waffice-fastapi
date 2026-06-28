@@ -18,8 +18,13 @@ from app.config.secrets import (
     JWT_SECRET_KEY,
 )
 from app.deps.auth import JWT_ALGORITHM, get_current_user
-from app.exceptions import InvalidAuthTokenError, UserNotRegisteredError
-from app.models import Qualification, User
+from app.exceptions import (
+    EmailAlreadyInUseError,
+    GoogleAccountAlreadyLinkedError,
+    InvalidAuthTokenError,
+    UserNotRegisteredError,
+)
+from app.models import Qualification, User, UserRole
 from app.schemas import (
     AuthResult,
     AuthStatus,
@@ -332,6 +337,64 @@ async def google_token_exchange(
 
 
 @router.post(
+    "/google/relink",
+    response_model=Response[AuthResult],
+    summary="Relink current user to a new Google account",
+    description="Replace the current user's Google login identifier and email using a temporary OAuth auth token.",
+    responses={
+        200: {"description": "Google account relinked successfully"},
+        400: {"description": "Invalid auth token"},
+        401: {"description": "Not authenticated"},
+        409: {"description": "Google account or email already linked to another user"},
+    },
+)
+async def relink_google_account(
+    request: SigninRequest,
+    response: FastAPIResponse,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Relink the authenticated user to the Google account represented by auth_token.
+
+    The auth_token is produced by `/auth/google/token` after the user completes
+    OAuth with the new Google account. Both google_id and email are updated
+    together so future login attempts resolve to this user.
+    """
+    payload = decode_auth_token(request.auth_token)
+    google_id = payload["google_id"]
+    email = payload["email"]
+
+    existing_google_user = UserService.get_by_google_id(db, google_id)
+    if existing_google_user and existing_google_user.id != current_user.id:
+        raise GoogleAccountAlreadyLinkedError()
+
+    existing_email_user = UserService.get_by_email(db, email)
+    if existing_email_user and existing_email_user.id != current_user.id:
+        raise EmailAlreadyInUseError()
+
+    user = current_user
+    if user.google_id != google_id or user.email != email:
+        user = UserService.update(db, user, google_id=google_id, email=email)
+
+    access_token = create_access_token(user.id, user.email, user.google_id)
+    set_auth_cookie(response, access_token)
+
+    if user.qualification == Qualification.PENDING:
+        auth_status = "pending"
+    else:
+        auth_status = "active"
+
+    return Response(
+        ok=True,
+        data=AuthResult(
+            status=auth_status,
+            user=user,
+        ),
+    )
+
+
+@router.post(
     "/signin",
     response_model=Response[AuthResult],
     summary="Sign in existing user",
@@ -445,7 +508,7 @@ async def signup(
             bio=request.bio,
             github_username=request.github_username,
             qualification=Qualification.PENDING,
-            is_admin=False,
+            role=UserRole.MEMBER,
         )
 
     # Generate JWT
@@ -561,9 +624,7 @@ async def signin_dev(
 
     if user:
         # Update existing user's admin status and qualification
-        UserService.update(
-            db, user, is_admin=request.is_admin, qualification=qualification
-        )
+        UserService.update(db, user, role=request.role, qualification=qualification)
     else:
         # Create new user with dev google_id
         # Handle race condition: if concurrent request created user, catch and retry
@@ -577,14 +638,14 @@ async def signin_dev(
                 email=request.email,
                 name=request.name,
                 qualification=qualification,
-                is_admin=request.is_admin,
+                role=request.role,
             )
         except IntegrityError:
             db.rollback()
             user = UserService.get_by_email(db, request.email)
             if user:
                 UserService.update(
-                    db, user, is_admin=request.is_admin, qualification=qualification
+                    db, user, role=request.role, qualification=qualification
                 )
             else:
                 raise HTTPException(

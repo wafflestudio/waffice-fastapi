@@ -19,10 +19,16 @@ class MemberRole(str, Enum):
     MEMBER = "member"
 
 
+class UserRole(str, Enum):
+    MEMBER = "member"
+    LEADER = "leader"
+    ADMIN = "admin"
+    ADMIN_AND_LEADER = "admin_and_leader"
+
+
 class AuditAction(str, Enum):
     QUALIFICATION_CHANGED = "qualification_changed"
-    ADMIN_GRANTED = "admin_granted"
-    ADMIN_REVOKED = "admin_revoked"
+    ROLE_CHANGED = "role_changed"
     PROJECT_JOINED = "project_joined"
     PROJECT_LEFT = "project_left"
     PROJECT_ROLE_CHANGED = "project_role_changed"

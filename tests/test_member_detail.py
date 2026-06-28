@@ -343,16 +343,16 @@ class TestAuditLog:
         assert logs[0]["payload"]["from"] == "pending"
         assert logs[0]["payload"]["to"] == "associate"
 
-    def test_admin_grant_creates_audit_log(
+    def test_role_change_creates_audit_log(
         self,
         client: TestClient,
         admin_token: str,
         regular_user: User,
     ):
-        """Granting admin creates an admin_granted audit log entry."""
+        """Role change creates a role_changed audit log entry."""
         client.patch(
             f"/users/{regular_user.id}",
-            json={"is_admin": True},
+            json={"role": "admin"},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
 
@@ -361,7 +361,10 @@ class TestAuditLog:
             headers={"Authorization": f"Bearer {admin_token}"},
         )
         logs = response.json()["data"]
-        assert any(log["action"] == "admin_granted" for log in logs)
+        assert any(log["action"] == "role_changed" for log in logs)
+        role_log = next(log for log in logs if log["action"] == "role_changed")
+        assert role_log["payload"]["from"] == "member"
+        assert role_log["payload"]["to"] == "admin"
 
 
 class TestProfileUpdate:
