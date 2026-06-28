@@ -88,6 +88,7 @@ class EmailAlreadyInUseError(AppError):
     def __init__(self, message: str = "Email is already in use"):
         super().__init__("EMAIL_ALREADY_IN_USE", message, 409)
 
+
 class InvalidApprovalRequestError(AppError):
     """Invalid activity approval request"""
 
