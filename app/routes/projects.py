@@ -9,6 +9,7 @@ from app.exceptions import (
     LastLeaderError,
     NoLeaderError,
     NotFoundError,
+    TemporaryMemberProjectError,
 )
 from app.models import MemberRole, User
 from app.schemas import (
@@ -106,6 +107,10 @@ async def create_project(
         user = UserService.get(db, member_input.user_id)
         if not user:
             raise NotFoundError(f"User {member_input.user_id} not found")
+        # Temporary members are roster placeholders with no OAuth identity and
+        # must not be treated as real project members (mirrors the /approve guard).
+        if user.is_temporary:
+            raise TemporaryMemberProjectError()
 
     # Create project
     project_data = request.model_dump(exclude={"members"})
@@ -270,6 +275,10 @@ async def add_project_member(
     target_user = UserService.get(db, member_input.user_id)
     if not target_user:
         raise NotFoundError(f"User {member_input.user_id} not found")
+    # Temporary members are roster placeholders with no OAuth identity and must
+    # not be treated as real project members (mirrors the /approve guard).
+    if target_user.is_temporary:
+        raise TemporaryMemberProjectError()
 
     # Add member (idempotent)
     MemberService.add(

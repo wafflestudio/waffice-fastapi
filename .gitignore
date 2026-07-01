@@ -170,3 +170,6 @@ poetry.toml
 
 # LSP config files
 pyrightconfig.json
+
+# Local dev docs / manual test artifacts for temp-member import (not part of the codebase)
+imsi_member_docs/
