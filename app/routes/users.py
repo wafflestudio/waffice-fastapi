@@ -8,7 +8,11 @@ from app.deps.auth import (
     require_associate,
     require_regular,
 )
-from app.exceptions import InvalidQualificationError, NotFoundError
+from app.exceptions import (
+    InvalidQualificationError,
+    NotFoundError,
+    TemporaryMemberApprovalError,
+)
 from app.models import AuditAction, Qualification, User, UserRole
 from app.schemas import (
     ActivityCreateRequest,
@@ -20,6 +24,10 @@ from app.schemas import (
     ProfileUpdateRequest,
     ProjectBrief,
     Response,
+    SkippedMember,
+    TempMemberImportRequest,
+    TempMemberImportResult,
+    UserBrief,
     UserDetail,
     UserUpdateRequest,
 )
@@ -188,6 +196,66 @@ async def list_pending_users(
     return Response(ok=True, data=users)
 
 
+@router.post(
+    "/temporary",
+    response_model=Response[TempMemberImportResult],
+    summary="Import temporary members from a roster",
+    description=(
+        "Bulk-create temporary members from a parsed member roster. Admin only."
+    ),
+    responses={
+        200: {"description": "Roster imported successfully"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "Admin access required"},
+        422: {"description": "Invalid request body (e.g. empty roster)"},
+    },
+)
+async def import_temporary_members(
+    request: TempMemberImportRequest,
+    _admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Import a member roster as temporary members.
+
+    **Requires**: Admin privileges.
+
+    Intended flow: an admin uploads a member roster (Excel); the frontend parses
+    it and posts the rows here as JSON. For each row, a temporary `User` record is
+    created with only `name` and `student_id` populated (no email/OAuth identity,
+    `is_temporary=True`, `qualification=PENDING`).
+
+    Rows are **matched against existing members by `student_id`** and skipped when
+    a member with that student_id already exists, or when the same student_id
+    appears more than once in the request. The response reports what was created
+    and what was skipped (with reasons).
+
+    Idempotency caveats (matching is application-level, not DB-enforced):
+    - Re-running the same roster sequentially is safe (already-created rows skip
+      as `already_exists`).
+    - `student_id` has no UNIQUE constraint, so two *concurrent* imports of the
+      same student_id could both create a row. Avoid simultaneous imports.
+    - Existing members who never recorded a `student_id` cannot be matched and
+      will be duplicated as temporary members. This import is not a full upsert
+      against the entire member set.
+    """
+    created, skipped = UserService.bulk_create_temporary(
+        db,
+        [(m.name, m.student_id) for m in request.members],
+    )
+
+    result = TempMemberImportResult(
+        created_count=len(created),
+        skipped_count=len(skipped),
+        created=[UserBrief.model_validate(u) for u in created],
+        skipped=[
+            SkippedMember(name=name, student_id=student_id, reason=reason)
+            for name, student_id, reason in skipped
+        ],
+    )
+    return Response(ok=True, data=result)
+
+
 @router.get(
     "/{user_id}",
     response_model=Response[UserDetail],
@@ -320,7 +388,9 @@ async def delete_user(
     description="Approve a pending user and set their qualification level. Admin only.",
     responses={
         200: {"description": "User approved successfully"},
-        400: {"description": "Cannot approve to PENDING status"},
+        400: {
+            "description": "Cannot approve to PENDING status, or target is a temporary member"
+        },
         401: {"description": "Not authenticated"},
         403: {"description": "Admin access required"},
         404: {"description": "User not found"},
@@ -348,6 +418,11 @@ async def approve_user(
     user = UserService.get(db, user_id)
     if not user:
         raise NotFoundError("User not found")
+
+    # Temporary members are roster placeholders with no OAuth identity; they are
+    # excluded from the pending-approval queue and must not be approved directly.
+    if user.is_temporary:
+        raise TemporaryMemberApprovalError()
 
     # Cannot approve to pending
     if request.qualification == Qualification.PENDING:

@@ -35,6 +35,15 @@ class UserService:
         )
 
     @staticmethod
+    def get_by_student_id(db: Session, student_id: str) -> User | None:
+        """Get user by student ID (excluding soft-deleted users)"""
+        return (
+            db.query(User)
+            .filter(and_(User.student_id == student_id, User.deleted_at.is_(None)))
+            .first()
+        )
+
+    @staticmethod
     def list(
         db: Session, *, cursor: int | None = None, limit: int = 20
     ) -> tuple[list[User], int | None]:
@@ -59,12 +68,19 @@ class UserService:
 
     @staticmethod
     def list_pending(db: Session) -> list[User]:
-        """List all pending users (excluding soft-deleted users)"""
+        """
+        List users awaiting admin approval (excluding soft-deleted users).
+
+        Temporary members (is_temporary=True) also default to qualification=PENDING
+        but are roster placeholders, not OAuth signups awaiting approval, so they
+        are excluded to keep this approval queue uncluttered.
+        """
         return (
             db.query(User)
             .filter(
                 and_(
                     User.qualification == Qualification.PENDING,
+                    User.is_temporary.is_(False),
                     User.deleted_at.is_(None),
                 )
             )
@@ -80,6 +96,50 @@ class UserService:
         db.commit()
         db.refresh(user)
         return user
+
+    @staticmethod
+    def bulk_create_temporary(
+        db: Session, members: list[tuple[str, str]]
+    ) -> tuple[list[User], list[tuple[str, str, str]]]:
+        """
+        Create temporary members from roster rows in a single transaction.
+
+        Each row is a (name, student_id) pair. A row is skipped (not created) if:
+        - its student_id already belongs to a non-deleted user ("already_exists"), or
+        - the same student_id appeared earlier in this batch ("duplicate_in_request").
+
+        Temporary members are created with only name and student_id populated;
+        email is NULL and all other columns fall back to their model defaults
+        (qualification=PENDING, role=MEMBER, etc.).
+
+        Returns (created_users, skipped) where skipped is a list of
+        (name, student_id, reason).
+        """
+        created: list[User] = []
+        skipped: list[tuple[str, str, str]] = []
+        seen: set[str] = set()
+
+        for name, student_id in members:
+            name = name.strip()
+            student_id = student_id.strip()
+
+            if student_id in seen:
+                skipped.append((name, student_id, "duplicate_in_request"))
+                continue
+            seen.add(student_id)
+
+            if UserService.get_by_student_id(db, student_id):
+                skipped.append((name, student_id, "already_exists"))
+                continue
+
+            user = User(name=name, student_id=student_id, is_temporary=True)
+            db.add(user)
+            created.append(user)
+
+        db.commit()
+        for user in created:
+            db.refresh(user)
+        return created, skipped
 
     @staticmethod
     def update(db: Session, user: User, **data) -> User:

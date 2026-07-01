@@ -52,6 +52,32 @@ class InvalidQualificationError(AppError):
         super().__init__("INVALID_QUALIFICATION", message, 400)
 
 
+class TemporaryMemberApprovalError(AppError):
+    """Cannot approve a temporary (roster-imported) member"""
+
+    def __init__(
+        self,
+        message: str = (
+            "Cannot approve a temporary member. They must sign up "
+            "(OAuth) and be linked to this record first."
+        ),
+    ):
+        super().__init__("TEMPORARY_MEMBER_CANNOT_BE_APPROVED", message, 400)
+
+
+class TemporaryMemberProjectError(AppError):
+    """Cannot add a temporary (roster-imported) member to a project"""
+
+    def __init__(
+        self,
+        message: str = (
+            "Cannot add a temporary member to a project. They must sign up "
+            "(OAuth) and be linked to this record first."
+        ),
+    ):
+        super().__init__("TEMPORARY_MEMBER_CANNOT_JOIN_PROJECT", message, 400)
+
+
 class NoLeaderError(AppError):
     """No leader specified in project"""
 

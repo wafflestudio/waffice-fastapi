@@ -1,4 +1,14 @@
-from sqlalchemy import JSON, BigInteger, Column, Enum, Index, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    Column,
+    Enum,
+    Index,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.orm import relationship
 
 from app.config.database import Base
@@ -18,11 +28,20 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
 
     # Auth
     google_id = Column(String(255), unique=True, nullable=True)
-    email = Column(String(255), nullable=False, unique=True)
+    # Nullable so temporary members (imported from a roster, never logged in)
+    # can exist without a real OAuth email. UNIQUE still holds because MySQL
+    # permits multiple NULLs in a unique index.
+    email = Column(String(255), nullable=True, unique=True)
 
     # Profile (required)
     name = Column(String(100), nullable=False)
     generation = Column(String(20), nullable=False, default="26")
+
+    # Temporary member: created from an admin roster import with only name and
+    # student_id populated. Has no email/OAuth identity until the real person
+    # signs up. Distinct from qualification=PENDING (an OAuth signup awaiting
+    # admin approval), which keeps the /users/pending flow uncluttered.
+    is_temporary = Column(Boolean, nullable=False, default=False)
 
     # Status
     qualification = Column(
@@ -87,4 +106,7 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
         Index("idx_users_qualification", "qualification"),
         Index("idx_users_role", "role"),
         Index("idx_users_created_at", "created_at"),
+        Index("idx_users_is_temporary", "is_temporary"),
+        # Roster import matches existing members by student_id.
+        Index("idx_users_student_id", "student_id"),
     )
