@@ -38,7 +38,12 @@ def users(db: Session) -> list[User]:
 
 class TestUserSearchByName:
     def test_search_returns_matching_users(
-        self, client: TestClient, db: Session, admin_token: str, admin_user: User, users: list[User]
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        admin_user: User,
+        users: list[User],
     ):
         """이름 부분 일치로 유저 목록을 반환한다."""
         response = client.get(
@@ -55,7 +60,12 @@ class TestUserSearchByName:
         assert "박철수" not in names
 
     def test_search_exact_name(
-        self, client: TestClient, db: Session, admin_token: str, admin_user: User, users: list[User]
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        admin_user: User,
+        users: list[User],
     ):
         """정확한 이름으로 검색하면 해당 유저만 반환된다."""
         response = client.get(
@@ -70,7 +80,12 @@ class TestUserSearchByName:
         assert items[0]["name"] == "김와플"
 
     def test_search_no_match_returns_empty(
-        self, client: TestClient, db: Session, admin_token: str, admin_user: User, users: list[User]
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        admin_user: User,
+        users: list[User],
     ):
         """매칭되는 유저가 없으면 빈 리스트를 반환한다."""
         response = client.get(
@@ -84,7 +99,12 @@ class TestUserSearchByName:
         assert data["data"]["next_cursor"] is None
 
     def test_search_without_name_returns_all(
-        self, client: TestClient, db: Session, admin_token: str, admin_user: User, users: list[User]
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        admin_user: User,
+        users: list[User],
     ):
         """name 파라미터 없이 호출하면 전체 유저를 반환한다."""
         response = client.get(
