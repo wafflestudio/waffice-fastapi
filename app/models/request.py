@@ -12,7 +12,7 @@ class ApprovalRequest(Base, TimestampMixin, SoftDeleteMixin):
     id = Column(Integer, primary_key=True, autoincrement=True)
 
     project_id = Column(
-        Integer, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("projects.id", ondelete="SET NULL"), nullable=False
     )
     requester_id = Column(
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False

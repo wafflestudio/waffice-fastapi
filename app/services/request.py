@@ -104,6 +104,8 @@ def _can_view_or_review(
         db, approval_request.project_id, actor.id
     ):
         return True
+    if actor.id == approval_request.requester_id:
+        return False
     return (
         db.query(RequestReviewer)
         .filter(
