@@ -36,13 +36,20 @@ class UserService:
 
     @staticmethod
     def list(
-        db: Session, *, cursor: int | None = None, limit: int = 20
+        db: Session,
+        *,
+        cursor: int | None = None,
+        limit: int = 20,
+        name: str | None = None,
     ) -> tuple[list[User], int | None]:
         """
         List users with cursor-based pagination (excluding soft-deleted users).
         Returns (items, next_cursor)
         """
         query = db.query(User).filter(User.deleted_at.is_(None))
+
+        if name is not None:
+            query = query.filter(User.name.ilike(f"%{name}%"))
 
         if cursor is not None:
             query = query.filter(User.created_at < cursor)

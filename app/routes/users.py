@@ -148,6 +148,7 @@ async def list_users(
     limit: int = Query(
         20, ge=1, le=100, description="Number of users per page (1-100)"
     ),
+    name: str | None = Query(None, description="Filter by name (partial match)"),
     _admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -159,7 +160,7 @@ async def list_users(
     Returns users ordered by ID. Use `next_cursor` from the response
     to fetch subsequent pages.
     """
-    users, next_cursor = UserService.list(db, cursor=cursor, limit=limit)
+    users, next_cursor = UserService.list(db, cursor=cursor, limit=limit, name=name)
     return Response(ok=True, data=CursorPage(items=users, next_cursor=next_cursor))
 
 
