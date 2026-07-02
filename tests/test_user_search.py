@@ -1,11 +1,13 @@
-"""Tests for user search by name (GET /users?name=...)"""
+"""Tests for user-related features: name search and current_projects."""
+
+from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models import Qualification, User
-from app.services import UserService
+from app.models import MemberRole, Qualification, User
+from app.services import MemberService, ProjectService, UserService
 
 
 @pytest.fixture
@@ -38,7 +40,12 @@ def users(db: Session) -> list[User]:
 
 class TestUserSearchByName:
     def test_search_returns_matching_users(
-        self, client: TestClient, db: Session, admin_token: str, admin_user: User, users: list[User]
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        admin_user: User,
+        users: list[User],
     ):
         """이름 부분 일치로 유저 목록을 반환한다."""
         response = client.get(
@@ -55,7 +62,12 @@ class TestUserSearchByName:
         assert "박철수" not in names
 
     def test_search_exact_name(
-        self, client: TestClient, db: Session, admin_token: str, admin_user: User, users: list[User]
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        admin_user: User,
+        users: list[User],
     ):
         """정확한 이름으로 검색하면 해당 유저만 반환된다."""
         response = client.get(
@@ -70,7 +82,12 @@ class TestUserSearchByName:
         assert items[0]["name"] == "김와플"
 
     def test_search_no_match_returns_empty(
-        self, client: TestClient, db: Session, admin_token: str, admin_user: User, users: list[User]
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        admin_user: User,
+        users: list[User],
     ):
         """매칭되는 유저가 없으면 빈 리스트를 반환한다."""
         response = client.get(
@@ -84,7 +101,12 @@ class TestUserSearchByName:
         assert data["data"]["next_cursor"] is None
 
     def test_search_without_name_returns_all(
-        self, client: TestClient, db: Session, admin_token: str, admin_user: User, users: list[User]
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        admin_user: User,
+        users: list[User],
     ):
         """name 파라미터 없이 호출하면 전체 유저를 반환한다."""
         response = client.get(
@@ -180,3 +202,231 @@ class TestUserSearchByName:
         data = response.json()
         assert len(data["data"]["items"]) == 3
         assert data["data"]["next_cursor"] is not None
+
+
+@pytest.fixture
+def project(db: Session, admin_user: User):
+    p = ProjectService.create(
+        db,
+        name="테스트 프로젝트",
+        status="active",
+        started_at=date(2024, 1, 1),
+    )
+    db.commit()
+    return p
+
+
+@pytest.fixture
+def another_project(db: Session, admin_user: User):
+    p = ProjectService.create(
+        db,
+        name="두번째 프로젝트",
+        status="active",
+        started_at=date(2024, 3, 1),
+    )
+    db.commit()
+    return p
+
+
+class TestCurrentProjectsInUserDetail:
+    def test_user_with_no_projects(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        admin_user: User,
+        active_user: User,
+    ):
+        """프로젝트가 없는 유저는 current_projects가 빈 리스트다."""
+        response = client.get(
+            f"/users/{active_user.id}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["data"]["current_projects"] == []
+
+    def test_user_with_active_project(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        admin_user: User,
+        active_user: User,
+        project,
+    ):
+        """현재 소속된 프로젝트가 current_projects에 포함된다."""
+        MemberService.add(
+            db,
+            project_id=project.id,
+            user_id=active_user.id,
+            role=MemberRole.MEMBER,
+            position=None,
+            actor_id=admin_user.id,
+        )
+        db.commit()
+
+        response = client.get(
+            f"/users/{active_user.id}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        assert response.status_code == 200
+        current_projects = response.json()["data"]["current_projects"]
+        assert len(current_projects) == 1
+        assert current_projects[0]["id"] == project.id
+        assert current_projects[0]["name"] == "테스트 프로젝트"
+
+    def test_user_with_multiple_projects(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        admin_user: User,
+        active_user: User,
+        project,
+        another_project,
+    ):
+        """여러 프로젝트에 소속된 경우 모두 반환된다."""
+        MemberService.add(
+            db,
+            project_id=project.id,
+            user_id=active_user.id,
+            role=MemberRole.MEMBER,
+            position=None,
+            actor_id=admin_user.id,
+        )
+        MemberService.add(
+            db,
+            project_id=another_project.id,
+            user_id=active_user.id,
+            role=MemberRole.LEADER,
+            position=None,
+            actor_id=admin_user.id,
+        )
+        db.commit()
+
+        response = client.get(
+            f"/users/{active_user.id}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        assert response.status_code == 200
+        current_projects = response.json()["data"]["current_projects"]
+        assert len(current_projects) == 2
+        project_ids = [p["id"] for p in current_projects]
+        assert project.id in project_ids
+        assert another_project.id in project_ids
+
+    def test_left_project_not_included(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        admin_user: User,
+        active_user: User,
+        project,
+        another_project,
+    ):
+        """탈퇴한 프로젝트는 current_projects에 포함되지 않는다."""
+        MemberService.add(
+            db,
+            project_id=project.id,
+            user_id=active_user.id,
+            role=MemberRole.MEMBER,
+            position=None,
+            actor_id=admin_user.id,
+        )
+        MemberService.add(
+            db,
+            project_id=another_project.id,
+            user_id=active_user.id,
+            role=MemberRole.MEMBER,
+            position=None,
+            actor_id=admin_user.id,
+        )
+        # another_project에서 active_user 제거하려면 리더가 필요
+        MemberService.add(
+            db,
+            project_id=another_project.id,
+            user_id=admin_user.id,
+            role=MemberRole.LEADER,
+            position=None,
+            actor_id=admin_user.id,
+        )
+        db.commit()
+
+        member = MemberService.get_active(db, another_project.id, active_user.id)
+        MemberService.remove(db, member, actor_id=admin_user.id)
+        db.commit()
+
+        response = client.get(
+            f"/users/{active_user.id}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        assert response.status_code == 200
+        current_projects = response.json()["data"]["current_projects"]
+        assert len(current_projects) == 1
+        assert current_projects[0]["id"] == project.id
+
+    def test_current_projects_in_user_list(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        admin_user: User,
+        active_user: User,
+        project,
+    ):
+        """유저 목록 조회 시에도 current_projects가 포함된다."""
+        MemberService.add(
+            db,
+            project_id=project.id,
+            user_id=active_user.id,
+            role=MemberRole.MEMBER,
+            position=None,
+            actor_id=admin_user.id,
+        )
+        db.commit()
+
+        response = client.get(
+            "/users",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        assert response.status_code == 200
+        users = response.json()["data"]["items"]
+        target = next(u for u in users if u["id"] == active_user.id)
+        assert len(target["current_projects"]) == 1
+        assert target["current_projects"][0]["id"] == project.id
+
+    def test_current_projects_in_my_profile(
+        self,
+        client: TestClient,
+        db: Session,
+        active_token: str,
+        active_user: User,
+        admin_user: User,
+        project,
+    ):
+        """본인 프로필 조회 시에도 current_projects가 포함된다."""
+        MemberService.add(
+            db,
+            project_id=project.id,
+            user_id=active_user.id,
+            role=MemberRole.MEMBER,
+            position=None,
+            actor_id=admin_user.id,
+        )
+        db.commit()
+
+        response = client.get(
+            "/users/me",
+            headers={"Authorization": f"Bearer {active_token}"},
+        )
+
+        assert response.status_code == 200
+        current_projects = response.json()["data"]["current_projects"]
+        assert len(current_projects) == 1
+        assert current_projects[0]["name"] == "테스트 프로젝트"

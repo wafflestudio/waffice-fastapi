@@ -31,6 +31,10 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     role = Column(Enum(UserRole), nullable=False, default=UserRole.MEMBER)
 
     @property
+    def current_projects(self):
+        return [m.project for m in self.project_memberships if m.left_at is None]
+
+    @property
     def is_admin(self) -> bool:
         return self.role in (UserRole.ADMIN, UserRole.ADMIN_AND_LEADER)
 
