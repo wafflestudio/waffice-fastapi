@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
@@ -25,13 +25,13 @@ from app.schemas import (
     ProjectBrief,
     Response,
     SkippedMember,
-    TempMemberImportRequest,
     TempMemberImportResult,
     UserBrief,
     UserDetail,
     UserUpdateRequest,
 )
 from app.services import ActivityService, AuditLogService, ProjectService, UserService
+from app.services.roster import parse_member_roster
 
 router = APIRouter()
 
@@ -199,50 +199,63 @@ async def list_pending_users(
 @router.post(
     "/temporary",
     response_model=Response[TempMemberImportResult],
-    summary="Import temporary members from a roster",
+    summary="Import temporary members from a roster (.xlsx upload)",
     description=(
-        "Bulk-create temporary members from a parsed member roster. Admin only."
+        "Upload a member roster (.xlsx) to bulk-create temporary members. Admin only."
     ),
     responses={
         200: {"description": "Roster imported successfully"},
+        400: {
+            "description": "Unreadable file, missing name/student_id column, "
+            "or too many rows"
+        },
         401: {"description": "Not authenticated"},
         403: {"description": "Admin access required"},
-        422: {"description": "Invalid request body (e.g. empty roster)"},
+        422: {"description": "Roster has no member rows"},
     },
 )
 async def import_temporary_members(
-    request: TempMemberImportRequest,
+    file: UploadFile = File(
+        ...,
+        description=(
+            "Excel (.xlsx) roster. First row is the header; needs a name column "
+            "(이름/성명/name) and a student_id column (학번/student_id/sid)."
+        ),
+    ),
     _admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     """
-    Import a member roster as temporary members.
+    Import a member roster (.xlsx) as temporary members.
 
     **Requires**: Admin privileges.
 
-    Intended flow: an admin uploads a member roster (Excel); the frontend parses
-    it and posts the rows here as JSON. For each row, a temporary `User` record is
-    created with only `name` and `student_id` populated (no email/OAuth identity,
-    `is_temporary=True`, `qualification=PENDING`).
+    The uploaded spreadsheet is parsed on the backend. The first row is the
+    header, and the name / student_id columns are located by header text
+    (case-insensitive; Korean or English; column order does not matter):
+    - name:       이름 / 성명 / name
+    - student_id: 학번 / student_id / sid
 
-    Rows are **matched against existing members by `student_id`** and skipped when
-    a member with that student_id already exists, or when the same student_id
-    appears more than once in the request. The response reports what was created
-    and what was skipped (with reasons).
+    Each data row becomes a temporary `User` with only `name` and `student_id`
+    populated (no email/OAuth identity, `is_temporary=True`, `qualification=PENDING`).
+
+    Rows are matched against existing members by `student_id` and skipped when a
+    member with that student_id already exists (`already_exists`), the same
+    student_id appears more than once in the file (`duplicate_in_request`), or the
+    name/student_id is blank/malformed (`invalid`).
 
     Idempotency caveats (matching is application-level, not DB-enforced):
-    - Re-running the same roster sequentially is safe (already-created rows skip
-      as `already_exists`).
-    - `student_id` has no UNIQUE constraint, so two *concurrent* imports of the
-      same student_id could both create a row. Avoid simultaneous imports.
+    - Re-uploading the same roster is safe (existing rows skip as `already_exists`).
+    - `student_id` has no UNIQUE constraint, so two *concurrent* uploads of the
+      same student_id could both create a row. Avoid simultaneous uploads.
     - Existing members who never recorded a `student_id` cannot be matched and
-      will be duplicated as temporary members. This import is not a full upsert
-      against the entire member set.
+      will be duplicated as temporary members.
     """
-    created, skipped = UserService.bulk_create_temporary(
-        db,
-        [(m.name, m.student_id) for m in request.members],
-    )
+    content = await file.read()
+    valid_rows, invalid_rows = parse_member_roster(content)
+
+    created, skipped = UserService.bulk_create_temporary(db, valid_rows)
+    skipped = invalid_rows + skipped
 
     result = TempMemberImportResult(
         created_count=len(created),

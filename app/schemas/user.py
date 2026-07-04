@@ -199,20 +199,6 @@ class TempMemberInput(BaseModel):
         return stripped
 
 
-class TempMemberImportRequest(BaseModel):
-    """
-    Request body for bulk-importing a member roster as temporary members.
-
-    The frontend parses the uploaded Excel file and sends the rows as JSON.
-    """
-
-    members: list[TempMemberInput] = Field(
-        description="Roster rows. Duplicates (by student_id) are skipped.",
-        min_length=1,
-        max_length=2000,
-    )
-
-
 class SkippedMember(BaseModel):
     """A roster row that was not created, with the reason."""
 
@@ -221,10 +207,11 @@ class SkippedMember(BaseModel):
     reason: str = Field(
         description=(
             "Why the row was skipped: "
-            "'already_exists' (a member with this student_id is already in the DB) "
-            "or 'duplicate_in_request' (the student_id appeared earlier in this request)"
+            "'already_exists' (a member with this student_id is already in the DB), "
+            "'duplicate_in_request' (the student_id appeared earlier in the file), or "
+            "'invalid' (blank/malformed name or student_id)"
         ),
-        examples=["already_exists", "duplicate_in_request"],
+        examples=["already_exists", "duplicate_in_request", "invalid"],
     )
 
 

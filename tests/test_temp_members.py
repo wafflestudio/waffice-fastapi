@@ -1,29 +1,70 @@
-"""Tests for the temporary member roster import endpoint (POST /users/temporary)."""
+"""Tests for the temporary member roster import endpoint (POST /users/temporary).
+
+The endpoint accepts an .xlsx upload; the backend parses it (header row locates
+the name / student_id columns) and bulk-creates temporary members.
+"""
+
+import io
 
 from fastapi.testclient import TestClient
+from openpyxl import Workbook
 from sqlalchemy.orm import Session
 
 from app.models import Qualification, User
 from app.services import UserService
+
+XLSX_CT = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 def _auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _xlsx(rows, headers=("이름", "학번")) -> bytes:
+    """Build an in-memory .xlsx with a header row followed by `rows`."""
+    wb = Workbook()
+    ws = wb.active
+    ws.append(list(headers))
+    for row in rows:
+        ws.append(list(row))
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _post_roster(
+    client,
+    token,
+    rows=None,
+    *,
+    content=None,
+    headers=("이름", "학번"),
+    filename="roster.xlsx",
+):
+    data = content if content is not None else _xlsx(rows or [], headers)
+    return client.post(
+        "/users/temporary",
+        files={"file": (filename, data, XLSX_CT)},
+        headers=_auth(token),
+    )
+
+
+def _import_one(client, token, name: str, student_id: str) -> int:
+    """Import a single temp member via upload and return its new user id."""
+    created = _post_roster(client, token, [(name, student_id)]).json()["data"][
+        "created"
+    ]
+    return created[0]["id"]
+
+
 def test_import_creates_temporary_members(
     client: TestClient, db: Session, admin_token: str, admin_user: User
 ):
-    """Admin import creates temp records with only name/student_id populated."""
-    response = client.post(
-        "/users/temporary",
-        json={
-            "members": [
-                {"name": "홍길동", "student_id": "2021-10001"},
-                {"name": "김철수", "student_id": "2021-10002"},
-            ]
-        },
-        headers=_auth(admin_token),
+    """Admin upload creates temp records with only name/student_id populated."""
+    response = _post_roster(
+        client,
+        admin_token,
+        [("홍길동", "2021-10001"), ("김철수", "2021-10002")],
     )
 
     assert response.status_code == 200
@@ -36,7 +77,6 @@ def test_import_creates_temporary_members(
     assert all(m["email"] is None for m in data["created"])
     assert data["skipped"] == []
 
-    # Verify the persisted record: temp flag set, only name/student_id filled.
     user = UserService.get_by_student_id(db, "2021-10001")
     assert user is not None
     assert user.is_temporary is True
@@ -45,6 +85,31 @@ def test_import_creates_temporary_members(
     assert user.email is None
     assert user.google_id is None
     assert user.qualification == Qualification.PENDING
+
+
+def test_import_accepts_english_headers_any_order(
+    client: TestClient, db: Session, admin_token: str, admin_user: User
+):
+    """Columns are located by header, so English headers in any order work."""
+    response = _post_roster(
+        client,
+        admin_token,
+        [("2021-11111", "영문헤더")],
+        headers=("student_id", "name"),
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["created_count"] == 1
+    user = UserService.get_by_student_id(db, "2021-11111")
+    assert user is not None and user.name == "영문헤더"
+
+
+def test_import_numeric_student_id_is_stringified(
+    client: TestClient, db: Session, admin_token: str, admin_user: User
+):
+    """A numeric student_id cell is stored as digits, not '2021001.0'."""
+    response = _post_roster(client, admin_token, [("숫자학번", 2021001)])
+    assert response.status_code == 200
+    assert UserService.get_by_student_id(db, "2021001") is not None
 
 
 def test_import_skips_existing_student_id(
@@ -61,15 +126,10 @@ def test_import_skips_existing_student_id(
         student_id="2021-20001",
     )
 
-    response = client.post(
-        "/users/temporary",
-        json={
-            "members": [
-                {"name": "기존회원", "student_id": "2021-20001"},
-                {"name": "신규회원", "student_id": "2021-20002"},
-            ]
-        },
-        headers=_auth(admin_token),
+    response = _post_roster(
+        client,
+        admin_token,
+        [("기존회원", "2021-20001"), ("신규회원", "2021-20002")],
     )
 
     assert response.status_code == 200
@@ -81,19 +141,14 @@ def test_import_skips_existing_student_id(
     assert data["skipped"][0]["reason"] == "already_exists"
 
 
-def test_import_dedupes_within_request(
+def test_import_dedupes_within_file(
     client: TestClient, db: Session, admin_token: str, admin_user: User
 ):
-    """The same student_id appearing twice in one request creates one record."""
-    response = client.post(
-        "/users/temporary",
-        json={
-            "members": [
-                {"name": "중복1", "student_id": "2021-30001"},
-                {"name": "중복2", "student_id": "2021-30001"},
-            ]
-        },
-        headers=_auth(admin_token),
+    """The same student_id appearing twice in one file creates one record."""
+    response = _post_roster(
+        client,
+        admin_token,
+        [("중복1", "2021-30001"), ("중복2", "2021-30001")],
     )
 
     assert response.status_code == 200
@@ -106,13 +161,13 @@ def test_import_dedupes_within_request(
 def test_import_is_idempotent_on_retry(
     client: TestClient, db: Session, admin_token: str, admin_user: User
 ):
-    """Re-importing the same roster creates nothing the second time."""
-    payload = {"members": [{"name": "재시도", "student_id": "2021-40001"}]}
+    """Re-uploading the same roster creates nothing the second time."""
+    rows = [("재시도", "2021-40001")]
 
-    first = client.post("/users/temporary", json=payload, headers=_auth(admin_token))
+    first = _post_roster(client, admin_token, rows)
     assert first.json()["data"]["created_count"] == 1
 
-    second = client.post("/users/temporary", json=payload, headers=_auth(admin_token))
+    second = _post_roster(client, admin_token, rows)
     body = second.json()["data"]
     assert body["created_count"] == 0
     assert body["skipped_count"] == 1
@@ -123,11 +178,7 @@ def test_import_requires_admin(
     client: TestClient, regular_token: str, regular_user: User
 ):
     """Non-admins cannot import members."""
-    response = client.post(
-        "/users/temporary",
-        json={"members": [{"name": "홍길동", "student_id": "2021-50001"}]},
-        headers=_auth(regular_token),
-    )
+    response = _post_roster(client, regular_token, [("홍길동", "2021-50001")])
     assert response.status_code == 403
 
 
@@ -135,7 +186,7 @@ def test_import_requires_authentication(client: TestClient):
     """Unauthenticated requests are rejected."""
     response = client.post(
         "/users/temporary",
-        json={"members": [{"name": "홍길동", "student_id": "2021-60001"}]},
+        files={"file": ("roster.xlsx", _xlsx([("홍길동", "2021-60001")]), XLSX_CT)},
     )
     assert response.status_code == 401
 
@@ -143,38 +194,88 @@ def test_import_requires_authentication(client: TestClient):
 def test_import_rejects_empty_roster(
     client: TestClient, admin_token: str, admin_user: User
 ):
-    """An empty roster fails validation."""
+    """A roster with a header but no data rows is a 422."""
+    response = _post_roster(client, admin_token, [])
+    assert response.status_code == 422
+    assert response.json()["error"] == "EMPTY_ROSTER"
+
+
+def test_import_rejects_non_xlsx_file(
+    client: TestClient, admin_token: str, admin_user: User
+):
+    """A non-xlsx payload cannot be parsed → 400."""
     response = client.post(
         "/users/temporary",
-        json={"members": []},
+        files={"file": ("roster.txt", b"this is not a spreadsheet", "text/plain")},
         headers=_auth(admin_token),
     )
-    assert response.status_code == 422
+    assert response.status_code == 400
+    assert response.json()["error"] == "INVALID_ROSTER_FILE"
 
 
-def test_import_rejects_whitespace_only_name(
+def test_import_rejects_missing_column(
+    client: TestClient, admin_token: str, admin_user: User
+):
+    """A roster missing the student_id column → 400."""
+    response = _post_roster(
+        client,
+        admin_token,
+        [("홍길동", "010-0000-0000")],
+        headers=("이름", "전화번호"),
+    )
+    assert response.status_code == 400
+    assert response.json()["error"] == "INVALID_ROSTER_FILE"
+
+
+def test_import_skips_blank_name_as_invalid(
     client: TestClient, db: Session, admin_token: str, admin_user: User
 ):
-    """A whitespace-only name is rejected (not silently stored as empty)."""
-    response = client.post(
-        "/users/temporary",
-        json={"members": [{"name": "   ", "student_id": "2021-70001"}]},
-        headers=_auth(admin_token),
-    )
-    assert response.status_code == 422
-    # Nothing should have been persisted.
+    """A blank/whitespace name is skipped as 'invalid', not stored, not fatal."""
+    response = _post_roster(client, admin_token, [("   ", "2021-70001")])
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["created_count"] == 0
+    assert data["skipped"][0]["reason"] == "invalid"
     assert UserService.get_by_student_id(db, "2021-70001") is None
+
+
+def test_import_skips_blank_student_id_as_invalid(
+    client: TestClient, db: Session, admin_token: str, admin_user: User
+):
+    """A blank student_id is skipped as 'invalid' (symmetric to the name case)."""
+    response = _post_roster(client, admin_token, [("홍길동", "   ")])
+    assert response.status_code == 200
+    assert response.json()["data"]["skipped"][0]["reason"] == "invalid"
+
+
+def test_import_skips_zero_width_only_value_as_invalid(
+    client: TestClient, db: Session, admin_token: str, admin_user: User
+):
+    """A name made only of zero-width/format chars is skipped as invalid."""
+    response = _post_roster(client, admin_token, [("​​", "2021-98000")])
+    assert response.status_code == 200
+    assert response.json()["data"]["skipped"][0]["reason"] == "invalid"
+    assert UserService.get_by_student_id(db, "2021-98000") is None
+
+
+def test_import_trims_bom_so_match_key_is_consistent(
+    client: TestClient, db: Session, admin_token: str, admin_user: User
+):
+    """A BOM-prefixed student_id is normalized so dedup/matching still works."""
+    response = _post_roster(client, admin_token, [("BOM", "﻿2021-98001")])
+    assert response.status_code == 200
+    assert response.json()["data"]["created_count"] == 1
+    assert UserService.get_by_student_id(db, "2021-98001") is not None
+
+    again = _post_roster(client, admin_token, [("BOM", "2021-98001")])
+    assert again.json()["data"]["skipped"][0]["reason"] == "already_exists"
 
 
 def test_import_strips_surrounding_whitespace(
     client: TestClient, db: Session, admin_token: str, admin_user: User
 ):
     """Leading/trailing whitespace is trimmed on both name and student_id."""
-    response = client.post(
-        "/users/temporary",
-        json={"members": [{"name": "  홍길동  ", "student_id": "  2021-70002  "}]},
-        headers=_auth(admin_token),
-    )
+    response = _post_roster(client, admin_token, [("  홍길동  ", "  2021-70002  ")])
     assert response.status_code == 200
     assert response.json()["data"]["created_count"] == 1
 
@@ -183,32 +284,21 @@ def test_import_strips_surrounding_whitespace(
     assert user.name == "홍길동"
     assert user.student_id == "2021-70002"
 
-    # Re-importing the trimmed value is recognized as already existing.
-    again = client.post(
-        "/users/temporary",
-        json={"members": [{"name": "홍길동", "student_id": "2021-70002"}]},
-        headers=_auth(admin_token),
-    )
-    assert again.json()["data"]["skipped"][0]["reason"] == "already_exists"
-
 
 def test_import_rejects_oversized_roster(
     client: TestClient, admin_token: str, admin_user: User
 ):
-    """A roster exceeding the max_length cap fails validation."""
-    members = [{"name": f"M{i}", "student_id": f"2021-8{i:04d}"} for i in range(2001)]
-    response = client.post(
-        "/users/temporary",
-        json={"members": members},
-        headers=_auth(admin_token),
-    )
-    assert response.status_code == 422
+    """A roster exceeding the max row cap → 400."""
+    rows = [(f"M{i}", f"2021-8{i:04d}") for i in range(2001)]
+    response = _post_roster(client, admin_token, rows)
+    assert response.status_code == 400
+    assert response.json()["error"] == "ROSTER_TOO_LARGE"
 
 
 def test_import_mixed_roster_classifies_each_row(
     client: TestClient, db: Session, admin_token: str, admin_user: User
 ):
-    """A single request can create, skip-existing, and skip-duplicate together."""
+    """A single file can create, skip-existing, and skip-duplicate together."""
     UserService.create(
         db,
         email="mixed-existing@example.com",
@@ -219,20 +309,15 @@ def test_import_mixed_roster_classifies_each_row(
         student_id="2021-90001",
     )
 
-    response = client.post(
-        "/users/temporary",
-        json={
-            "members": [
-                {"name": "신규", "student_id": "2021-90002"},  # created
-                {"name": "기존", "student_id": "2021-90001"},  # already_exists
-                {"name": "신규복제1", "student_id": "2021-90003"},  # created
-                {
-                    "name": "신규복제2",
-                    "student_id": "2021-90003",
-                },  # duplicate_in_request
-            ]
-        },
-        headers=_auth(admin_token),
+    response = _post_roster(
+        client,
+        admin_token,
+        [
+            ("신규", "2021-90002"),  # created
+            ("기존", "2021-90001"),  # already_exists
+            ("신규복제1", "2021-90003"),  # created
+            ("신규복제2", "2021-90003"),  # duplicate_in_request
+        ],
     )
 
     assert response.status_code == 200
@@ -252,18 +337,12 @@ def test_temporary_members_excluded_from_pending(
     pending_user: User,
 ):
     """Imported temp members default to PENDING but must not pollute /users/pending."""
-    client.post(
-        "/users/temporary",
-        json={"members": [{"name": "임시", "student_id": "2021-95001"}]},
-        headers=_auth(admin_token),
-    )
+    _post_roster(client, admin_token, [("임시", "2021-95001")])
 
     response = client.get("/users/pending", headers=_auth(admin_token))
     assert response.status_code == 200
     names = {u["name"] for u in response.json()["data"]}
-    # The real OAuth signup awaiting approval is present...
     assert pending_user.name in names
-    # ...but the roster placeholder is not.
     assert "임시" not in names
 
 
@@ -271,12 +350,7 @@ def test_is_temporary_and_null_email_exposed_via_get_user(
     client: TestClient, db: Session, admin_token: str, admin_user: User
 ):
     """A created temp member reads back with is_temporary=true and email=null."""
-    created = client.post(
-        "/users/temporary",
-        json={"members": [{"name": "조회대상", "student_id": "2021-96001"}]},
-        headers=_auth(admin_token),
-    ).json()["data"]["created"]
-    user_id = created[0]["id"]
+    user_id = _import_one(client, admin_token, "조회대상", "2021-96001")
 
     response = client.get(f"/users/{user_id}", headers=_auth(admin_token))
     assert response.status_code == 200
@@ -290,12 +364,7 @@ def test_temporary_member_cannot_be_approved(
     client: TestClient, db: Session, admin_token: str, admin_user: User
 ):
     """A temporary member must not be approvable via /{user_id}/approve."""
-    created = client.post(
-        "/users/temporary",
-        json={"members": [{"name": "임시승인", "student_id": "2021-97001"}]},
-        headers=_auth(admin_token),
-    ).json()["data"]["created"]
-    user_id = created[0]["id"]
+    user_id = _import_one(client, admin_token, "승인대상", "2021-97001")
 
     response = client.post(
         f"/users/{user_id}/approve",
@@ -305,70 +374,9 @@ def test_temporary_member_cannot_be_approved(
     assert response.status_code == 400
     assert response.json()["error"] == "TEMPORARY_MEMBER_CANNOT_BE_APPROVED"
 
-    # Qualification is unchanged: still a PENDING temporary member.
     user = UserService.get_by_student_id(db, "2021-97001")
     assert user.qualification == Qualification.PENDING
     assert user.is_temporary is True
-
-
-def _import_one(
-    client: TestClient, admin_token: str, name: str, student_id: str
-) -> int:
-    """Import a single temp member and return its new user id."""
-    created = client.post(
-        "/users/temporary",
-        json={"members": [{"name": name, "student_id": student_id}]},
-        headers=_auth(admin_token),
-    ).json()["data"]["created"]
-    return created[0]["id"]
-
-
-def test_import_rejects_whitespace_only_student_id(
-    client: TestClient, db: Session, admin_token: str, admin_user: User
-):
-    """A whitespace-only student_id is rejected (symmetric to the name case)."""
-    response = client.post(
-        "/users/temporary",
-        json={"members": [{"name": "홍길동", "student_id": "   "}]},
-        headers=_auth(admin_token),
-    )
-    assert response.status_code == 422
-
-
-def test_import_rejects_zero_width_only_value(
-    client: TestClient, db: Session, admin_token: str, admin_user: User
-):
-    """A value made only of zero-width/format characters is rejected, not stored."""
-    response = client.post(
-        "/users/temporary",
-        # Two zero-width spaces — visually blank.
-        json={"members": [{"name": "\u200b\u200b", "student_id": "2021-98000"}]},
-        headers=_auth(admin_token),
-    )
-    assert response.status_code == 422
-    assert UserService.get_by_student_id(db, "2021-98000") is None
-
-
-def test_import_trims_bom_so_match_key_is_consistent(
-    client: TestClient, db: Session, admin_token: str, admin_user: User
-):
-    """A BOM-prefixed student_id is normalized so dedup/matching still works."""
-    response = client.post(
-        "/users/temporary",
-        json={"members": [{"name": "BOM", "student_id": "\ufeff2021-98001"}]},
-        headers=_auth(admin_token),
-    )
-    assert response.status_code == 200
-    assert response.json()["data"]["created_count"] == 1
-    # Stored under the trimmed key...
-    assert UserService.get_by_student_id(db, "2021-98001") is not None
-    # ...so a clean re-import is recognized as already existing (no duplicate).
-    again = client.post(
-        "/users/temporary",
-        json={"members": [{"name": "BOM", "student_id": "2021-98001"}]},
-        headers=_auth(admin_token),
-    )
-    assert again.json()["data"]["skipped"][0]["reason"] == "already_exists"
 
 
 def test_temporary_member_cannot_be_approved_even_to_pending(

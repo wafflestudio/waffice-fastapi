@@ -78,6 +78,27 @@ class TemporaryMemberProjectError(AppError):
         super().__init__("TEMPORARY_MEMBER_CANNOT_JOIN_PROJECT", message, 400)
 
 
+class InvalidRosterFileError(AppError):
+    """Uploaded roster file could not be read as an .xlsx, or is missing columns"""
+
+    def __init__(self, message: str = "Could not read the uploaded roster file."):
+        super().__init__("INVALID_ROSTER_FILE", message, 400)
+
+
+class EmptyRosterError(AppError):
+    """Roster file has a header but no data rows"""
+
+    def __init__(self, message: str = "The roster has no member rows."):
+        super().__init__("EMPTY_ROSTER", message, 422)
+
+
+class RosterTooLargeError(AppError):
+    """Roster exceeds the maximum allowed number of rows"""
+
+    def __init__(self, message: str = "The roster exceeds the maximum of 2000 rows."):
+        super().__init__("ROSTER_TOO_LARGE", message, 400)
+
+
 class NoLeaderError(AppError):
     """No leader specified in project"""
 
