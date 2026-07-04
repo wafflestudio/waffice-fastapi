@@ -61,9 +61,6 @@ class UserService:
         if name is not None:
             query = query.filter(User.name.ilike(f"%{name}%"))
 
-        if name is not None:
-            query = query.filter(User.name.ilike(f"%{name}%"))
-
         if cursor is not None:
             query = query.filter(User.created_at < cursor)
 
