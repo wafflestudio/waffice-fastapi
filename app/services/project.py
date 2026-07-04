@@ -77,6 +77,8 @@ class ProjectService:
     def create(db: Session, **data) -> Project:
         """Create a new project. Call db.commit() after to persist."""
         project = Project(**data)
+        if project.ended_at is not None:
+            project.status = ProjectStatus.ENDED
         db.add(project)
         db.flush()
         db.refresh(project)
@@ -88,6 +90,8 @@ class ProjectService:
         for key, value in data.items():
             if value is not None:
                 setattr(project, key, value)
+        if project.ended_at is not None and project.status != ProjectStatus.ENDED:
+            project.status = ProjectStatus.ENDED
         db.commit()
         db.refresh(project)
         return project
