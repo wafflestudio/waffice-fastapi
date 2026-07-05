@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from sqlalchemy import and_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models import Qualification, User
+from app.models.project_member import ProjectMember
 
 
 class UserService:
@@ -12,6 +13,9 @@ class UserService:
         """Get user by ID (excluding soft-deleted users)"""
         return (
             db.query(User)
+            .options(
+                joinedload(User.project_memberships).joinedload(ProjectMember.project)
+            )
             .filter(and_(User.id == user_id, User.deleted_at.is_(None)))
             .first()
         )
@@ -45,13 +49,26 @@ class UserService:
 
     @staticmethod
     def list(
-        db: Session, *, cursor: int | None = None, limit: int = 20
+        db: Session,
+        *,
+        cursor: int | None = None,
+        limit: int = 20,
+        name: str | None = None,
     ) -> tuple[list[User], int | None]:
         """
         List users with cursor-based pagination (excluding soft-deleted users).
         Returns (items, next_cursor)
         """
-        query = db.query(User).filter(User.deleted_at.is_(None))
+        query = (
+            db.query(User)
+            .options(
+                joinedload(User.project_memberships).joinedload(ProjectMember.project)
+            )
+            .filter(User.deleted_at.is_(None))
+        )
+
+        if name is not None:
+            query = query.filter(User.name.ilike(f"%{name}%"))
 
         if cursor is not None:
             query = query.filter(User.created_at < cursor)

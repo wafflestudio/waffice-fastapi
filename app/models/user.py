@@ -16,6 +16,7 @@ from app.models.base import SoftDeleteMixin, TimestampMixin
 from app.models.enums import (
     GraduationStatus,
     NotificationChannel,
+    ProjectStatus,
     Qualification,
     UserRole,
 )
@@ -48,6 +49,14 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
         Enum(Qualification), nullable=False, default=Qualification.PENDING
     )
     role = Column(Enum(UserRole), nullable=False, default=UserRole.MEMBER)
+
+    @property
+    def current_projects(self):
+        return [
+            m.project
+            for m in self.project_memberships
+            if m.left_at is None and m.project.status != ProjectStatus.ENDED
+        ]
 
     @property
     def is_admin(self) -> bool:

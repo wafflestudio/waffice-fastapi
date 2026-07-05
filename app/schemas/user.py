@@ -9,6 +9,15 @@ from app.models.enums import (
 from app.schemas.common import Website
 
 
+class CurrentProject(BaseModel):
+    """Brief project info for showing a user's current memberships."""
+
+    id: int = Field(description="Unique project identifier")
+    name: str = Field(description="Project name")
+
+    model_config = {"from_attributes": True}
+
+
 # === Request ===
 class SignupRequest(BaseModel):
     """Request body for completing user registration after OAuth."""
@@ -254,6 +263,10 @@ class UserDetail(BaseModel):
     created_at: int = Field(
         description="Unix timestamp when user was created",
         examples=[1706745600],
+    )
+    current_projects: list[CurrentProject] = Field(
+        default=[],
+        description="Projects the user is currently a member of",
     )
 
     model_config = {"from_attributes": True}

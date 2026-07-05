@@ -4,7 +4,7 @@ Make users.email nullable (temporary members have no OAuth email) and add an
 is_temporary flag plus supporting indexes for roster import.
 
 Revision ID: a1b2c3d4e5f6
-Revises: f6a7b8c9d0e1
+Revises: c951e903b294
 Create Date: 2026-06-28 00:00:00.000000
 
 """
@@ -16,7 +16,9 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "a1b2c3d4e5f6"
-down_revision: Union[str, None] = "f6a7b8c9d0e1"
+# Re-parented onto main's approval-requests migration after merging origin/main,
+# so the two feature branches form a single linear history (no alembic fork).
+down_revision: Union[str, None] = "c951e903b294"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
