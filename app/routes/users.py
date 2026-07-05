@@ -36,6 +36,19 @@ from app.services.roster import parse_member_roster
 router = APIRouter()
 
 
+def _skip_message(name: str, student_id: str, reason: str) -> str:
+    """Human-readable Korean explanation for a skipped roster row."""
+    if reason == "missing_student_id":
+        return f'"{name}"의 학번을 찾을 수 없습니다.'
+    if reason == "missing_name":
+        return f'"{student_id}"의 이름을 찾을 수 없습니다.'
+    if reason == "already_exists":
+        return f'"{student_id}"은(는) 이미 등록된 학번입니다.'
+    if reason == "duplicate_in_request":
+        return f'"{student_id}"이(가) 파일에 중복되어 있습니다.'
+    return f'"{name or student_id}"의 데이터 형식이 올바르지 않습니다.'
+
+
 # === Own profile ===
 @router.get(
     "/me",
@@ -199,50 +212,50 @@ async def list_pending_users(
 @router.post(
     "/temporary",
     response_model=Response[TempMemberImportResult],
-    summary="Import temporary members from a roster (.xlsx upload)",
+    summary="Import temporary members from a roster (.xlsx / .csv upload)",
     description=(
-        "Upload a member roster (.xlsx) to bulk-create temporary members. Admin only."
+        "Upload a member roster (.xlsx or .csv) to bulk-create temporary members. "
+        "Admin only."
     ),
     responses={
         200: {"description": "Roster imported successfully"},
-        400: {
-            "description": "Unreadable file, missing name/student_id column, "
-            "or too many rows"
-        },
+        400: {"description": "파일 양식이 올바르지 않습니다 / 이름·학번 헤더 누락 / 최대 행 초과"},
         401: {"description": "Not authenticated"},
         403: {"description": "Admin access required"},
-        422: {"description": "Roster has no member rows"},
+        422: {"description": "명부에 회원 데이터가 없습니다"},
     },
 )
 async def import_temporary_members(
     file: UploadFile = File(
         ...,
         description=(
-            "Excel (.xlsx) roster. First row is the header; needs a name column "
-            "(이름/성명/name) and a student_id column (학번/student_id/sid)."
+            "명부 파일 (.xlsx 또는 .csv). 첫 행은 헤더이며 이름 열(이름/성명/name)과 "
+            "학번 열(학번/student_id/sid)이 있어야 합니다."
         ),
     ),
     _admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     """
-    Import a member roster (.xlsx) as temporary members.
+    Import a member roster (.xlsx or .csv) as temporary members.
 
     **Requires**: Admin privileges.
 
-    The uploaded spreadsheet is parsed on the backend. The first row is the
-    header, and the name / student_id columns are located by header text
-    (case-insensitive; Korean or English; column order does not matter):
+    The uploaded file is parsed on the backend. The first row is the header, and
+    the name / student_id columns are located by header text (case-insensitive;
+    Korean or English; column order does not matter):
     - name:       이름 / 성명 / name
     - student_id: 학번 / student_id / sid
 
     Each data row becomes a temporary `User` with only `name` and `student_id`
     populated (no email/OAuth identity, `is_temporary=True`, `qualification=PENDING`).
 
-    Rows are matched against existing members by `student_id` and skipped when a
-    member with that student_id already exists (`already_exists`), the same
-    student_id appears more than once in the file (`duplicate_in_request`), or the
-    name/student_id is blank/malformed (`invalid`).
+    A row is skipped (reported in `skipped` with a `reason` and a Korean `message`)
+    when a member with that student_id already exists (`already_exists`), the same
+    student_id appears more than once in the file (`duplicate_in_request`), the row
+    is missing its student_id (`missing_student_id`) or name (`missing_name`), or the
+    value is malformed (`invalid`). A whole-file error (400/422) is raised only for a
+    bad file, a missing header column, or an empty roster.
 
     Idempotency caveats (matching is application-level, not DB-enforced):
     - Re-uploading the same roster is safe (existing rows skip as `already_exists`).
@@ -252,7 +265,7 @@ async def import_temporary_members(
       will be duplicated as temporary members.
     """
     content = await file.read()
-    valid_rows, invalid_rows = parse_member_roster(content)
+    valid_rows, invalid_rows = parse_member_roster(content, file.filename)
 
     created, skipped = UserService.bulk_create_temporary(db, valid_rows)
     skipped = invalid_rows + skipped
@@ -262,7 +275,12 @@ async def import_temporary_members(
         skipped_count=len(skipped),
         created=[UserBrief.model_validate(u) for u in created],
         skipped=[
-            SkippedMember(name=name, student_id=student_id, reason=reason)
+            SkippedMember(
+                name=name,
+                student_id=student_id,
+                reason=reason,
+                message=_skip_message(name, student_id, reason),
+            )
             for name, student_id, reason in skipped
         ],
     )

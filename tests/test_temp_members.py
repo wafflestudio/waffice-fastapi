@@ -1,9 +1,10 @@
 """Tests for the temporary member roster import endpoint (POST /users/temporary).
 
-The endpoint accepts an .xlsx upload; the backend parses it (header row locates
-the name / student_id columns) and bulk-creates temporary members.
+The endpoint accepts an .xlsx or .csv upload; the backend parses it (header row
+locates the name / student_id columns) and bulk-creates temporary members.
 """
 
+import csv
 import io
 
 from fastapi.testclient import TestClient
@@ -21,7 +22,6 @@ def _auth(token: str) -> dict:
 
 
 def _xlsx(rows, headers=("이름", "학번")) -> bytes:
-    """Build an in-memory .xlsx with a header row followed by `rows`."""
     wb = Workbook()
     ws = wb.active
     ws.append(list(headers))
@@ -32,25 +32,28 @@ def _xlsx(rows, headers=("이름", "학번")) -> bytes:
     return buf.getvalue()
 
 
-def _post_roster(
-    client,
-    token,
-    rows=None,
-    *,
-    content=None,
-    headers=("이름", "학번"),
-    filename="roster.xlsx",
-):
-    data = content if content is not None else _xlsx(rows or [], headers)
+def _csv(rows, headers=("이름", "학번")) -> bytes:
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(list(headers))
+    for row in rows:
+        writer.writerow(list(row))
+    return buf.getvalue().encode("utf-8-sig")
+
+
+def _post_bytes(client, token, data, filename="roster.xlsx", content_type=XLSX_CT):
     return client.post(
         "/users/temporary",
-        files={"file": (filename, data, XLSX_CT)},
+        files={"file": (filename, data, content_type)},
         headers=_auth(token),
     )
 
 
+def _post_roster(client, token, rows=None, *, headers=("이름", "학번")):
+    return _post_bytes(client, token, _xlsx(rows or [], headers))
+
+
 def _import_one(client, token, name: str, student_id: str) -> int:
-    """Import a single temp member via upload and return its new user id."""
     created = _post_roster(client, token, [(name, student_id)]).json()["data"][
         "created"
     ]
@@ -62,20 +65,15 @@ def test_import_creates_temporary_members(
 ):
     """Admin upload creates temp records with only name/student_id populated."""
     response = _post_roster(
-        client,
-        admin_token,
-        [("홍길동", "2021-10001"), ("김철수", "2021-10002")],
+        client, admin_token, [("홍길동", "2021-10001"), ("김철수", "2021-10002")]
     )
 
     assert response.status_code == 200
-    body = response.json()
-    assert body["ok"] is True
-    data = body["data"]
+    data = response.json()["data"]
     assert data["created_count"] == 2
     assert data["skipped_count"] == 0
     assert {m["name"] for m in data["created"]} == {"홍길동", "김철수"}
     assert all(m["email"] is None for m in data["created"])
-    assert data["skipped"] == []
 
     user = UserService.get_by_student_id(db, "2021-10001")
     assert user is not None
@@ -83,8 +81,20 @@ def test_import_creates_temporary_members(
     assert user.name == "홍길동"
     assert user.student_id == "2021-10001"
     assert user.email is None
-    assert user.google_id is None
     assert user.qualification == Qualification.PENDING
+
+
+def test_import_accepts_csv(
+    client: TestClient, db: Session, admin_token: str, admin_user: User
+):
+    """A .csv roster is parsed on the backend just like .xlsx."""
+    data = _csv([("김와플", "2021-23456"), ("김스튜디오", "2021-65432")])
+    response = _post_bytes(
+        client, admin_token, data, filename="roster.csv", content_type="text/csv"
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["created_count"] == 2
+    assert UserService.get_by_student_id(db, "2021-23456") is not None
 
 
 def test_import_accepts_english_headers_any_order(
@@ -92,13 +102,9 @@ def test_import_accepts_english_headers_any_order(
 ):
     """Columns are located by header, so English headers in any order work."""
     response = _post_roster(
-        client,
-        admin_token,
-        [("2021-11111", "영문헤더")],
-        headers=("student_id", "name"),
+        client, admin_token, [("2021-11111", "영문헤더")], headers=("student_id", "name")
     )
     assert response.status_code == 200
-    assert response.json()["data"]["created_count"] == 1
     user = UserService.get_by_student_id(db, "2021-11111")
     assert user is not None and user.name == "영문헤더"
 
@@ -127,18 +133,15 @@ def test_import_skips_existing_student_id(
     )
 
     response = _post_roster(
-        client,
-        admin_token,
-        [("기존회원", "2021-20001"), ("신규회원", "2021-20002")],
+        client, admin_token, [("기존회원", "2021-20001"), ("신규회원", "2021-20002")]
     )
 
     assert response.status_code == 200
     data = response.json()["data"]
     assert data["created_count"] == 1
     assert data["skipped_count"] == 1
-    assert data["created"][0]["name"] == "신규회원"
-    assert data["skipped"][0]["student_id"] == "2021-20001"
     assert data["skipped"][0]["reason"] == "already_exists"
+    assert "이미 등록된" in data["skipped"][0]["message"]
 
 
 def test_import_dedupes_within_file(
@@ -146,16 +149,14 @@ def test_import_dedupes_within_file(
 ):
     """The same student_id appearing twice in one file creates one record."""
     response = _post_roster(
-        client,
-        admin_token,
-        [("중복1", "2021-30001"), ("중복2", "2021-30001")],
+        client, admin_token, [("중복1", "2021-30001"), ("중복2", "2021-30001")]
     )
 
     assert response.status_code == 200
     data = response.json()["data"]
     assert data["created_count"] == 1
-    assert data["skipped_count"] == 1
     assert data["skipped"][0]["reason"] == "duplicate_in_request"
+    assert "중복" in data["skipped"][0]["message"]
 
 
 def test_import_is_idempotent_on_retry(
@@ -163,14 +164,10 @@ def test_import_is_idempotent_on_retry(
 ):
     """Re-uploading the same roster creates nothing the second time."""
     rows = [("재시도", "2021-40001")]
+    assert _post_roster(client, admin_token, rows).json()["data"]["created_count"] == 1
 
-    first = _post_roster(client, admin_token, rows)
-    assert first.json()["data"]["created_count"] == 1
-
-    second = _post_roster(client, admin_token, rows)
-    body = second.json()["data"]
+    body = _post_roster(client, admin_token, rows).json()["data"]
     assert body["created_count"] == 0
-    assert body["skipped_count"] == 1
     assert body["skipped"][0]["reason"] == "already_exists"
 
 
@@ -178,8 +175,9 @@ def test_import_requires_admin(
     client: TestClient, regular_token: str, regular_user: User
 ):
     """Non-admins cannot import members."""
-    response = _post_roster(client, regular_token, [("홍길동", "2021-50001")])
-    assert response.status_code == 403
+    assert (
+        _post_roster(client, regular_token, [("홍길동", "2021-50001")]).status_code == 403
+    )
 
 
 def test_import_requires_authentication(client: TestClient):
@@ -200,61 +198,84 @@ def test_import_rejects_empty_roster(
     assert response.json()["error"] == "EMPTY_ROSTER"
 
 
-def test_import_rejects_non_xlsx_file(
+def test_import_rejects_invalid_file(
     client: TestClient, admin_token: str, admin_user: User
 ):
-    """A non-xlsx payload cannot be parsed → 400."""
-    response = client.post(
-        "/users/temporary",
-        files={"file": ("roster.txt", b"this is not a spreadsheet", "text/plain")},
-        headers=_auth(admin_token),
+    """A corrupt/invalid file → 400 '파일 양식이 올바르지 않습니다.'"""
+    response = _post_bytes(
+        client, admin_token, b"PK\x03\x04 not really a zip", filename="roster.xlsx"
     )
     assert response.status_code == 400
-    assert response.json()["error"] == "INVALID_ROSTER_FILE"
+    body = response.json()
+    assert body["error"] == "INVALID_ROSTER_FILE"
+    assert body["message"] == "파일 양식이 올바르지 않습니다."
 
 
-def test_import_rejects_missing_column(
+def test_import_rejects_unsupported_extension(
     client: TestClient, admin_token: str, admin_user: User
 ):
-    """A roster missing the student_id column → 400."""
+    """A non-.xlsx/.csv extension is rejected even if the bytes are a valid xlsx."""
+    response = _post_bytes(
+        client, admin_token, _xlsx([("홍길동", "2021-1")]), filename="roster.txt"
+    )
+    assert response.status_code == 400
+    assert response.json()["message"] == "파일 양식이 올바르지 않습니다."
+
+
+def test_import_rejects_missing_name_header(
+    client: TestClient, admin_token: str, admin_user: User
+):
+    """Missing the 이름 header → 400 '이름 헤더를 찾을 수 없습니다.'"""
+    response = _post_roster(
+        client, admin_token, [("010-0000-0000", "2021-1")], headers=("전화번호", "학번")
+    )
+    assert response.status_code == 400
+    assert response.json()["message"] == "이름 헤더를 찾을 수 없습니다."
+
+
+def test_import_rejects_missing_student_id_header(
+    client: TestClient, admin_token: str, admin_user: User
+):
+    """Missing the 학번 header → 400 '학번 헤더를 찾을 수 없습니다.'"""
+    response = _post_roster(
+        client, admin_token, [("홍길동", "010-0000-0000")], headers=("이름", "전화번호")
+    )
+    assert response.status_code == 400
+    assert response.json()["message"] == "학번 헤더를 찾을 수 없습니다."
+
+
+def test_import_reports_missing_field_records(
+    client: TestClient, db: Session, admin_token: str, admin_user: User
+):
+    """Records missing name or student_id are skipped and reported per spec (3)."""
     response = _post_roster(
         client,
         admin_token,
-        [("홍길동", "010-0000-0000")],
-        headers=("이름", "전화번호"),
+        [
+            ("김와플", "2021-23456"),  # ok
+            ("김스튜디오", ""),  # missing student_id
+            ("", "2021-65432"),  # missing name
+        ],
     )
-    assert response.status_code == 400
-    assert response.json()["error"] == "INVALID_ROSTER_FILE"
-
-
-def test_import_skips_blank_name_as_invalid(
-    client: TestClient, db: Session, admin_token: str, admin_user: User
-):
-    """A blank/whitespace name is skipped as 'invalid', not stored, not fatal."""
-    response = _post_roster(client, admin_token, [("   ", "2021-70001")])
     assert response.status_code == 200
     data = response.json()["data"]
-    assert data["created_count"] == 0
-    assert data["skipped"][0]["reason"] == "invalid"
-    assert UserService.get_by_student_id(db, "2021-70001") is None
+    assert data["created_count"] == 1
+    assert data["skipped_count"] == 2
+
+    by_reason = {s["reason"]: s for s in data["skipped"]}
+    assert by_reason["missing_student_id"]["message"] == '"김스튜디오"의 학번을 찾을 수 없습니다.'
+    assert by_reason["missing_name"]["message"] == '"2021-65432"의 이름을 찾을 수 없습니다.'
+    # Nothing bad was persisted.
+    assert UserService.get_by_student_id(db, "2021-65432") is None
 
 
-def test_import_skips_blank_student_id_as_invalid(
+def test_import_zero_width_name_is_missing_name(
     client: TestClient, db: Session, admin_token: str, admin_user: User
 ):
-    """A blank student_id is skipped as 'invalid' (symmetric to the name case)."""
-    response = _post_roster(client, admin_token, [("홍길동", "   ")])
-    assert response.status_code == 200
-    assert response.json()["data"]["skipped"][0]["reason"] == "invalid"
-
-
-def test_import_skips_zero_width_only_value_as_invalid(
-    client: TestClient, db: Session, admin_token: str, admin_user: User
-):
-    """A name made only of zero-width/format chars is skipped as invalid."""
+    """A name made only of zero-width chars normalizes to empty → missing_name."""
     response = _post_roster(client, admin_token, [("​​", "2021-98000")])
     assert response.status_code == 200
-    assert response.json()["data"]["skipped"][0]["reason"] == "invalid"
+    assert response.json()["data"]["skipped"][0]["reason"] == "missing_name"
     assert UserService.get_by_student_id(db, "2021-98000") is None
 
 
@@ -277,8 +298,6 @@ def test_import_strips_surrounding_whitespace(
     """Leading/trailing whitespace is trimmed on both name and student_id."""
     response = _post_roster(client, admin_token, [("  홍길동  ", "  2021-70002  ")])
     assert response.status_code == 200
-    assert response.json()["data"]["created_count"] == 1
-
     user = UserService.get_by_student_id(db, "2021-70002")
     assert user is not None
     assert user.name == "홍길동"

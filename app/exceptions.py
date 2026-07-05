@@ -79,23 +79,23 @@ class TemporaryMemberProjectError(AppError):
 
 
 class InvalidRosterFileError(AppError):
-    """Uploaded roster file could not be read as an .xlsx, or is missing columns"""
+    """Uploaded roster file is not a valid .xlsx/.csv, or is missing a header column"""
 
-    def __init__(self, message: str = "Could not read the uploaded roster file."):
+    def __init__(self, message: str = "파일 양식이 올바르지 않습니다."):
         super().__init__("INVALID_ROSTER_FILE", message, 400)
 
 
 class EmptyRosterError(AppError):
     """Roster file has a header but no data rows"""
 
-    def __init__(self, message: str = "The roster has no member rows."):
+    def __init__(self, message: str = "명부에 회원 데이터가 없습니다."):
         super().__init__("EMPTY_ROSTER", message, 422)
 
 
 class RosterTooLargeError(AppError):
     """Roster exceeds the maximum allowed number of rows"""
 
-    def __init__(self, message: str = "The roster exceeds the maximum of 2000 rows."):
+    def __init__(self, message: str = "명부가 최대 2000행을 초과했습니다."):
         super().__init__("ROSTER_TOO_LARGE", message, 400)
 
 

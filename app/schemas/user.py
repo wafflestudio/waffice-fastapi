@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from app.models.enums import (
     GraduationStatus,
@@ -155,63 +155,26 @@ class ApproveRequest(BaseModel):
 
 
 # === Temporary member import ===
-# Zero-width / format characters that str.strip() does NOT treat as whitespace
-# but render as blank (e.g. a BOM prepended by an Excel/CSV export). Trimmed from
-# value ends so they cannot pass the blank check or corrupt the student_id key.
-# ZWSP, ZWNJ, ZWJ, word joiner, BOM/ZWNBSP, soft hyphen.
-_ZERO_WIDTH_CHARS = "\u200b\u200c\u200d\u2060\ufeff\u00ad"
-
-
-class TempMemberInput(BaseModel):
-    """A single roster row to import as a temporary member."""
-
-    name: str = Field(
-        description="Member's name",
-        min_length=1,
-        max_length=100,
-        examples=["홍길동"],
-    )
-    student_id: str = Field(
-        description="Student ID (e.g., 2021-14205). Used to match existing members.",
-        min_length=1,
-        max_length=50,
-        examples=["2021-14205"],
-    )
-
-    @field_validator("name", "student_id")
-    @classmethod
-    def _strip_and_require_non_blank(cls, value: str) -> str:
-        """
-        Normalize by stripping surrounding whitespace and reject blank values.
-
-        Pydantic's min_length check runs on the raw input, so a whitespace-only
-        string (e.g. "   ") would otherwise pass min_length=1 and then collapse
-        to an empty string downstream. Stripping here makes the stored value and
-        the student_id match key consistent, and a blank result yields a 422.
-
-        Zero-width / format characters (e.g. a BOM from an Excel export) are
-        trimmed too, since str.strip() does not treat them as whitespace; the
-        trailing .strip() removes any whitespace they were wrapping.
-        """
-        stripped = value.strip().strip(_ZERO_WIDTH_CHARS).strip()
-        if not stripped:
-            raise ValueError("must not be blank")
-        return stripped
-
-
+# Roster parsing/validation lives in app/services/roster.py; the schemas
+# below are only the response shapes.
 class SkippedMember(BaseModel):
-    """A roster row that was not created, with the reason."""
+    """A roster row that was not created, with a machine reason and a Korean message."""
 
     name: str = Field(description="Member's name from the roster")
     student_id: str = Field(description="Student ID from the roster")
     reason: str = Field(
         description=(
-            "Why the row was skipped: "
-            "'already_exists' (a member with this student_id is already in the DB), "
-            "'duplicate_in_request' (the student_id appeared earlier in the file), or "
-            "'invalid' (blank/malformed name or student_id)"
+            "Machine-readable skip reason: "
+            "'already_exists' (student_id already in the DB), "
+            "'duplicate_in_request' (student_id appeared earlier in the file), "
+            "'missing_student_id' / 'missing_name' (the record is missing that field), "
+            "or 'invalid' (malformed, e.g. over length)"
         ),
-        examples=["already_exists", "duplicate_in_request", "invalid"],
+        examples=["already_exists", "missing_student_id"],
+    )
+    message: str = Field(
+        description="Human-readable Korean explanation for the skip",
+        examples=['"김와플"의 학번을 찾을 수 없습니다.'],
     )
 
 
