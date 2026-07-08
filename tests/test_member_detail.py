@@ -464,6 +464,23 @@ class TestProfileUpdate:
 
 
 class TestProfileImageUpload:
+    def test_public_url_uses_default_when_base_url_is_empty(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Empty OCI_PUBLIC_BASE_URL should not produce a relative URL."""
+        from app.services.object_storage import OCIObjectStorageService
+
+        monkeypatch.setenv("OCI_PUBLIC_BASE_URL", "")
+        storage = OCIObjectStorageService.__new__(OCIObjectStorageService)
+        storage.region = "ap-chuncheon-1"
+        storage.namespace = "namespace"
+        storage.bucket = "bucket"
+
+        assert storage.public_url("profiles/1/avatar.png") == (
+            "https://objectstorage.ap-chuncheon-1.oraclecloud.com/n/namespace/b/bucket/o/"
+            "profiles%2F1%2Favatar.png"
+        )
+
     def test_user_can_upload_profile_image(
         self,
         client: TestClient,

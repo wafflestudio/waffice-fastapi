@@ -29,12 +29,15 @@ class OCIObjectStorageService:
 
         config_file = os.getenv("OCI_CONFIG_FILE")
         profile = os.getenv("OCI_CONFIG_PROFILE", "DEFAULT")
-        config = (
-            oci.config.from_file(config_file, profile)
-            if config_file
-            else oci.config.from_file(profile_name=profile)
-        )
-        self.client = oci.object_storage.ObjectStorageClient(config)
+        try:
+            config = (
+                oci.config.from_file(config_file, profile)
+                if config_file
+                else oci.config.from_file(profile_name=profile)
+            )
+            self.client = oci.object_storage.ObjectStorageClient(config)
+        except Exception as exc:
+            raise ObjectStorageError("OCI object storage is not configured") from exc
 
     def upload_profile_image(self, user_id: int, file: UploadFile, body: bytes) -> str:
         object_name = (
@@ -62,9 +65,9 @@ class OCIObjectStorageService:
             pass
 
     def public_url(self, object_name: str) -> str:
-        base_url = os.getenv(
-            "OCI_PUBLIC_BASE_URL",
-            f"https://objectstorage.{self.region}.oraclecloud.com/n/{self.namespace}/b/{self.bucket}/o",
+        base_url = (
+            os.getenv("OCI_PUBLIC_BASE_URL")
+            or f"https://objectstorage.{self.region}.oraclecloud.com/n/{self.namespace}/b/{self.bucket}/o"
         ).rstrip("/")
         return f"{base_url}/{quote(object_name, safe='')}"
 
