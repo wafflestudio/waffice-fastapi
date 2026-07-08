@@ -462,39 +462,6 @@ class TestProfileUpdate:
         )
         assert response.status_code == 422
 
-    def test_user_can_clear_avatar_url(
-        self,
-        client: TestClient,
-        db: Session,
-        regular_token: str,
-        regular_user: User,
-        monkeypatch: pytest.MonkeyPatch,
-    ):
-        """User can remove their profile image through the existing profile endpoint."""
-        deleted = []
-
-        class FakeStorage:
-            def delete_profile_image(self, user_id, url):
-                deleted.append((user_id, url))
-
-        old_url = (
-            "https://objectstorage.ap-chuncheon-1.oraclecloud.com/n/ns/b/bucket/o/"
-            "profiles%2F1%2Fold.png"
-        )
-        regular_user.avatar_url = old_url
-        db.commit()
-        monkeypatch.setattr("app.routes.users.OCIObjectStorageService", FakeStorage)
-
-        response = client.patch(
-            "/users/me",
-            json={"avatar_url": None},
-            headers={"Authorization": f"Bearer {regular_token}"},
-        )
-
-        assert response.status_code == 200
-        assert response.json()["data"]["avatar_url"] is None
-        assert deleted == [(regular_user.id, old_url)]
-
 
 class TestProfileImageUpload:
     def test_user_can_upload_profile_image(
@@ -504,7 +471,7 @@ class TestProfileImageUpload:
         regular_user: User,
         monkeypatch: pytest.MonkeyPatch,
     ):
-        """User can upload a profile image through the existing upload POST."""
+        """User can upload a profile image."""
         deleted = []
 
         class FakeStorage:
@@ -517,10 +484,12 @@ class TestProfileImageUpload:
             def delete_profile_image(self, user_id, url):
                 deleted.append((user_id, url))
 
-        monkeypatch.setattr("app.routes.upload.OCIObjectStorageService", FakeStorage)
+        monkeypatch.setattr(
+            "app.routes.profile_image.OCIObjectStorageService", FakeStorage
+        )
 
         response = client.post(
-            "/upload",
+            "/profile-image/upload",
             files={"file": ("avatar.png", b"image", "image/png")},
             headers={"Authorization": f"Bearer {regular_token}"},
         )
@@ -538,7 +507,7 @@ class TestProfileImageUpload:
     ):
         """Profile image upload accepts only configured image types."""
         response = client.post(
-            "/upload",
+            "/profile-image/upload",
             files={"file": ("avatar.txt", b"text", "text/plain")},
             headers={"Authorization": f"Bearer {regular_token}"},
         )
@@ -553,7 +522,7 @@ class TestProfileImageUpload:
     ):
         """Profile image upload rejects files larger than 5MB."""
         response = client.post(
-            "/upload",
+            "/profile-image/upload",
             files={"file": ("avatar.png", b"0" * (5 * 1024 * 1024 + 1), "image/png")},
             headers={"Authorization": f"Bearer {regular_token}"},
         )
@@ -568,7 +537,7 @@ class TestProfileImageUpload:
     ):
         """Pending users cannot upload profile images."""
         response = client.post(
-            "/upload",
+            "/profile-image/upload",
             files={"file": ("avatar.png", b"image", "image/png")},
             headers={"Authorization": f"Bearer {pending_token}"},
         )

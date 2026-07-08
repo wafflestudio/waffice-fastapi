@@ -14,7 +14,7 @@ MAX_PROFILE_IMAGE_SIZE = 5 * 1024 * 1024
 PROFILE_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
-@router.post("", response_model=Response[UserDetail])
+@router.post("/upload", response_model=Response[UserDetail])
 async def upload_profile_image(
     file: UploadFile = File(...),
     current_user: User = Depends(require_associate),

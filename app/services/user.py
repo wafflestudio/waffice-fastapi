@@ -102,7 +102,7 @@ class UserService:
     def update(db: Session, user: User, **data) -> User:
         """Update user with provided data"""
         for key, value in data.items():
-            if value is not None or key == "avatar_url":
+            if value is not None:
                 setattr(user, key, value)
         db.commit()
         db.refresh(user)

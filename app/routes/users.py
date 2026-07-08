@@ -23,13 +23,7 @@ from app.schemas import (
     UserDetail,
     UserUpdateRequest,
 )
-from app.services import (
-    ActivityService,
-    AuditLogService,
-    OCIObjectStorageService,
-    ProjectService,
-    UserService,
-)
+from app.services import ActivityService, AuditLogService, ProjectService, UserService
 
 router = APIRouter()
 
@@ -79,17 +73,9 @@ async def update_my_profile(
     Pending users cannot update their profile until approved by an admin.
     Only provided fields will be updated; omitted fields remain unchanged.
     """
-    update_data = request.model_dump(exclude_unset=True)
-    if (
-        update_data.get("avatar_url") is None
-        and "avatar_url" in update_data
-        and current_user.avatar_url
-    ):
-        OCIObjectStorageService().delete_profile_image(
-            current_user.id, current_user.avatar_url
-        )
-
-    updated_user = UserService.update(db, current_user, **update_data)
+    updated_user = UserService.update(
+        db, current_user, **request.model_dump(exclude_unset=True)
+    )
     return Response(ok=True, data=updated_user)
 
 
