@@ -101,3 +101,24 @@ class RequestAlreadyProcessedError(AppError):
 
     def __init__(self, message: str = "Request has already been processed"):
         super().__init__("REQUEST_ALREADY_PROCESSED", message, 400)
+
+
+class InvalidProfileImageError(AppError):
+    """Invalid profile image content type"""
+
+    def __init__(self, message: str = "Only jpeg, png, or webp images are allowed"):
+        super().__init__("INVALID_PROFILE_IMAGE", message, 400)
+
+
+class ProfileImageTooLargeError(AppError):
+    """Profile image is too large"""
+
+    def __init__(self, message: str = "Profile image must be 5MB or smaller"):
+        super().__init__("PROFILE_IMAGE_TOO_LARGE", message, 413)
+
+
+class ObjectStorageError(AppError):
+    """Object storage operation failed"""
+
+    def __init__(self, message: str = "Object storage operation failed"):
+        super().__init__("OBJECT_STORAGE_ERROR", message, 502)
