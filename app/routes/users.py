@@ -11,6 +11,7 @@ from app.deps.auth import (
 from app.exceptions import (
     InvalidQualificationError,
     NotFoundError,
+    RosterFileTooLargeError,
     TemporaryMemberApprovalError,
 )
 from app.models import AuditAction, Qualification, User, UserRole
@@ -34,6 +35,9 @@ from app.services import ActivityService, AuditLogService, ProjectService, UserS
 from app.services.roster import parse_member_roster
 
 router = APIRouter()
+
+# 5 MB is generous for a <=2000-row roster; blocks oversized uploads.
+MAX_FILE_BYTES = 5 * 1024 * 1024
 
 
 def _skip_message(name: str, student_id: str, reason: str) -> str:
@@ -223,6 +227,7 @@ async def list_pending_users(
         400: {"description": "파일 양식이 올바르지 않습니다 / 이름·학번 헤더 누락 / 최대 행 초과"},
         401: {"description": "Not authenticated"},
         403: {"description": "Admin access required"},
+        413: {"description": "파일 용량 초과 (최대 5MB)"},
         422: {"description": "명부에 회원 데이터가 없습니다"},
     },
 )
@@ -265,7 +270,9 @@ async def import_temporary_members(
     - Existing members who never recorded a `student_id` cannot be matched and
       will be duplicated as temporary members.
     """
-    content = await file.read()
+    content = await file.read(MAX_FILE_BYTES + 1)
+    if len(content) > MAX_FILE_BYTES:
+        raise RosterFileTooLargeError()
     valid_rows, invalid_rows = parse_member_roster(content, file.filename)
 
     created, skipped = UserService.bulk_create_temporary(db, valid_rows)

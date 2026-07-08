@@ -99,6 +99,13 @@ class RosterTooLargeError(AppError):
         super().__init__("ROSTER_TOO_LARGE", message, 400)
 
 
+class RosterFileTooLargeError(AppError):
+    """Uploaded roster file exceeds the maximum byte size"""
+
+    def __init__(self, message: str = "파일 용량이 너무 큽니다. (최대 5MB)"):
+        super().__init__("ROSTER_FILE_TOO_LARGE", message, 413)
+
+
 class NoLeaderError(AppError):
     """No leader specified in project"""
 

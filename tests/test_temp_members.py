@@ -314,6 +314,16 @@ def test_import_rejects_oversized_roster(
     assert response.json()["error"] == "ROSTER_TOO_LARGE"
 
 
+def test_import_rejects_oversized_file(
+    client: TestClient, admin_token: str, admin_user: User
+):
+    """A file exceeding the max byte size cap → 413."""
+    data = b"PK\x03\x04" + b"0" * (5 * 1024 * 1024 + 1)
+    response = _post_bytes(client, admin_token, data, filename="roster.xlsx")
+    assert response.status_code == 413
+    assert response.json()["error"] == "ROSTER_FILE_TOO_LARGE"
+
+
 def test_import_mixed_roster_classifies_each_row(
     client: TestClient, db: Session, admin_token: str, admin_user: User
 ):
