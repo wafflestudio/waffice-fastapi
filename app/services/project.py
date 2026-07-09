@@ -38,7 +38,11 @@ class ProjectService:
         List projects with cursor-based pagination (excluding soft-deleted projects).
         Returns (items, next_cursor)
         """
-        query = db.query(Project).filter(Project.deleted_at.is_(None))
+        query = (
+            db.query(Project)
+            .options(joinedload(Project.members).joinedload(ProjectMember.user))
+            .filter(Project.deleted_at.is_(None))
+        )
 
         if status is not None:
             query = query.filter(Project.status == status)

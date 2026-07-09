@@ -15,7 +15,6 @@ from app.schemas import (
     CursorPage,
     MemberInput,
     MemberUpdateRequest,
-    ProjectBrief,
     ProjectCreateRequest,
     ProjectDetail,
     ProjectUpdateRequest,
@@ -32,7 +31,7 @@ router = APIRouter()
 
 @router.get(
     "",
-    response_model=Response[CursorPage[ProjectBrief]],
+    response_model=Response[CursorPage[ProjectDetail]],
     summary="List all projects",
     description="Returns paginated list of all projects.",
     responses={
