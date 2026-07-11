@@ -52,6 +52,60 @@ class InvalidQualificationError(AppError):
         super().__init__("INVALID_QUALIFICATION", message, 400)
 
 
+class TemporaryMemberApprovalError(AppError):
+    """Cannot approve a temporary (roster-imported) member"""
+
+    def __init__(
+        self,
+        message: str = (
+            "Cannot approve a temporary member. They must sign up "
+            "(OAuth) and be linked to this record first."
+        ),
+    ):
+        super().__init__("TEMPORARY_MEMBER_CANNOT_BE_APPROVED", message, 400)
+
+
+class TemporaryMemberProjectError(AppError):
+    """Cannot add a temporary (roster-imported) member to a project"""
+
+    def __init__(
+        self,
+        message: str = (
+            "Cannot add a temporary member to a project. They must sign up "
+            "(OAuth) and be linked to this record first."
+        ),
+    ):
+        super().__init__("TEMPORARY_MEMBER_CANNOT_JOIN_PROJECT", message, 400)
+
+
+class InvalidRosterFileError(AppError):
+    """Uploaded roster file is not a valid .xlsx/.csv, or is missing a header column"""
+
+    def __init__(self, message: str = "파일 양식이 올바르지 않습니다."):
+        super().__init__("INVALID_ROSTER_FILE", message, 400)
+
+
+class EmptyRosterError(AppError):
+    """Roster file has a header but no data rows"""
+
+    def __init__(self, message: str = "명부에 회원 데이터가 없습니다."):
+        super().__init__("EMPTY_ROSTER", message, 422)
+
+
+class RosterTooLargeError(AppError):
+    """Roster exceeds the maximum allowed number of rows"""
+
+    def __init__(self, message: str = "명부가 최대 2000행을 초과했습니다."):
+        super().__init__("ROSTER_TOO_LARGE", message, 400)
+
+
+class RosterFileTooLargeError(AppError):
+    """Uploaded roster file exceeds the maximum byte size"""
+
+    def __init__(self, message: str = "파일 용량이 너무 큽니다. (최대 5MB)"):
+        super().__init__("ROSTER_FILE_TOO_LARGE", message, 413)
+
+
 class NoLeaderError(AppError):
     """No leader specified in project"""
 
