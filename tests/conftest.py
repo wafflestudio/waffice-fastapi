@@ -219,3 +219,51 @@ def active_token(active_user: User) -> str:
 def admin_token(admin_user: User) -> str:
     """Create JWT token for admin user."""
     return create_access_token(admin_user.id, admin_user.email, admin_user.google_id)
+
+
+@pytest.fixture
+def president_user(db: Session) -> User:
+    """Create a president user for testing."""
+    user = UserService.create(
+        db,
+        email="president@example.com",
+        name="President User",
+        generation="26",
+        qualification=Qualification.ACTIVE,
+        role=UserRole.PRESIDENT,
+        google_id="president_google_id",
+    )
+    return user
+
+
+@pytest.fixture
+def leader_and_president_user(db: Session) -> User:
+    """Create a leader_and_president user for testing."""
+    user = UserService.create(
+        db,
+        email="leader_president@example.com",
+        name="Leader President User",
+        generation="26",
+        qualification=Qualification.ACTIVE,
+        role=UserRole.LEADER_AND_PRESIDENT,
+        google_id="leader_president_google_id",
+    )
+    return user
+
+
+@pytest.fixture
+def president_token(president_user: User) -> str:
+    """Create JWT token for president user."""
+    return create_access_token(
+        president_user.id, president_user.email, president_user.google_id
+    )
+
+
+@pytest.fixture
+def leader_and_president_token(leader_and_president_user: User) -> str:
+    """Create JWT token for leader_and_president user."""
+    return create_access_token(
+        leader_and_president_user.id,
+        leader_and_president_user.email,
+        leader_and_president_user.google_id,
+    )
