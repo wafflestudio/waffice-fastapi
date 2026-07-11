@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
@@ -8,7 +8,12 @@ from app.deps.auth import (
     require_associate,
     require_regular,
 )
-from app.exceptions import InvalidQualificationError, NotFoundError
+from app.exceptions import (
+    InvalidQualificationError,
+    NotFoundError,
+    RosterFileTooLargeError,
+    TemporaryMemberApprovalError,
+)
 from app.models import AuditAction, Qualification, User, UserRole
 from app.schemas import (
     ActivityCreateRequest,
@@ -20,12 +25,32 @@ from app.schemas import (
     ProfileUpdateRequest,
     ProjectBrief,
     Response,
+    SkippedMember,
+    TempMemberImportResult,
+    UserBrief,
     UserDetail,
     UserUpdateRequest,
 )
 from app.services import ActivityService, AuditLogService, ProjectService, UserService
+from app.services.roster import parse_member_roster
 
 router = APIRouter()
+
+# 5 MB is generous for a <=2000-row roster; blocks oversized uploads.
+MAX_FILE_BYTES = 5 * 1024 * 1024
+
+
+def _skip_message(name: str, student_id: str, reason: str) -> str:
+    """Human-readable Korean explanation for a skipped roster row."""
+    if reason == "missing_student_id":
+        return f'"{name}"의 학번을 찾을 수 없습니다.'
+    if reason == "missing_name":
+        return f'"{student_id}"의 이름을 찾을 수 없습니다.'
+    if reason == "already_exists":
+        return f'"{student_id}"은(는) 이미 등록된 학번입니다.'
+    if reason == "duplicate_in_request":
+        return f'"{student_id}"이(가) 파일에 중복되어 있습니다.'
+    return f'"{name or student_id}"의 데이터 형식이 올바르지 않습니다.'
 
 
 # === Own profile ===
@@ -189,6 +214,87 @@ async def list_pending_users(
     return Response(ok=True, data=users)
 
 
+@router.post(
+    "/temporary",
+    response_model=Response[TempMemberImportResult],
+    summary="Import temporary members from a roster (.xlsx / .csv upload)",
+    description=(
+        "Upload a member roster (.xlsx or .csv) to bulk-create temporary members. "
+        "Admin only."
+    ),
+    responses={
+        200: {"description": "Roster imported successfully"},
+        400: {"description": "파일 양식이 올바르지 않습니다 / 이름·학번 헤더 누락 / 최대 행 초과"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "Admin access required"},
+        413: {"description": "파일 용량 초과 (최대 5MB)"},
+        422: {"description": "명부에 회원 데이터가 없습니다"},
+    },
+)
+async def import_temporary_members(
+    file: UploadFile = File(
+        ...,
+        description=(
+            "명부 파일 (.xlsx 또는 .csv). 첫 행은 헤더이며 이름 열(이름/성명/name)과 "
+            "학번 열(학번/student_id/sid)이 있어야 합니다."
+        ),
+    ),
+    _admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Import a member roster (.xlsx or .csv) as temporary members.
+
+    **Requires**: Admin privileges.
+
+    The uploaded file is parsed on the backend. The first row is the header, and
+    the name / student_id columns are located by header text (case-insensitive;
+    Korean or English; column order does not matter):
+    - name:       이름 / 성명 / name
+    - student_id: 학번 / student_id / sid
+
+    Each data row becomes a temporary `User` with only `name` and `student_id`
+    populated (no email/OAuth identity, `is_temporary=True`, `qualification=PENDING`).
+
+    A row is skipped (reported in `skipped` with a `reason` and a Korean `message`)
+    when a member with that student_id already exists (`already_exists`), the same
+    student_id appears more than once in the file (`duplicate_in_request`), the row
+    is missing its student_id (`missing_student_id`) or name (`missing_name`), or the
+    value is malformed (`invalid`). A whole-file error (400/422) is raised only for a
+    bad file, a missing header column, or an empty roster.
+
+    Idempotency caveats (matching is application-level, not DB-enforced):
+    - Re-uploading the same roster is safe (existing rows skip as `already_exists`).
+    - `student_id` has no UNIQUE constraint, so two *concurrent* uploads of the
+      same student_id could both create a row. Avoid simultaneous uploads.
+    - Existing members who never recorded a `student_id` cannot be matched and
+      will be duplicated as temporary members.
+    """
+    content = await file.read(MAX_FILE_BYTES + 1)
+    if len(content) > MAX_FILE_BYTES:
+        raise RosterFileTooLargeError()
+    valid_rows, invalid_rows = parse_member_roster(content, file.filename)
+
+    created, skipped = UserService.bulk_create_temporary(db, valid_rows)
+    skipped = invalid_rows + skipped
+
+    result = TempMemberImportResult(
+        created_count=len(created),
+        skipped_count=len(skipped),
+        created=[UserBrief.model_validate(u) for u in created],
+        skipped=[
+            SkippedMember(
+                name=name,
+                student_id=student_id,
+                reason=reason,
+                message=_skip_message(name, student_id, reason),
+            )
+            for name, student_id, reason in skipped
+        ],
+    )
+    return Response(ok=True, data=result)
+
+
 @router.get(
     "/{user_id}",
     response_model=Response[UserDetail],
@@ -321,7 +427,9 @@ async def delete_user(
     description="Approve a pending user and set their qualification level. Admin only.",
     responses={
         200: {"description": "User approved successfully"},
-        400: {"description": "Cannot approve to PENDING status"},
+        400: {
+            "description": "Cannot approve to PENDING status, or target is a temporary member"
+        },
         401: {"description": "Not authenticated"},
         403: {"description": "Admin access required"},
         404: {"description": "User not found"},
@@ -349,6 +457,11 @@ async def approve_user(
     user = UserService.get(db, user_id)
     if not user:
         raise NotFoundError("User not found")
+
+    # Temporary members are roster placeholders with no OAuth identity; they are
+    # excluded from the pending-approval queue and must not be approved directly.
+    if user.is_temporary:
+        raise TemporaryMemberApprovalError()
 
     # Cannot approve to pending
     if request.qualification == Qualification.PENDING:

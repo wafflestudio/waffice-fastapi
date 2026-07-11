@@ -163,13 +163,48 @@ class ApproveRequest(BaseModel):
     )
 
 
+# === Temporary member import ===
+# Roster parsing/validation lives in app/services/roster.py; the schemas
+# below are only the response shapes.
+class SkippedMember(BaseModel):
+    """A roster row that was not created, with a machine reason and a Korean message."""
+
+    name: str = Field(description="Member's name from the roster")
+    student_id: str = Field(description="Student ID from the roster")
+    reason: str = Field(
+        description=(
+            "Machine-readable skip reason: "
+            "'already_exists' (student_id already in the DB), "
+            "'duplicate_in_request' (student_id appeared earlier in the file), "
+            "'missing_student_id' / 'missing_name' (the record is missing that field), "
+            "or 'invalid' (malformed, e.g. over length)"
+        ),
+        examples=["already_exists", "missing_student_id"],
+    )
+    message: str = Field(
+        description="Human-readable Korean explanation for the skip",
+        examples=['"김와플"의 학번을 찾을 수 없습니다.'],
+    )
+
+
+class TempMemberImportResult(BaseModel):
+    """Summary of a temporary member import."""
+
+    created_count: int = Field(description="Number of temporary members created")
+    skipped_count: int = Field(description="Number of rows skipped")
+    created: list["UserBrief"] = Field(description="The temporary members created")
+    skipped: list[SkippedMember] = Field(description="Rows skipped, with reasons")
+
+
 # === Response ===
 class UserBrief(BaseModel):
     """Minimal user information for references in other objects."""
 
     id: int = Field(description="Unique user identifier")
     name: str = Field(description="User's display name")
-    email: str = Field(description="User's email address")
+    email: str | None = Field(
+        description="User's email address (null for temporary members)"
+    )
     avatar_url: str | None = Field(description="URL to profile image")
 
     model_config = {"from_attributes": True}
@@ -179,8 +214,8 @@ class UserDetail(BaseModel):
     """Complete user profile information."""
 
     id: int = Field(description="Unique user identifier")
-    email: str = Field(
-        description="User's email address (from OAuth provider)",
+    email: str | None = Field(
+        description="User's email address (from OAuth provider; null for temporary members)",
         examples=["user@example.com"],
     )
     name: str = Field(
@@ -219,6 +254,12 @@ class UserDetail(BaseModel):
     notification_channel: NotificationChannel = Field(
         description="Preferred notification channel"
     )
+    is_temporary: bool = Field(
+        description=(
+            "Whether this is a temporary member imported from a roster "
+            "(only name and student_id populated, no OAuth identity yet)"
+        ),
+    )
     created_at: int = Field(
         description="Unix timestamp when user was created",
         examples=[1706745600],
@@ -229,3 +270,7 @@ class UserDetail(BaseModel):
     )
 
     model_config = {"from_attributes": True}
+
+
+# Resolve the forward reference to UserBrief used in TempMemberImportResult.
+TempMemberImportResult.model_rebuild()
