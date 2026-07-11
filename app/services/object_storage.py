@@ -27,15 +27,29 @@ class OCIObjectStorageService:
         if not all((self.namespace, self.bucket, self.region)):
             raise ObjectStorageError("OCI object storage is not configured")
 
-        config_file = os.getenv("OCI_CONFIG_FILE")
-        profile = os.getenv("OCI_CONFIG_PROFILE", "DEFAULT")
+        auth_mode = os.getenv("OCI_OBJECT_STORAGE_AUTH", "instance_principal")
         try:
-            config = (
-                oci.config.from_file(config_file, profile)
-                if config_file
-                else oci.config.from_file(profile_name=profile)
-            )
-            self.client = oci.object_storage.ObjectStorageClient(config)
+            if auth_mode == "config_file":
+                config_file = os.getenv("OCI_CONFIG_FILE")
+                profile = os.getenv("OCI_CONFIG_PROFILE", "DEFAULT")
+                config = (
+                    oci.config.from_file(config_file, profile)
+                    if config_file
+                    else oci.config.from_file(profile_name=profile)
+                )
+                self.client = oci.object_storage.ObjectStorageClient(config)
+            elif auth_mode == "resource_principal":
+                signer = oci.auth.signers.get_resource_principals_signer()
+                self.client = oci.object_storage.ObjectStorageClient(
+                    {"region": self.region}, signer=signer
+                )
+            elif auth_mode == "instance_principal":
+                signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
+                self.client = oci.object_storage.ObjectStorageClient(
+                    {"region": self.region}, signer=signer
+                )
+            else:
+                raise ValueError(f"Unsupported OCI authentication mode: {auth_mode}")
         except Exception as exc:
             raise ObjectStorageError("OCI object storage is not configured") from exc
 
