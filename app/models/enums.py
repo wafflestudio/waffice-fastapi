@@ -23,7 +23,9 @@ class UserRole(str, Enum):
     MEMBER = "member"
     LEADER = "leader"
     ADMIN = "admin"
+    PRESIDENT = "president"
     ADMIN_AND_LEADER = "admin_and_leader"
+    LEADER_AND_PRESIDENT = "leader_and_president"
 
 
 class AuditAction(str, Enum):

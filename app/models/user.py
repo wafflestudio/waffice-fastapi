@@ -60,11 +60,24 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
 
     @property
     def is_admin(self) -> bool:
-        return self.role in (UserRole.ADMIN, UserRole.ADMIN_AND_LEADER)
+        return self.role in (
+            UserRole.ADMIN,
+            UserRole.PRESIDENT,
+            UserRole.ADMIN_AND_LEADER,
+            UserRole.LEADER_AND_PRESIDENT,
+        )
 
     @property
     def is_leader(self) -> bool:
-        return self.role in (UserRole.LEADER, UserRole.ADMIN_AND_LEADER)
+        return self.role in (
+            UserRole.LEADER,
+            UserRole.ADMIN_AND_LEADER,
+            UserRole.LEADER_AND_PRESIDENT,
+        )
+
+    @property
+    def is_president(self) -> bool:
+        return self.role in (UserRole.PRESIDENT, UserRole.LEADER_AND_PRESIDENT)
 
     # Profile (optional)
     phone = Column(String(20), nullable=True)
