@@ -461,3 +461,102 @@ class TestProfileUpdate:
             headers={"Authorization": f"Bearer {regular_token}"},
         )
         assert response.status_code == 422
+
+
+class TestProfileImageUpload:
+    def test_public_url_uses_default_when_base_url_is_empty(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Empty OCI_PUBLIC_BASE_URL should not produce a relative URL."""
+        from app.services.object_storage import OCIObjectStorageService
+
+        monkeypatch.setenv("OCI_PUBLIC_BASE_URL", "")
+        storage = OCIObjectStorageService.__new__(OCIObjectStorageService)
+        storage.region = "ap-chuncheon-1"
+        storage.namespace = "namespace"
+        storage.bucket = "bucket"
+
+        assert storage.public_url("profiles/1/avatar.png") == (
+            "https://objectstorage.ap-chuncheon-1.oraclecloud.com/n/namespace/b/bucket/o/"
+            "profiles%2F1%2Favatar.png"
+        )
+
+    def test_user_can_upload_profile_image(
+        self,
+        client: TestClient,
+        regular_token: str,
+        regular_user: User,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """User can upload a profile image."""
+        deleted = []
+
+        class FakeStorage:
+            def upload_profile_image(self, user_id, file, body):
+                assert user_id == regular_user.id
+                assert file.content_type == "image/png"
+                assert body == b"image"
+                return "https://cdn.example.com/profiles/1/new.png"
+
+            def delete_profile_image(self, user_id, url):
+                deleted.append((user_id, url))
+
+        monkeypatch.setattr(
+            "app.routes.profile_image.OCIObjectStorageService", FakeStorage
+        )
+
+        response = client.post(
+            "/profile-image/upload",
+            files={"file": ("avatar.png", b"image", "image/png")},
+            headers={"Authorization": f"Bearer {regular_token}"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["data"]["avatar_url"] == (
+            "https://cdn.example.com/profiles/1/new.png"
+        )
+        assert deleted == [(regular_user.id, None)]
+
+    def test_upload_rejects_non_image(
+        self,
+        client: TestClient,
+        regular_token: str,
+    ):
+        """Profile image upload accepts only configured image types."""
+        response = client.post(
+            "/profile-image/upload",
+            files={"file": ("avatar.txt", b"text", "text/plain")},
+            headers={"Authorization": f"Bearer {regular_token}"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"] == "INVALID_PROFILE_IMAGE"
+
+    def test_upload_rejects_large_image(
+        self,
+        client: TestClient,
+        regular_token: str,
+    ):
+        """Profile image upload rejects files larger than 5MB."""
+        response = client.post(
+            "/profile-image/upload",
+            files={"file": ("avatar.png", b"0" * (5 * 1024 * 1024 + 1), "image/png")},
+            headers={"Authorization": f"Bearer {regular_token}"},
+        )
+
+        assert response.status_code == 413
+        assert response.json()["error"] == "PROFILE_IMAGE_TOO_LARGE"
+
+    def test_pending_user_cannot_upload_profile_image(
+        self,
+        client: TestClient,
+        pending_token: str,
+    ):
+        """Pending users cannot upload profile images."""
+        response = client.post(
+            "/profile-image/upload",
+            files={"file": ("avatar.png", b"image", "image/png")},
+            headers={"Authorization": f"Bearer {pending_token}"},
+        )
+
+        assert response.status_code == 403

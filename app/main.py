@@ -75,13 +75,15 @@ async def app_error_handler(request: Request, exc: AppError):
 # ==============================
 # ROUTERS
 # ==============================
-from app.routes import auth, projects, requests, upload, users
+from app.routes import auth, profile_image, projects, requests, users
 
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])
 app.include_router(users.router, prefix="/users", tags=["Users"])
 app.include_router(projects.router, prefix="/projects", tags=["Projects"])
 app.include_router(requests.router, prefix="/requests", tags=["Requests"])
-app.include_router(upload.router, prefix="/upload", tags=["Upload"])
+app.include_router(
+    profile_image.router, prefix="/profile-image", tags=["Profile Image"]
+)
 
 # Dev-only auth endpoints (only included in local/dev environments)
 if ENV in ("local", "dev"):

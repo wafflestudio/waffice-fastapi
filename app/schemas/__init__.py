@@ -40,7 +40,6 @@ from app.schemas.request import (
     RequestScope,
     RequestStatusFilter,
 )
-from app.schemas.upload import PresignedUrlRequest, PresignedUrlResponse
 from app.schemas.user import (
     ApproveRequest,
     ProfileUpdateRequest,
@@ -78,8 +77,6 @@ __all__ = [
     "ProjectBrief",
     "ProjectDetail",
     "AuditLogDetail",
-    "PresignedUrlRequest",
-    "PresignedUrlResponse",
     "ActivityCreateRequest",
     "ActivityUpdateRequest",
     "ActivityDetail",
