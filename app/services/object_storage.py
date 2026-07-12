@@ -30,7 +30,13 @@ class OCIObjectStorageService:
         auth_mode = os.getenv("OCI_OBJECT_STORAGE_AUTH", "instance_principal")
         try:
             if auth_mode == "config_file":
-                config = oci.config.from_file()
+                config_file = os.getenv("OCI_CONFIG_FILE", "~/.oci/config")
+                profile = os.getenv("OCI_CONFIG_PROFILE", "DEFAULT")
+                config = (
+                    oci.config.from_file(config_file, profile)
+                    if config_file
+                    else oci.config.from_file(profile_name=profile)
+                )
                 self.client = oci.object_storage.ObjectStorageClient(config)
             elif auth_mode == "resource_principal":
                 signer = oci.auth.signers.get_resource_principals_signer()
