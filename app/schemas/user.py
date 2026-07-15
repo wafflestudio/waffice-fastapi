@@ -4,7 +4,6 @@ from app.models.enums import (
     GraduationStatus,
     NotificationChannel,
     Qualification,
-    UserRole,
 )
 from app.schemas.common import Website
 
@@ -139,9 +138,10 @@ class UserUpdateRequest(ProfileUpdateRequest):
             "ACTIVE: fully active member with all privileges"
         ),
     )
-    role: UserRole | None = Field(
-        default=None,
-        description="User role: member, leader, admin, or admin_and_leader",
+    is_leader: bool | None = Field(default=None, description="Grant leader privileges")
+    is_admin: bool | None = Field(default=None, description="Grant admin privileges")
+    is_president: bool | None = Field(
+        default=None, description="Grant president privileges"
     )
     generation: str | None = Field(
         default=None,
@@ -233,12 +233,14 @@ class UserDetail(BaseModel):
         )
     )
     graduation_status: str = Field(
-        description=("Graduation status of the user. One of [학부생, 졸업생, 휴학생, 대학원생]"),
+        description=(
+            "Graduation status of the user. One of [학부생, 졸업생, 휴학생, 대학원생]"
+        ),
         examples=["학부생", "졸업생", "휴학생", "대학원생"],
     )
-    role: UserRole = Field(
-        description="User role determining access level: member, leader, admin, or admin_and_leader"
-    )
+    is_leader: bool = Field(description="Whether the user has leader privileges")
+    is_admin: bool = Field(description="Whether the user has admin privileges")
+    is_president: bool = Field(description="Whether the user has president privileges")
     phone: str | None = Field(description="Contact phone number")
     affiliation: str | None = Field(description="Current organization or company")
     bio: str | None = Field(description="Short self-introduction")

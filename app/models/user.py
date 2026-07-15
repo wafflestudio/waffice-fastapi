@@ -18,7 +18,6 @@ from app.models.enums import (
     NotificationChannel,
     ProjectStatus,
     Qualification,
-    UserRole,
 )
 
 
@@ -48,7 +47,9 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     qualification = Column(
         Enum(Qualification), nullable=False, default=Qualification.PENDING
     )
-    role = Column(Enum(UserRole), nullable=False, default=UserRole.MEMBER)
+    is_leader = Column(Boolean, nullable=False, default=False)
+    is_admin = Column(Boolean, nullable=False, default=False)
+    is_president = Column(Boolean, nullable=False, default=False)
 
     @property
     def current_projects(self):
@@ -57,27 +58,6 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
             for m in self.project_memberships
             if m.left_at is None and m.project.status != ProjectStatus.ENDED
         ]
-
-    @property
-    def is_admin(self) -> bool:
-        return self.role in (
-            UserRole.ADMIN,
-            UserRole.PRESIDENT,
-            UserRole.ADMIN_AND_LEADER,
-            UserRole.LEADER_AND_PRESIDENT,
-        )
-
-    @property
-    def is_leader(self) -> bool:
-        return self.role in (
-            UserRole.LEADER,
-            UserRole.ADMIN_AND_LEADER,
-            UserRole.LEADER_AND_PRESIDENT,
-        )
-
-    @property
-    def is_president(self) -> bool:
-        return self.role in (UserRole.PRESIDENT, UserRole.LEADER_AND_PRESIDENT)
 
     # Profile (optional)
     phone = Column(String(20), nullable=True)
@@ -126,7 +106,9 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
 
     __table_args__ = (
         Index("idx_users_qualification", "qualification"),
-        Index("idx_users_role", "role"),
+        Index("idx_users_is_leader", "is_leader"),
+        Index("idx_users_is_admin", "is_admin"),
+        Index("idx_users_is_president", "is_president"),
         Index("idx_users_created_at", "created_at"),
         Index("idx_users_is_temporary", "is_temporary"),
         # Roster import matches existing members by student_id.

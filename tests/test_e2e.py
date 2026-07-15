@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models import MemberRole, Qualification, User, UserRole
+from app.models import MemberRole, Qualification, User
 from app.services import ProjectService, UserService
 
 
@@ -790,7 +790,7 @@ class TestPresidentAndLeaderRoles:
             name="Plain Leader",
             generation="26",
             qualification=Qualification.ACTIVE,
-            role=UserRole.LEADER,
+            is_leader=True,
         )
         token = create_access_token(leader.id, leader.email, leader.google_id)
 

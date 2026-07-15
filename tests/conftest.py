@@ -37,7 +37,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config.database import Base, Engine, get_db
 from app.main import app
-from app.models import Qualification, User, UserRole
+from app.models import Qualification, User
 from app.services import UserService
 
 # JWT config (must match app/deps/auth.py default)
@@ -179,7 +179,7 @@ def admin_user(db: Session) -> User:
         name="Admin User",
         generation="26",
         qualification=Qualification.ACTIVE,
-        role=UserRole.ADMIN,
+        is_admin=True,
         google_id="admin_google_id",
     )
     return user
@@ -230,7 +230,8 @@ def president_user(db: Session) -> User:
         name="President User",
         generation="26",
         qualification=Qualification.ACTIVE,
-        role=UserRole.PRESIDENT,
+        is_admin=True,
+        is_president=True,
         google_id="president_google_id",
     )
     return user
@@ -245,7 +246,9 @@ def leader_and_president_user(db: Session) -> User:
         name="Leader President User",
         generation="26",
         qualification=Qualification.ACTIVE,
-        role=UserRole.LEADER_AND_PRESIDENT,
+        is_leader=True,
+        is_admin=True,
+        is_president=True,
         google_id="leader_president_google_id",
     )
     return user

@@ -14,7 +14,7 @@ from app.exceptions import (
     RosterFileTooLargeError,
     TemporaryMemberApprovalError,
 )
-from app.models import AuditAction, Qualification, User, UserRole
+from app.models import AuditAction, Qualification, User
 from app.schemas import (
     ActivityCreateRequest,
     ActivityDetail,
@@ -153,6 +153,31 @@ async def get_my_projects(
     return Response(ok=True, data=projects)
 
 
+@router.get(
+    "/me/activities",
+    response_model=Response[list[ActivityDetail]],
+    summary="Get my activities",
+    description="Returns activities of a current member.",
+    responses={
+        200: {"description": "Activities retrieved successfully"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "Requires REGULAR qualification or higher"},
+    },
+)
+async def get_my_activities(
+    current_user: User = Depends(require_regular), db: Session = Depends(get_db)
+):
+    """
+    Get activities of a current member.
+
+    **Requires**: REGULAR qualification or higher.
+
+    Returns a list of activities (current projects and histories).
+    """
+    activities = ActivityService.list_by_user(db, current_user.id)
+    return Response(ok=True, data=activities)
+
+
 # === Admin management ===
 @router.get(
     "",
@@ -166,8 +191,7 @@ async def get_my_projects(
     },
 )
 async def list_users(
-    cursor: int
-    | None = Query(
+    cursor: int | None = Query(
         None, description="Pagination cursor (user ID). Omit for first page."
     ),
     limit: int = Query(
@@ -224,7 +248,9 @@ async def list_pending_users(
     ),
     responses={
         200: {"description": "Roster imported successfully"},
-        400: {"description": "파일 양식이 올바르지 않습니다 / 이름·학번 헤더 누락 / 최대 행 초과"},
+        400: {
+            "description": "파일 양식이 올바르지 않습니다 / 이름·학번 헤더 누락 / 최대 행 초과"
+        },
         401: {"description": "Not authenticated"},
         403: {"description": "Admin access required"},
         413: {"description": "파일 용량 초과 (최대 5MB)"},
@@ -374,12 +400,17 @@ async def update_user(
         )
 
     # Log role changes
-    if "role" in update_data and update_data["role"] != user.role:
+    role_changes = {
+        field: {"from": getattr(user, field), "to": update_data[field]}
+        for field in ("is_leader", "is_admin", "is_president")
+        if field in update_data and update_data[field] != getattr(user, field)
+    }
+    if role_changes:
         AuditLogService.log(
             db=db,
             user_id=user.id,
             action=AuditAction.ROLE_CHANGED,
-            payload={"from": user.role.value, "to": update_data["role"].value},
+            payload=role_changes,
             actor_id=admin.id,
         )
 
