@@ -1,10 +1,6 @@
 from pydantic import BaseModel, Field
 
-from app.models.enums import (
-    GraduationStatus,
-    NotificationChannel,
-    Qualification,
-)
+from app.models.enums import GraduationStatus, NotificationChannel, Qualification
 from app.schemas.common import Website
 
 
@@ -233,9 +229,7 @@ class UserDetail(BaseModel):
         )
     )
     graduation_status: str = Field(
-        description=(
-            "Graduation status of the user. One of [학부생, 졸업생, 휴학생, 대학원생]"
-        ),
+        description=("Graduation status of the user. One of [학부생, 졸업생, 휴학생, 대학원생]"),
         examples=["학부생", "졸업생", "휴학생", "대학원생"],
     )
     is_leader: bool = Field(description="Whether the user has leader privileges")
