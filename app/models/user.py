@@ -52,6 +52,15 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     is_president = Column(Boolean, nullable=False, default=False)
 
     @property
+    def has_admin_access(self) -> bool:
+        """Admin-gated actions should check this, not is_admin directly.
+
+        The president is the top of the org hierarchy and always has admin
+        access, whether or not is_admin was also explicitly granted.
+        """
+        return self.is_admin or self.is_president
+
+    @property
     def current_projects(self):
         return [
             m.project

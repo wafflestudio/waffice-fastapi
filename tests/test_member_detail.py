@@ -352,7 +352,7 @@ class TestAuditLog:
         """Role change creates a role_changed audit log entry."""
         client.patch(
             f"/users/{regular_user.id}",
-            json={"role": "admin"},
+            json={"is_admin": True},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
 
@@ -363,8 +363,8 @@ class TestAuditLog:
         logs = response.json()["data"]
         assert any(log["action"] == "role_changed" for log in logs)
         role_log = next(log for log in logs if log["action"] == "role_changed")
-        assert role_log["payload"]["from"] == "member"
-        assert role_log["payload"]["to"] == "admin"
+        assert role_log["payload"]["is_admin"]["from"] is False
+        assert role_log["payload"]["is_admin"]["to"] is True
 
 
 class TestProfileUpdate:
