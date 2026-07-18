@@ -14,9 +14,13 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import secrets
+import time
 from datetime import date, datetime
 from uuid import uuid4
 
+from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
@@ -24,6 +28,7 @@ from app.exceptions import (
     AssociateCannotIssueCertificateError,
     CertificateRenderFailedError,
     InvalidCertificateOptionsError,
+    InvalidCursorError,
     InvalidPresidentTermError,
     NotFoundError,
     PresidentAppointmentConflictError,
@@ -54,6 +59,57 @@ from app.services.certificate_render import (
     to_ink_signature_png,
 )
 from app.services.user import UserService
+
+# 발급 후 원본 대조 유효기한 (90일).
+CERTIFICATE_VALIDITY_SECONDS = 90 * 24 * 3600
+
+# --- 커서 인코딩 -------------------------------------------------------------
+# 복합 정렬 키 (created_at, id)를 단일 정수로 인코딩한다. `OFFSET`이 id의
+# 최댓값보다 크기만 하면 `value` 기준 내림차순 정렬이 `(created_at, id)`
+# 사전식 내림차순 정렬과 동치이고, `value < cursor_value` 술어도 복합 술어
+# `(created_at < cp) OR (created_at = cp AND id < ip)`와 그대로 동치가 된다.
+#
+# 이 정수는 JS `Number`의 안전 정수 범위(2**53 - 1)를 쉽게 넘어선다.
+# `CursorPage.next_cursor`가 `int | str | None`으로 str도 허용하므로
+# (app/schemas/common.py), 이 값을 JSON 정수로 내려보내지 않고 **10진수
+# 문자열**로 인코딩한다 — 자리수 그대로 문자열로 왕복하면 JS 클라이언트가
+# `JSON.parse`로 파싱해도 정밀도 손실 없이 그대로 보존된다.
+#
+# `Certificate.id`는 `Integer`(MySQL `INT`, signed 32-bit) 컬럼이라 이론상
+# 2**31 - 1(2,147,483,647)까지 들어갈 수 있다. `OFFSET`이 그 값보다 작으면
+# `id >= OFFSET`인 순간부터 `divmod`가 (created_at, id)가 아닌 엉뚱한 쌍으로
+# 디코드되어 `value < cursor_value` 술어가 더 이상 원래의 복합 술어와
+# 동치가 아니게 된다 -- 반드시 컬럼이 가질 수 있는 최댓값보다 커야 한다.
+_ME_CURSOR_ID_OFFSET = 10**10  # > INT 컬럼 최댓값(2,147,483,647).
+
+
+def _parse_cursor_int(cursor: str) -> int:
+    """커서 문자열을 음이 아닌 정수로 파싱한다. 형식이 잘못되면 400."""
+    try:
+        value = int(cursor)
+    except (TypeError, ValueError):
+        raise InvalidCursorError() from None
+    if value < 0:
+        raise InvalidCursorError()
+    return value
+
+
+def _encode_cursor(major: int, minor: int, offset: int) -> str:
+    return str(major * offset + minor)
+
+
+def _decode_cursor(cursor: str, offset: int) -> tuple[int, int]:
+    return divmod(_parse_cursor_int(cursor), offset)
+
+
+def _new_verification_token_hash() -> str:
+    """검증용 토큰의 sha256 해시. 원본 토큰 자체는 저장하지 않는다.
+
+    공개 /verify 엔드포인트 자체는 이번 PR의 범위 밖이며, 이후 PR에서 이
+    해시를 사용해 토큰을 검증할 수 있도록 값만 저장해 둔다.
+    """
+    token = secrets.token_urlsafe(32)
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 def _signature_data_uri(storage, signature: CertificateSignature) -> str:
@@ -262,6 +318,54 @@ class CertificateService:
         pdf_bytes = render_pdf(context)
         return pdf_bytes, context
 
+    # === Read ===
+    @staticmethod
+    def get(db: Session, certificate_id: int) -> Certificate | None:
+        return (
+            db.query(Certificate)
+            .options(
+                joinedload(Certificate.user),
+                joinedload(Certificate.requested_by),
+                joinedload(Certificate.events).joinedload(CertificateEvent.actor),
+            )
+            .filter(Certificate.id == certificate_id, Certificate.deleted_at.is_(None))
+            .first()
+        )
+
+    @staticmethod
+    def list_own(
+        db: Session, *, user: User, cursor: str | None, limit: int
+    ) -> tuple[list[Certificate], str | None]:
+        """내 활동증명서 목록. created_at DESC, id DESC 순."""
+        query = db.query(Certificate).filter(
+            Certificate.user_id == user.id, Certificate.deleted_at.is_(None)
+        )
+
+        if cursor is not None:
+            created_at, cert_id = _decode_cursor(cursor, _ME_CURSOR_ID_OFFSET)
+            query = query.filter(
+                or_(
+                    Certificate.created_at < created_at,
+                    and_(
+                        Certificate.created_at == created_at,
+                        Certificate.id < cert_id,
+                    ),
+                )
+            )
+
+        items = (
+            query.order_by(Certificate.created_at.desc(), Certificate.id.desc())
+            .limit(limit + 1)
+            .all()
+        )
+        has_more = len(items) > limit
+        page_items = items[:limit]
+        next_cursor = None
+        if has_more and page_items:
+            last = page_items[-1]
+            next_cursor = _encode_cursor(last.created_at, last.id, _ME_CURSOR_ID_OFFSET)
+        return page_items, next_cursor
+
     # === Render-only (not persisted) ===
     @staticmethod
     def preview(
@@ -293,6 +397,76 @@ class CertificateService:
             issued_on=datetime.now(KST).date(),
         )
         return pdf_bytes
+
+    # === Issuance ===
+    @staticmethod
+    def issue_self(
+        db: Session, *, user: User, options: CertificateOptions, storage
+    ) -> Certificate:
+        """kind=SELF: 신청 즉시 발급 완료. issue_number를 이 시점에 부여한다."""
+        CertificateService._validate_options(options, allow_advisor=False)
+
+        certificate = Certificate(
+            user_id=user.id,
+            requested_by_id=user.id,
+            kind=CertificateKind.SELF,
+            status=CertificateStatus.ISSUED,
+            options=options.model_dump(mode="json"),
+        )
+        db.add(certificate)
+        db.flush()  # id를 커밋 전에 확보 (아직 다른 트랜잭션에 보이지 않음)
+
+        issue_number = str(uuid4())
+        issued_on = datetime.now(KST).date()
+        pdf_bytes, context = CertificateService._render(
+            db,
+            target_user=user,
+            options=options,
+            storage=storage,
+            issue_number=issue_number,
+            issued_on=issued_on,
+        )
+
+        # 업로드를 먼저 수행한 뒤 DB를 확정 커밋한다: 스토리지 업로드
+        # 실패는 아무것도 커밋되지 않은 채 끝나야 하고, 업로드 후 커밋
+        # 실패는 방금 올린 오브젝트를 best-effort로 삭제해야 "ISSUED인데
+        # pdf_object_key가 NULL"인 상태가 생기지 않는다.
+        object_key = f"certificates/{certificate.id}/{uuid4()}.pdf"
+        storage.upload_bytes(object_key, pdf_bytes, "application/pdf")
+
+        try:
+            certificate.issue_number = issue_number
+            certificate.snapshot = context
+            certificate.pdf_object_key = object_key
+            certificate.verification_token_hash = _new_verification_token_hash()
+            certificate.issued_at = int(time.time())
+            certificate.expires_at = (
+                certificate.issued_at + CERTIFICATE_VALIDITY_SECONDS
+            )
+
+            db.add(
+                CertificateEvent(
+                    certificate_id=certificate.id,
+                    action=CertificateEventAction.APPLIED,
+                    actor_type=CertificateActorType.APPLICANT,
+                    actor_id=user.id,
+                )
+            )
+            db.add(
+                CertificateEvent(
+                    certificate_id=certificate.id,
+                    action=CertificateEventAction.ISSUED,
+                    actor_type=CertificateActorType.SYSTEM,
+                    actor_id=None,
+                )
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
+            storage.delete_object(object_key)
+            raise
+
+        return CertificateService.get(db, certificate.id)
 
     # === Draft creation (issuance itself is PR②③④) ===
     @staticmethod

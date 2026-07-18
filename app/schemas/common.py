@@ -39,9 +39,14 @@ class CursorPage(BaseModel, Generic[T]):
     """
 
     items: list[T] = Field(description="List of items in the current page")
-    next_cursor: int | None = Field(
+    next_cursor: int | str | None = Field(
         default=None,
-        description="Cursor for the next page. Pass this as the 'cursor' query parameter. Null if no more items.",
+        description=(
+            "Cursor for the next page. Pass this as the 'cursor' query parameter. "
+            "Null if no more items. Simple id-based cursors are ints; composite "
+            "keyset cursors are opaque numeric strings (to survive round-tripping "
+            "through JS clients, whose Number type loses precision above 2^53-1)."
+        ),
     )
 
 

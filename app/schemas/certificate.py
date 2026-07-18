@@ -113,6 +113,21 @@ class CertificateDetail(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class CertificateSummary(BaseModel):
+    """내가 신청/발급받은 활동증명서 목록 항목 (GET /certificates/me)."""
+
+    id: int = Field(description="신청 번호 (증명서 ID)")
+    kind: CertificateKind = Field(description="'self'(본인 발급) | 'draft'(초안 생성)")
+    status: CertificateStatus = Field(
+        description="처리 상태: 'issued'(발급 완료) | 'original_pending'(원본 미등록)"
+    )
+    issue_number: str | None = Field(description="발행번호. 발급 완료 전에는 null")
+    created_at: int = Field(description="신청 일시 (Unix epoch)")
+    issued_at: int | None = Field(description="발급 일시 (Unix epoch). 미발급 시 null")
+
+    model_config = {"from_attributes": True}
+
+
 class SignatureDetail(BaseModel):
     """회장 서명 등록 정보."""
 

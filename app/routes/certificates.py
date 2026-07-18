@@ -1,25 +1,38 @@
 """활동증명서(certificate of activities) API.
 
-- Member: 미리보기 (require_certificate_eligible).
+- Member: 본인 발급/미리보기/내 이력 조회/다운로드 (require_certificate_eligible).
 - Staff/admin: 초안 생성/미리보기, 회장 임기 관리 (require_admin).
 - President: 서명 등록/조회 (require_president).
 
 라우트 등록 순서 주의: 같은 HTTP 메서드에서 리터럴 세그먼트 경로(`/preview`,
-`/signature/me`, `/president-terms/current`, ...)는 반드시 가변 경로
-(`/{certificate_id}`)보다 먼저 등록해야 Starlette가 잘못 매칭하지 않는다.
-(이 축소판에는 가변 경로가 없지만, 향후 나머지 활동증명서 라우트가 합류할 때를
-대비해 순서를 그대로 유지한다.)
+`/me`, `/signature/me`, `/president-terms/current`, ...)는 반드시 가변 경로
+(`/{certificate_id}/download`)보다 먼저 등록해야 Starlette가 "me"를
+`certificate_id="me"`로 잘못 매칭하지 않는다.
 """
 
 from collections.abc import Callable
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Response as FastAPIResponse, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Query,
+    Response as FastAPIResponse,
+    UploadFile,
+)
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
-from app.deps.auth import require_admin, require_certificate_eligible, require_president
+from app.deps.auth import (
+    get_current_user,
+    require_admin,
+    require_certificate_eligible,
+    require_president,
+)
 from app.exceptions import (
+    CertificateNotFoundError,
+    ForbiddenError,
     InvalidSignatureFileError,
     NotFoundError,
     SignatureFileTooLargeError,
@@ -29,6 +42,8 @@ from app.schemas import (
     CertificateDetail,
     CertificateEventItem,
     CertificateOptions,
+    CertificateSummary,
+    CursorPage,
     DraftCertificateCreate,
     PresidentTermCreate,
     PresidentTermDetail,
@@ -106,6 +121,13 @@ def get_existing_target_user(db: Session, user_id: int) -> User:
     return user
 
 
+def get_existing_certificate(db: Session, certificate_id: int) -> Certificate:
+    certificate = CertificateService.get(db, certificate_id)
+    if certificate is None:
+        raise CertificateNotFoundError()
+    return certificate
+
+
 # =====================================================================
 # Member
 # =====================================================================
@@ -126,6 +148,77 @@ async def preview_certificate(
         db, target_user=current_user, options=options, storage=storage
     )
     return FastAPIResponse(content=pdf_bytes, media_type="application/pdf")
+
+
+@router.post(
+    "",
+    response_model=Response[CertificateDetail],
+    summary="활동증명서 발급",
+    description="본인 명의로 활동증명서를 즉시 발급한다 (발행번호를 이 시점에 부여).",
+)
+async def issue_certificate(
+    options: CertificateOptions,
+    current_user: User = Depends(require_certificate_eligible),
+    db: Session = Depends(get_db),
+):
+    storage = OCIObjectStorageService()
+    certificate = CertificateService.issue_self(
+        db, user=current_user, options=options, storage=storage
+    )
+    return Response(ok=True, data=to_detail(certificate))
+
+
+@router.get(
+    "/me",
+    response_model=Response[CursorPage[CertificateSummary]],
+    summary="내 활동증명서 신청/발급 내역",
+    description="본인이 신청했거나 발급받은 활동증명서 목록을 커서 기반으로 조회한다.",
+)
+async def list_my_certificates(
+    cursor: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    current_user: User = Depends(require_certificate_eligible),
+    db: Session = Depends(get_db),
+):
+    items, next_cursor = CertificateService.list_own(
+        db, user=current_user, cursor=cursor, limit=limit
+    )
+    return Response(
+        ok=True,
+        data=CursorPage(
+            items=[CertificateSummary.model_validate(item) for item in items],
+            next_cursor=next_cursor,
+        ),
+    )
+
+
+@router.get(
+    "/{certificate_id}/download",
+    summary="활동증명서 PDF 다운로드",
+    description="발급된 활동증명서 PDF를 스트리밍으로 내려받는다. 본인 또는 관리자만 가능하다.",
+)
+async def download_certificate(
+    certificate_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    certificate = get_existing_certificate(db, certificate_id)
+    if certificate.user_id != current_user.id and not current_user.is_admin:
+        raise ForbiddenError("본인 또는 관리자만 다운로드할 수 있습니다.")
+    if not certificate.pdf_object_key:
+        raise CertificateNotFoundError()
+
+    storage = OCIObjectStorageService()
+    pdf_bytes = storage.get_bytes(certificate.pdf_object_key)
+    return FastAPIResponse(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="certificate_{certificate.id}.pdf"'
+            )
+        },
+    )
 
 
 # =====================================================================

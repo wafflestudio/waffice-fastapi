@@ -263,3 +263,17 @@ class CertificateRenderFailedError(AppError):
 
     def __init__(self, message: str = "활동증명서 생성에 실패했습니다."):
         super().__init__("CERTIFICATE_RENDER_FAILED", message, 502)
+
+
+class CertificateNotFoundError(AppError):
+    """404 - Certificate of activities not found"""
+
+    def __init__(self, message: str = "활동증명서를 찾을 수 없습니다."):
+        super().__init__("CERTIFICATE_NOT_FOUND", message, 404)
+
+
+class InvalidCursorError(AppError):
+    """400 - Pagination cursor is malformed"""
+
+    def __init__(self, message: str = "잘못된 페이지네이션 커서입니다."):
+        super().__init__("INVALID_CURSOR", message, 400)
