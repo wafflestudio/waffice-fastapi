@@ -1,7 +1,7 @@
-"""회장(president) / 서명(signature) 도메인 서비스.
+"""활동증명서(certificate of activities) 도메인 서비스.
 
-`SignatureService` / `PresidentService` 두 클래스로 나뉘며, 모두
-`app/services/user.py`와 같은 스타일로 db 세션을 첫 인자로 받는
+`CertificateService` / `SignatureService` / `PresidentService` 세 클래스로 나뉘며,
+모두 `app/services/user.py`와 같은 스타일로 db 세션을 첫 인자로 받는
 `@staticmethod`로 구성된다.
 
 오브젝트 스토리지 업로드/다운로드는 라우트에서 만든 `OCIObjectStorageService`
@@ -13,19 +13,66 @@
 
 from __future__ import annotations
 
-from datetime import date
+import base64
+from datetime import date, datetime
+from uuid import uuid4
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.exceptions import (
+    AssociateCannotIssueCertificateError,
+    CertificateRenderFailedError,
+    InvalidCertificateOptionsError,
     InvalidPresidentTermError,
     NotFoundError,
     PresidentAppointmentConflictError,
+    PresidentNotFoundError,
+    PresidentSignatureNotFoundError,
     SignatureUploadConflictError,
 )
-from app.models import CertificateSignature, PresidentTerm
+from app.models import (
+    Certificate,
+    CertificateEvent,
+    CertificateSignature,
+    PresidentTerm,
+    User,
+)
+from app.models.enums import (
+    CertificateActorType,
+    CertificateEventAction,
+    CertificateKind,
+    CertificateSigner,
+    CertificateStatus,
+    Qualification,
+)
+from app.schemas.certificate import CertificateOptions
+from app.services.certificate_render import (
+    KST,
+    build_context,
+    render_pdf,
+    to_ink_signature_png,
+)
 from app.services.user import UserService
+
+
+def _signature_data_uri(storage, signature: CertificateSignature) -> str:
+    """서명 PNG를 base64 data URI로 만든다.
+
+    `to_ink_signature_png`는 업로드 당시 매직바이트 검사를 통과했더라도
+    본문이 잘렸거나 손상된 이미지에 대해서는 Pillow가 디코드 예외
+    (`UnidentifiedImageError` 등)를 던질 수 있다. 여기서 잡지 않으면
+    `render_pdf`의 예외 처리(weasyprint import/`write_pdf()`만 감쌈)보다
+    앞서 실행되는 이 디코드 단계가 처리되지 않은 500을 그대로 노출하므로,
+    다른 렌더링 실패와 동일하게 `CertificateRenderFailedError`(502)로
+    변환한다.
+    """
+    body = storage.get_bytes(signature.object_key)
+    try:
+        png = to_ink_signature_png(body)
+    except Exception as exc:
+        raise CertificateRenderFailedError() from exc
+    return "data:image/png;base64," + base64.b64encode(png).decode()
 
 
 class SignatureService:
@@ -138,3 +185,174 @@ class PresidentService:
             raise PresidentAppointmentConflictError() from None
         db.refresh(term)
         return term
+
+
+class CertificateService:
+    @staticmethod
+    def _validate_options(options: CertificateOptions, *, allow_advisor: bool) -> None:
+        if options.signer != CertificateSigner.ADVISOR:
+            return
+        if not allow_advisor:
+            raise InvalidCertificateOptionsError("지도교수님의 서명이 필요한 경우, 운영팀에 별도 문의해주세요.")
+        if not (options.advisor_name and options.advisor_name.strip()):
+            raise InvalidCertificateOptionsError("지도교수 서명을 선택한 경우 지도교수 성함을 입력해야 합니다.")
+
+    @staticmethod
+    def _ensure_target_eligible(target_user: User) -> None:
+        """운영진이 지정한 대상 회원이 활동증명서 발급 자격(정회원/활동회원)인지 확인한다.
+
+        본인 발급 경로(`/preview`)는 `require_certificate_eligible` 라우트
+        의존성이 같은 규칙을 이미 강제하지만, 운영진 초안 경로
+        (`/drafts`, `/drafts/preview`)는 대상 회원 존재 여부만 확인하고 자격
+        등급은 보지 않았다 — 그대로 두면 준회원(이하) 대상으로도
+        ORIGINAL_PENDING `Certificate`가 영구 저장돼 자격 규칙을 우회한다.
+        """
+        if target_user.qualification not in (
+            Qualification.REGULAR,
+            Qualification.ACTIVE,
+        ):
+            raise AssociateCannotIssueCertificateError()
+
+    @staticmethod
+    def _resolve_signer(
+        db: Session, *, options: CertificateOptions, storage
+    ) -> tuple[str | None, str | None]:
+        """렌더링용 서명자 정보를 구한다.
+
+        signer=advisor는 이미지가 없으므로 (None, None)을 돌려주고, 템플릿은
+        `options.advisor_name`을 직접 사용한다. signer=president는 현직 회장과
+        등록된 서명 PNG를 조회해 base64 data URI로 임베드할 값을 만든다.
+        """
+        if options.signer == CertificateSigner.ADVISOR:
+            return None, None
+
+        term = PresidentService.get_current(db)
+        if term is None:
+            raise PresidentNotFoundError()
+
+        signature = SignatureService.get_by_user(db, term.user_id)
+        if signature is None:
+            raise PresidentSignatureNotFoundError()
+
+        return term.user.name, _signature_data_uri(storage, signature)
+
+    @staticmethod
+    def _render(
+        db: Session,
+        *,
+        target_user: User,
+        options: CertificateOptions,
+        storage,
+        issue_number: str | None,
+        issued_on: date,
+    ) -> tuple[bytes, dict]:
+        president_name, signature_data_uri = CertificateService._resolve_signer(
+            db, options=options, storage=storage
+        )
+        context = build_context(
+            db,
+            target_user,
+            options,
+            issue_number=issue_number,
+            issued_on=issued_on,
+            president_name=president_name,
+            signature_data_uri=signature_data_uri,
+            advisor_name=options.advisor_name,
+        )
+        pdf_bytes = render_pdf(context)
+        return pdf_bytes, context
+
+    # === Render-only (not persisted) ===
+    @staticmethod
+    def preview(
+        db: Session, *, target_user: User, options: CertificateOptions, storage
+    ) -> bytes:
+        CertificateService._validate_options(options, allow_advisor=False)
+        pdf_bytes, _context = CertificateService._render(
+            db,
+            target_user=target_user,
+            options=options,
+            storage=storage,
+            issue_number=None,
+            issued_on=datetime.now(KST).date(),
+        )
+        return pdf_bytes
+
+    @staticmethod
+    def preview_draft(
+        db: Session, *, target_user: User, options: CertificateOptions, storage
+    ) -> bytes:
+        CertificateService._validate_options(options, allow_advisor=True)
+        CertificateService._ensure_target_eligible(target_user)
+        pdf_bytes, _context = CertificateService._render(
+            db,
+            target_user=target_user,
+            options=options,
+            storage=storage,
+            issue_number=None,
+            issued_on=datetime.now(KST).date(),
+        )
+        return pdf_bytes
+
+    # === Draft creation (issuance itself is PR②③④) ===
+    @staticmethod
+    def create_draft(
+        db: Session,
+        *,
+        actor: User,
+        target_user: User,
+        options: CertificateOptions,
+        storage,
+    ) -> Certificate:
+        """kind=DRAFT: 운영진이 초안만 생성. issue_number는 아직 부여하지 않는다."""
+        CertificateService._validate_options(options, allow_advisor=True)
+        CertificateService._ensure_target_eligible(target_user)
+
+        certificate = Certificate(
+            user_id=target_user.id,
+            requested_by_id=actor.id,
+            kind=CertificateKind.DRAFT,
+            status=CertificateStatus.ORIGINAL_PENDING,
+            options=options.model_dump(mode="json"),
+        )
+        db.add(certificate)
+        db.flush()
+
+        pdf_bytes, _context = CertificateService._render(
+            db,
+            target_user=target_user,
+            options=options,
+            storage=storage,
+            issue_number=None,
+            issued_on=datetime.now(KST).date(),
+        )
+
+        object_key = f"certificates/{certificate.id}/{uuid4()}.pdf"
+        storage.upload_bytes(object_key, pdf_bytes, "application/pdf")
+
+        try:
+            certificate.pdf_object_key = object_key
+            db.add(
+                CertificateEvent(
+                    certificate_id=certificate.id,
+                    action=CertificateEventAction.DRAFT_CREATED,
+                    actor_type=CertificateActorType.ADMIN,
+                    actor_id=actor.id,
+                )
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
+            storage.delete_object(object_key)
+            raise
+
+        return (
+            db.query(Certificate)
+            .options(
+                joinedload(Certificate.user),
+                joinedload(Certificate.requested_by),
+                joinedload(Certificate.events).joinedload(CertificateEvent.actor),
+            )
+            .filter(Certificate.id == certificate.id, Certificate.deleted_at.is_(None))
+            .first()
+        )

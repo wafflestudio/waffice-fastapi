@@ -56,3 +56,32 @@ class ApprovalStatus(str, Enum):
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
+
+
+class CertificateKind(str, Enum):
+    SELF = "self"
+    DRAFT = "draft"
+
+
+class CertificateStatus(str, Enum):
+    ISSUED = "issued"
+    ORIGINAL_PENDING = "original_pending"
+
+
+class CertificateEventAction(str, Enum):
+    APPLIED = "applied"
+    ISSUED = "issued"
+    DRAFT_CREATED = "draft_created"
+    ORIGINAL_REGISTERED = "original_registered"
+
+
+class CertificateActorType(str, Enum):
+    APPLICANT = "applicant"
+    SYSTEM = "system"
+    PRESIDENT = "president"
+    ADMIN = "admin"
+
+
+class CertificateSigner(str, Enum):
+    PRESIDENT = "president"
+    ADVISOR = "advisor"

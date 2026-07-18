@@ -1,15 +1,17 @@
-"""Tests for the president / signature API (활동증명서용 회장 서명 등록/변경 +
-회장 임기 관리).
+"""Tests for the certificate of activities (활동증명서) API: rendering/preview +
+운영진 초안 생성, plus the president / signature API (회장 서명 등록/변경 +
+회장 임기 관리) added by an earlier PR in this stack.
 
-Covers `app/routes/certificates.py` and `app/services/certificate.py`
-(`SignatureService` / `PresidentService`) end-to-end against a real
-testcontainers MySQL 8 database. Object storage is mocked the way
-`tests/test_member_detail.py` mocks it:
-`monkeypatch.setattr("app.routes.certificates.OCIObjectStorageService", ...)`.
+Covers `app/routes/certificates.py`, `app/services/certificate.py`, and the
+`app/services/certificate_render.py` PDF pipeline end-to-end against a real
+testcontainers MySQL 8 database and (when available) a real WeasyPrint
+render. Object storage is mocked the way `tests/test_member_detail.py` mocks
+it: `monkeypatch.setattr("app.routes.certificates.OCIObjectStorageService", ...)`.
 """
 
 import base64
 import threading
+import uuid
 from datetime import date, timedelta
 from io import BytesIO
 
@@ -23,8 +25,13 @@ from app.exceptions import (
     PresidentAppointmentConflictError,
     SignatureUploadConflictError,
 )
-from app.models import CertificateSignature, PresidentTerm, User
-from app.services.certificate import PresidentService, SignatureService
+from app.models import Certificate, CertificateSignature, PresidentTerm, User
+from app.routes import certificates as certificates_route
+from app.services.certificate import (
+    CertificateService,
+    PresidentService,
+    SignatureService,
+)
 
 pytestmark = pytest.mark.usefixtures("fake_storage")
 
@@ -56,6 +63,17 @@ def _auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _options(**overrides) -> dict:
+    payload = {
+        "purpose": "졸업 증빙용",
+        "include_qualification_history": False,
+        "include_projects": False,
+        "include_executive": False,
+    }
+    payload.update(overrides)
+    return payload
+
+
 def _upload_signature(
     client: TestClient,
     token: str,
@@ -70,11 +88,30 @@ def _upload_signature(
     )
 
 
+def _create_draft(client: TestClient, admin_token: str, user_id: int, **opt_overrides):
+    """Create a draft certificate.
+
+    Defaults to signer=advisor (the actual DRAFT use case per the spec) so
+    tests that only care about the draft's own lifecycle don't also need to
+    set up a current president + signature just to get past rendering. Tests
+    that specifically exercise signer=president on a draft pass that
+    explicitly.
+    """
+    opts = {"signer": "advisor", "advisor_name": "서진욱"}
+    opts.update(opt_overrides)
+    return client.post(
+        "/certificates/drafts",
+        json={"user_id": user_id, "options": _options(**opts)},
+        headers=_auth(admin_token),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Object storage mock: in-memory dict shared across the requests of a single
-# test (so an upload in one call is readable by `get_bytes` in another).
+# test (so an upload in one call is readable by `get_bytes` in another, e.g.
+# signature upload -> preview/draft rendering that embeds it).
 #
-# ⑤ uses `OCIObjectStorageService()` directly in the route (not the
+# This stack uses `OCIObjectStorageService()` directly in the route (not the
 # `create_object_storage()` factory from PR_0), so the mock patches the class
 # constructor the route imports.
 # ---------------------------------------------------------------------------
@@ -97,6 +134,242 @@ def fake_storage(monkeypatch: pytest.MonkeyPatch) -> dict:
         "app.routes.certificates.OCIObjectStorageService", FakeObjectStorage
     )
     return data
+
+
+class TestPreview:
+    """POST /certificates/preview (member; require_certificate_eligible)."""
+
+    def test_associate_cannot_preview(self, client: TestClient, associate_token: str):
+        response = client.post(
+            "/certificates/preview", json=_options(), headers=_auth(associate_token)
+        )
+        assert response.status_code == 403
+        assert response.json()["error"] == "ASSOCIATE_CANNOT_ISSUE_CERTIFICATE"
+
+    def test_no_current_president_returns_409(
+        self, client: TestClient, regular_token: str
+    ):
+        """No `president_terms` row at all -> PRESIDENT_NOT_FOUND. Preview is
+        not persisted, but it is still fully rendered (with the issue number
+        masked to 'XXXX'), so with the default signer=president it fails
+        exactly like issuance would when no president is configured."""
+        response = client.post(
+            "/certificates/preview", json=_options(), headers=_auth(regular_token)
+        )
+        assert response.status_code == 409
+        assert response.json()["error"] == "PRESIDENT_NOT_FOUND"
+
+    def test_president_without_signature_returns_409(
+        self,
+        client: TestClient,
+        regular_token: str,
+        open_president_term: PresidentTerm,
+    ):
+        """President exists but never registered a signature -> PRESIDENT_SIGNATURE_NOT_FOUND."""
+        response = client.post(
+            "/certificates/preview", json=_options(), headers=_auth(regular_token)
+        )
+        assert response.status_code == 409
+        assert response.json()["error"] == "PRESIDENT_SIGNATURE_NOT_FOUND"
+
+    @pytest.mark.usefixtures("open_president_term")
+    def test_advisor_signer_rejected_on_preview(
+        self, client: TestClient, regular_token: str
+    ):
+        """signer=advisor is only allowed on the DRAFT path -- a member's own
+        preview must go through the president."""
+        response = client.post(
+            "/certificates/preview",
+            json=_options(signer="advisor", advisor_name="서진욱"),
+            headers=_auth(regular_token),
+        )
+        assert response.status_code == 400
+        assert response.json()["error"] == "INVALID_CERTIFICATE_OPTIONS"
+
+    def test_corrupted_signature_returns_502_not_unhandled_500(
+        self,
+        client: TestClient,
+        regular_token: str,
+        president_token: str,
+        open_president_term: PresidentTerm,
+    ):
+        """A signature upload can pass the upload-time magic-byte check
+        (`_is_png`) while still being a truncated/corrupted image body --
+        Pillow only raises when it actually decodes pixel data, which
+        `_is_png` never does. `_signature_data_uri` (called from
+        `_resolve_signer`, before `render_pdf`) must convert that Pillow
+        decode failure into the same `CERTIFICATE_RENDER_FAILED` (502) every
+        other rendering failure produces, not let it escape as an unhandled
+        500. Does not need `weasyprint` installed: the failure happens while
+        resolving the signer, before `render_pdf` is ever reached."""
+        truncated_png = VALID_PNG_BYTES[:20]
+        assert truncated_png.startswith(PNG_MAGIC)  # still passes _is_png
+        upload_resp = _upload_signature(client, president_token, body=truncated_png)
+        assert upload_resp.status_code == 200
+
+        preview_resp = client.post(
+            "/certificates/preview", json=_options(), headers=_auth(regular_token)
+        )
+        assert preview_resp.status_code == 502
+        assert preview_resp.json()["error"] == "CERTIFICATE_RENDER_FAILED"
+
+    def test_happy_path_preview_renders_pdf_and_masks_issue_number(
+        self,
+        client: TestClient,
+        db: Session,
+        regular_token: str,
+        president_token: str,
+        open_president_term: PresidentTerm,
+    ):
+        pytest.importorskip("weasyprint")
+        upload_resp = _upload_signature(client, president_token)
+        assert upload_resp.status_code == 200
+
+        preview_resp = client.post(
+            "/certificates/preview", json=_options(), headers=_auth(regular_token)
+        )
+        assert preview_resp.status_code == 200
+        assert preview_resp.headers["content-type"] == "application/pdf"
+        assert preview_resp.content.startswith(PDF_MAGIC)
+        # Not persisted.
+        assert db.query(Certificate).count() == 0
+
+
+class TestDraftCertificates:
+    """POST /certificates/drafts + POST /certificates/drafts/preview (admin)."""
+
+    def test_non_admin_cannot_create_draft(
+        self, client: TestClient, regular_token: str, regular_user: User
+    ):
+        response = _create_draft(client, regular_token, regular_user.id)
+        assert response.status_code == 403
+
+    def test_draft_for_pending_target_is_rejected(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        pending_user: User,
+    ):
+        """Admin drafts only checked that the target user *exists*
+        (`get_existing_target_user`), never that they meet the same
+        REGULAR/ACTIVE eligibility rule `require_certificate_eligible`
+        enforces for self-service `/preview` -- so an admin could persist an
+        ORIGINAL_PENDING `Certificate` for a PENDING/ASSOCIATE member,
+        bypassing the qualification gate. Must be rejected the same way
+        self-service is, and nothing may be persisted."""
+        response = _create_draft(client, admin_token, pending_user.id)
+        assert response.status_code == 403
+        assert response.json()["error"] == "ASSOCIATE_CANNOT_ISSUE_CERTIFICATE"
+        assert db.query(Certificate).count() == 0
+
+    def test_draft_for_associate_target_is_rejected(
+        self, client: TestClient, admin_token: str, associate_user: User
+    ):
+        response = _create_draft(client, admin_token, associate_user.id)
+        assert response.status_code == 403
+        assert response.json()["error"] == "ASSOCIATE_CANNOT_ISSUE_CERTIFICATE"
+
+    def test_draft_preview_for_pending_target_is_rejected(
+        self, client: TestClient, admin_token: str, pending_user: User
+    ):
+        response = client.post(
+            "/certificates/drafts/preview",
+            json={
+                "user_id": pending_user.id,
+                "options": _options(signer="advisor", advisor_name="서진욱"),
+            },
+            headers=_auth(admin_token),
+        )
+        assert response.status_code == 403
+        assert response.json()["error"] == "ASSOCIATE_CANNOT_ISSUE_CERTIFICATE"
+
+    def test_draft_creation_is_pending_without_issue_number(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        admin_user: User,
+        regular_user: User,
+    ):
+        pytest.importorskip("weasyprint")
+        response = _create_draft(client, admin_token, regular_user.id)
+        assert response.status_code == 200
+        detail = response.json()["data"]
+
+        assert detail["kind"] == "draft"
+        assert detail["status"] == "original_pending"
+        assert detail["issue_number"] is None
+        assert detail["issued_at"] is None
+        assert detail["requested_by"]["id"] == admin_user.id
+        assert detail["user"]["id"] == regular_user.id
+
+        assert len(detail["events"]) == 1
+        assert detail["events"][0]["action"] == "draft_created"
+        assert detail["events"][0]["actor_type"] == "admin"
+        assert detail["events"][0]["actor"]["id"] == admin_user.id
+
+        db_cert = db.get(Certificate, detail["id"])
+        assert db_cert.pdf_object_key is not None
+
+    def test_draft_allows_advisor_signer_without_a_president(
+        self, client: TestClient, admin_token: str, regular_user: User
+    ):
+        """signer=advisor is the whole point of the DRAFT path -- it must not
+        require a current president/signature at all."""
+        pytest.importorskip("weasyprint")
+        response = _create_draft(
+            client,
+            admin_token,
+            regular_user.id,
+            signer="advisor",
+            advisor_name="서진욱",
+        )
+        assert response.status_code == 200
+        assert response.json()["data"]["status"] == "original_pending"
+
+    def test_draft_advisor_signer_without_name_is_rejected(
+        self, client: TestClient, admin_token: str, regular_user: User
+    ):
+        response = _create_draft(
+            client, admin_token, regular_user.id, signer="advisor", advisor_name=None
+        )
+        assert response.status_code == 400
+        assert response.json()["error"] == "INVALID_CERTIFICATE_OPTIONS"
+
+    def test_draft_preview_does_not_persist(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        regular_user: User,
+    ):
+        pytest.importorskip("weasyprint")
+        response = client.post(
+            "/certificates/drafts/preview",
+            json={
+                "user_id": regular_user.id,
+                "options": _options(signer="advisor", advisor_name="서진욱"),
+            },
+            headers=_auth(admin_token),
+        )
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/pdf"
+        assert response.content.startswith(PDF_MAGIC)
+        assert db.query(Certificate).count() == 0
+
+    def test_draft_preview_unknown_user_returns_404(
+        self, client: TestClient, admin_token: str
+    ):
+        response = client.post(
+            "/certificates/drafts/preview",
+            json={
+                "user_id": 999_999,
+                "options": _options(signer="advisor", advisor_name="서진욱"),
+            },
+            headers=_auth(admin_token),
+        )
+        assert response.status_code == 404
 
 
 class TestSignatureUpload:
@@ -536,3 +809,128 @@ class TestPresidentTermAdministration:
         )
         assert response.status_code == 400
         assert response.json()["error"] == "INVALID_PRESIDENT_TERM"
+
+
+class TestSignatureDataUriMime:
+    """`_signature_data_uri` (app/services/certificate.py) re-encodes every stored
+    signature into a red-ink, transparent-background PNG (via
+    `to_ink_signature_png`) before embedding it in the rendered PDF. Any uploaded
+    format (PNG/JPEG/WebP/GIF, opaque or transparent) is therefore normalized to a
+    single image/png data URI, so an opaque white background never paints a box
+    over the certificate text. Exercised directly through
+    `CertificateService._resolve_signer` (the render path), without needing
+    WeasyPrint installed."""
+
+    def _resolved_data_uri(self, db: Session) -> str:
+        from app.schemas.certificate import CertificateOptions
+
+        options = CertificateOptions(**_options())
+        _, data_uri = CertificateService._resolve_signer(
+            db, options=options, storage=certificates_route.OCIObjectStorageService()
+        )
+        assert data_uri is not None
+        return data_uri
+
+    def _embedded_png(self, data_uri: str):
+        import base64
+        from io import BytesIO
+
+        from PIL import Image
+
+        assert data_uri.startswith("data:image/png;base64,")
+        raw = base64.b64decode(data_uri.split(",", 1)[1])
+        return Image.open(BytesIO(raw))
+
+    def test_jpeg_signature_is_normalized_to_transparent_png(
+        self,
+        client: TestClient,
+        db: Session,
+        president_token: str,
+        open_president_term: PresidentTerm,
+    ):
+        upload = _upload_signature(
+            client, president_token, body=VALID_JPEG_BYTES, content_type="image/jpeg"
+        )
+        assert upload.status_code == 200
+        # A JPEG signature is re-encoded to PNG (not left as image/jpeg) and gains
+        # an alpha channel so its background renders transparent, not as a box.
+        img = self._embedded_png(self._resolved_data_uri(db))
+        assert img.mode == "RGBA"
+
+    def test_png_signature_embeds_as_image_png(
+        self,
+        client: TestClient,
+        db: Session,
+        president_token: str,
+        open_president_term: PresidentTerm,
+    ):
+        upload = _upload_signature(client, president_token)  # default: real PNG
+        assert upload.status_code == 200
+        assert self._resolved_data_uri(db).startswith("data:image/png;base64,")
+
+
+class TestRenderContextMasking:
+    """`build_context` is a pure function -- exercise the issue-number
+    masking contract directly, without needing WeasyPrint installed."""
+
+    def test_issue_number_is_masked_when_none(self, db: Session, regular_user: User):
+        from app.services.certificate_render import build_context
+
+        context = build_context(
+            db,
+            regular_user,
+            _options(),
+            issue_number=None,
+            issued_on=date(2026, 1, 1),
+            president_name="회장",
+            signature_data_uri=None,
+        )
+        assert context["issue_number_display"] == "XXXX"
+        assert context["verify_url"].endswith("/verify/XXXX")
+
+    def test_issue_number_is_shown_when_present(self, db: Session, regular_user: User):
+        from app.services.certificate_render import build_context
+
+        real_number = str(uuid.uuid4())
+        context = build_context(
+            db,
+            regular_user,
+            _options(),
+            issue_number=real_number,
+            issued_on=date(2026, 1, 1),
+            president_name="회장",
+            signature_data_uri=None,
+        )
+        assert context["issue_number_display"] == real_number
+        assert context["verify_url"].endswith(f"/verify/{real_number}")
+
+
+class TestPurposeOmittedFromRender:
+    """발급 용도(purpose) is an application-input field, not certificate body
+    content: `build_context` still carries it (it is stored verbatim in
+    `certificates.options`/the snapshot for the 90-day original comparison),
+    but the rendered document itself must never print it."""
+
+    def test_purpose_is_not_rendered_in_html(self, db: Session, regular_user: User):
+        from app.services.certificate_render import (
+            _TEMPLATE_NAME,
+            _jinja_env,
+            build_context,
+        )
+
+        context = build_context(
+            db,
+            regular_user,
+            _options(purpose="취업 지원용"),
+            issue_number=None,
+            issued_on=date(2026, 1, 1),
+            president_name="회장",
+            signature_data_uri=None,
+        )
+        # Still present in the context (-> still saved to the snapshot).
+        assert context["purpose"] == "취업 지원용"
+
+        # ... but never printed onto the document body.
+        html = _jinja_env.get_template(_TEMPLATE_NAME).render(**context)
+        assert "발급 용도" not in html
+        assert "취업 지원용" not in html

@@ -13,6 +13,10 @@ from app.schemas.auth import (
     Token,
 )
 from app.schemas.certificate import (
+    CertificateDetail,
+    CertificateEventItem,
+    CertificateOptions,
+    DraftCertificateCreate,
     PresidentTermCreate,
     PresidentTermDetail,
     SignatureDetail,
@@ -104,4 +108,8 @@ __all__ = [
     "SignatureDetail",
     "PresidentTermCreate",
     "PresidentTermDetail",
+    "CertificateOptions",
+    "DraftCertificateCreate",
+    "CertificateDetail",
+    "CertificateEventItem",
 ]

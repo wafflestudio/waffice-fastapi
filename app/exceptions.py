@@ -225,3 +225,41 @@ class SignatureUploadConflictError(AppError):
 
     def __init__(self, message: str = "다른 서명 등록 요청과 충돌했습니다. 다시 시도해주세요."):
         super().__init__("SIGNATURE_UPLOAD_CONFLICT", message, 409)
+
+
+class AssociateCannotIssueCertificateError(AppError):
+    """403 - Associate-level members cannot issue certificates of activities"""
+
+    def __init__(self, message: str = "준회원은 활동증명서를 발급받을 수 없습니다."):
+        super().__init__("ASSOCIATE_CANNOT_ISSUE_CERTIFICATE", message, 403)
+
+
+class PresidentNotFoundError(AppError):
+    """409 - No current president is registered"""
+
+    def __init__(self, message: str = "현재 등록된 회장이 없습니다. 운영팀에 문의해주세요."):
+        super().__init__("PRESIDENT_NOT_FOUND", message, 409)
+
+
+class PresidentSignatureNotFoundError(AppError):
+    """409 - The current president has no registered signature"""
+
+    def __init__(
+        self,
+        message: str = "회장의 서명을 찾을 수 없습니다. 운영팀에 에러를 신고해주세요!",
+    ):
+        super().__init__("PRESIDENT_SIGNATURE_NOT_FOUND", message, 409)
+
+
+class InvalidCertificateOptionsError(AppError):
+    """400 - Certificate options failed validation (message varies by cause)"""
+
+    def __init__(self, message: str = "발급 옵션이 올바르지 않습니다."):
+        super().__init__("INVALID_CERTIFICATE_OPTIONS", message, 400)
+
+
+class CertificateRenderFailedError(AppError):
+    """502 - PDF rendering failed"""
+
+    def __init__(self, message: str = "활동증명서 생성에 실패했습니다."):
+        super().__init__("CERTIFICATE_RENDER_FAILED", message, 502)

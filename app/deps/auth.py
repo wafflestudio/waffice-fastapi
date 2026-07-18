@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.config.cookies import ACCESS_TOKEN_COOKIE_NAME
 from app.config.database import get_db
 from app.config.secrets import JWT_SECRET_KEY
-from app.exceptions import NotPresidentError
+from app.exceptions import AssociateCannotIssueCertificateError, NotPresidentError
 from app.models import Qualification, User
 from app.services import UserService
 from app.services.certificate import PresidentService
@@ -102,6 +102,23 @@ async def require_admin(user: User = Depends(get_current_user)) -> User:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Admin permission required"
         )
+    return user
+
+
+async def require_certificate_eligible(
+    user: User = Depends(get_current_user),
+) -> User:
+    """
+    활동증명서 발급 대상 자격 확인: 정회원/활동회원만 가능.
+
+    준회원(이하)은 `ASSOCIATE_CANNOT_ISSUE_CERTIFICATE`(403, AppError)로 거부한다.
+    기존 `require_regular`는 영어 HTTPException을 던지지만, 활동증명서 API는
+    명세가 요구하는 전용 에러 코드/한국어 메시지를 응답 바디에 실어야 하므로
+    (`{"ok": false, "error": "ASSOCIATE_CANNOT_ISSUE_CERTIFICATE", ...}`)
+    `app.exceptions.AppError`를 그대로 raise한다.
+    """
+    if user.qualification not in (Qualification.REGULAR, Qualification.ACTIVE):
+        raise AssociateCannotIssueCertificateError()
     return user
 
 
