@@ -176,3 +176,52 @@ class ObjectStorageError(AppError):
 
     def __init__(self, message: str = "Object storage operation failed"):
         super().__init__("OBJECT_STORAGE_ERROR", message, 502)
+
+
+# === Certificate of activities (활동증명서) — president / signature ===
+class NotPresidentError(AppError):
+    """403 - Action requires the current president"""
+
+    def __init__(self, message: str = "회장만 수행할 수 있는 기능입니다."):
+        super().__init__("NOT_PRESIDENT", message, 403)
+
+
+class InvalidSignatureFileError(AppError):
+    """400 - Uploaded signature is not a valid PNG/JPEG/WebP/GIF image"""
+
+    def __init__(self, message: str = "이미지 파일(PNG, JPG, WEBP, GIF)이 맞는지 확인해주세요."):
+        super().__init__("INVALID_SIGNATURE_FILE", message, 400)
+
+
+class SignatureFileTooLargeError(AppError):
+    """413 - Uploaded signature exceeds the maximum byte size"""
+
+    def __init__(self, message: str = "파일 용량이 너무 큽니다. (최대 5MB)"):
+        super().__init__("SIGNATURE_FILE_TOO_LARGE", message, 413)
+
+
+class PresidentAppointmentConflictError(AppError):
+    """409 - Lost a race with another concurrent president appointment"""
+
+    def __init__(self, message: str = "다른 회장 임명 요청과 충돌했습니다. 다시 시도해주세요."):
+        super().__init__("PRESIDENT_APPOINTMENT_CONFLICT", message, 409)
+
+
+class InvalidPresidentTermError(AppError):
+    """400 - New president term's started_at is invalid (before the current
+    term's start date, or in the future -- appointment takes effect
+    immediately, so a future-dated started_at would grant/revoke
+    `require_president` access ahead of the intended date)"""
+
+    def __init__(
+        self,
+        message: str = "새 임기 시작일은 현직 회장의 임기 시작일보다 빠를 수 없습니다.",
+    ):
+        super().__init__("INVALID_PRESIDENT_TERM", message, 400)
+
+
+class SignatureUploadConflictError(AppError):
+    """409 - Lost a race with another concurrent signature upload/replace"""
+
+    def __init__(self, message: str = "다른 서명 등록 요청과 충돌했습니다. 다시 시도해주세요."):
+        super().__init__("SIGNATURE_UPLOAD_CONFLICT", message, 409)

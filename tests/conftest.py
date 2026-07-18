@@ -1,7 +1,7 @@
 import atexit
 import os
 import time
-from datetime import timedelta
+from datetime import date, timedelta
 
 from testcontainers.mysql import MySqlContainer
 
@@ -37,8 +37,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config.database import Base, Engine, get_db
 from app.main import app
-from app.models import Qualification, User, UserRole
-from app.services import UserService
+from app.models import PresidentTerm, Qualification, User, UserRole
+from app.services import PresidentService, UserService
 
 # JWT config (must match app/deps/auth.py default)
 JWT_SECRET_KEY = (
@@ -219,3 +219,39 @@ def active_token(active_user: User) -> str:
 def admin_token(admin_user: User) -> str:
     """Create JWT token for admin user."""
     return create_access_token(admin_user.id, admin_user.email, admin_user.google_id)
+
+
+@pytest.fixture
+def president_user(db: Session) -> User:
+    """Create a member who will be appointed as the current president.
+
+    Note: being the current president (an open `president_terms` row) is a
+    separate concept from `role=admin` — this user is a regular/active
+    member, not an admin, unless a test also grants admin.
+    """
+    user = UserService.create(
+        db,
+        email="president@example.com",
+        name="President User",
+        generation="26",
+        qualification=Qualification.ACTIVE,
+        google_id="president_google_id",
+    )
+    return user
+
+
+@pytest.fixture
+def president_token(president_user: User) -> str:
+    """Create JWT token for the president user."""
+    return create_access_token(
+        president_user.id, president_user.email, president_user.google_id
+    )
+
+
+@pytest.fixture
+def open_president_term(db: Session, president_user: User) -> PresidentTerm:
+    """Open a president term for `president_user` via the real service (so
+    `require_president`/`PresidentService.get_current` see a current 회장)."""
+    return PresidentService.appoint(
+        db, user_id=president_user.id, started_at=date(2026, 1, 1)
+    )

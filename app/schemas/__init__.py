@@ -12,6 +12,11 @@ from app.schemas.auth import (
     SigninRequest,
     Token,
 )
+from app.schemas.certificate import (
+    PresidentTermCreate,
+    PresidentTermDetail,
+    SignatureDetail,
+)
 from app.schemas.common import CursorPage, Response, Website
 from app.schemas.project import (
     MemberDetail,
@@ -96,4 +101,7 @@ __all__ = [
     "RequestReviewerDetail",
     "ApprovalRequestListItem",
     "ApprovalRequestDetail",
+    "SignatureDetail",
+    "PresidentTermCreate",
+    "PresidentTermDetail",
 ]
