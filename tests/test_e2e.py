@@ -679,3 +679,128 @@ class TestSoftDelete:
             headers={"Authorization": f"Bearer {regular_token}"},
         )
         assert response.status_code == 404
+
+
+class TestPresidentAndLeaderRoles:
+    """Test role properties and access control for PRESIDENT and LEADER_AND_PRESIDENT roles."""
+
+    def test_president_role_properties(self, client: TestClient, president_user: User):
+        """President has is_admin=True, is_president=True, is_leader=False"""
+        assert president_user.is_admin is True
+        assert president_user.is_president is True
+        assert president_user.is_leader is False
+
+    def test_leader_and_president_role_properties(
+        self, client: TestClient, leader_and_president_user: User
+    ):
+        """Leader_and_president has is_admin, is_president, and is_leader all True"""
+        assert leader_and_president_user.is_admin is True
+        assert leader_and_president_user.is_president is True
+        assert leader_and_president_user.is_leader is True
+
+    def test_president_can_access_admin_endpoint(
+        self, client: TestClient, president_token: str
+    ):
+        """President can access admin-only endpoints"""
+        response = client.get(
+            "/users",
+            headers={"Authorization": f"Bearer {president_token}"},
+        )
+        assert response.status_code == 200
+
+    def test_leader_and_president_can_access_admin_endpoint(
+        self, client: TestClient, leader_and_president_token: str
+    ):
+        """Leader_and_president can access admin-only endpoints"""
+        response = client.get(
+            "/users",
+            headers={"Authorization": f"Bearer {leader_and_president_token}"},
+        )
+        assert response.status_code == 200
+
+    def test_regular_user_cannot_access_admin_endpoint(
+        self, client: TestClient, regular_token: str
+    ):
+        """Regular user is denied admin-only endpoints"""
+        response = client.get(
+            "/users",
+            headers={"Authorization": f"Bearer {regular_token}"},
+        )
+        assert response.status_code == 403
+
+    def test_president_can_create_project(
+        self,
+        client: TestClient,
+        db: Session,
+        president_user: User,
+        president_token: str,
+    ):
+        """President (is_admin=True) can create a project"""
+        response = client.post(
+            "/projects",
+            json={
+                "name": "President Project",
+                "started_at": str(date.today()),
+                "members": [{"user_id": president_user.id, "role": "leader"}],
+            },
+            headers={"Authorization": f"Bearer {president_token}"},
+        )
+        assert response.status_code == 200
+        assert response.json()["data"]["name"] == "President Project"
+
+    def test_president_can_update_project_as_admin(
+        self,
+        client: TestClient,
+        db: Session,
+        president_user: User,
+        president_token: str,
+        admin_user: User,
+        admin_token: str,
+    ):
+        """President can update any project (admin-level access in require_leader_or_admin)"""
+        # Admin creates the project (president is not a member)
+        create_resp = client.post(
+            "/projects",
+            json={
+                "name": "Admin Only Project",
+                "started_at": str(date.today()),
+                "members": [{"user_id": admin_user.id, "role": "leader"}],
+            },
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert create_resp.status_code == 200
+        project_id = create_resp.json()["data"]["id"]
+
+        # President (not a member) can still update it via admin access
+        update_resp = client.patch(
+            f"/projects/{project_id}",
+            json={"name": "Updated By President"},
+            headers={"Authorization": f"Bearer {president_token}"},
+        )
+        assert update_resp.status_code == 200
+        assert update_resp.json()["data"]["name"] == "Updated By President"
+
+    def test_leader_role_alone_not_admin(self, db: Session, client: TestClient):
+        """Plain LEADER role does not grant admin access"""
+        from tests.conftest import create_access_token
+
+        leader = UserService.create(
+            db,
+            email="plain_leader@example.com",
+            name="Plain Leader",
+            generation="26",
+            qualification=Qualification.ACTIVE,
+            is_leader=True,
+        )
+        token = create_access_token(leader.id, leader.email, leader.google_id)
+
+        assert leader.is_leader is True
+        assert leader.is_admin is False
+        assert leader.is_president is False
+
+        # Should be denied admin-only endpoint
+        response = client.get(
+            "/users",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 403
