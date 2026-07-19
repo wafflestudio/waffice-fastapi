@@ -153,6 +153,28 @@ async def get_my_projects(
     return Response(ok=True, data=projects)
 
 
+@router.get(
+    "/me/activities",
+    response_model=Response[list[ActivityDetail]],
+    summary="Get my activities",
+    description="Returns activities of a current member.",
+    responses={
+        200: {"description": "Activities retrieved successfully"},
+        401: {"description": "Not authenticated"},
+    },
+)
+async def get_my_activities(
+    current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """
+    Get activities of the current user.
+
+    Returns a list of activities (current projects and histories).
+    """
+    activities = ActivityService.list_by_user(db, current_user.id)
+    return Response(ok=True, data=activities)
+
+
 # === Admin management ===
 @router.get(
     "",
