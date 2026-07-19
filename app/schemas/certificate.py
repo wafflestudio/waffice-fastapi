@@ -128,6 +128,19 @@ class CertificateSummary(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class CertificateHistoryItem(BaseModel):
+    """운영진용 발급 이력 목록 항목 (GET /certificates)."""
+
+    id: int = Field(description="증명서 ID")
+    kind: CertificateKind = Field(description="구분: 'self'(본인 발급) | 'draft'(초안 생성)")
+    issued_at: int | None = Field(description="발급일시. 미발급 시 null")
+    status: CertificateStatus = Field(description="발급 상태")
+    user: UserBrief = Field(description="발급 대상 회원")
+    issue_number: str | None = Field(description="원본증명번호")
+
+    model_config = {"from_attributes": True}
+
+
 class SignatureDetail(BaseModel):
     """회장 서명 등록 정보."""
 

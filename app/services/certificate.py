@@ -83,6 +83,17 @@ CERTIFICATE_VALIDITY_SECONDS = 90 * 24 * 3600
 # 동치가 아니게 된다 -- 반드시 컬럼이 가질 수 있는 최댓값보다 커야 한다.
 _ME_CURSOR_ID_OFFSET = 10**10  # > INT 컬럼 최댓값(2,147,483,647).
 
+# `list_history`는 (priority, created_at, id) 3중 키를 커서로 쓴다.
+# `created_at`은 `int(time.time())`로 초 단위까지만 기록되므로, 같은 초에
+# 여러 증명서가 생성되면 (priority, created_at)만으로는 동순위(tie)가 생긴다.
+# id를 세 번째 키로 추가하지 않으면 그 tie가 페이지 경계에 걸릴 때 커서 술어
+# `created_at < cursor_created_at`가 동순위 행 전체를 건너뛰어 목록에서
+# 통째로 누락된다.
+_HISTORY_CURSOR_CREATED_OFFSET = 10**13  # (priority, created_at) — epoch(초)보다 크다.
+_HISTORY_CURSOR_ID_OFFSET = (
+    10**10
+)  # > INT 컬럼 최댓값(2,147,483,647), 위 _ME_CURSOR_ID_OFFSET과 동일한 근거.
+
 
 def _parse_cursor_int(cursor: str) -> int:
     """커서 문자열을 음이 아닌 정수로 파싱한다. 형식이 잘못되면 400."""
@@ -101,6 +112,34 @@ def _encode_cursor(major: int, minor: int, offset: int) -> str:
 
 def _decode_cursor(cursor: str, offset: int) -> tuple[int, int]:
     return divmod(_parse_cursor_int(cursor), offset)
+
+
+def _encode_history_cursor(priority: int, created_at: int, certificate_id: int) -> str:
+    # 이 packing이 정확히 왕복하려면 각 필드가 자신의 packing radix보다
+    # 작아야 한다(위 `_HISTORY_CURSOR_ID_OFFSET`/`_HISTORY_CURSOR_CREATED_OFFSET`
+    # 선언부의 경계 가정 참고). 가정이 깨지면 초과분이 상위 필드로 넘어가
+    # (priority, created_at, id) 정렬 순서를 조용히 오염시키므로(스킵/중복),
+    # 침묵 오염 대신 여기서 바로 크게 실패시킨다.
+    if certificate_id >= _HISTORY_CURSOR_ID_OFFSET:
+        raise ValueError(
+            "history cursor packing bound violated: "
+            f"certificate_id={certificate_id} >= _HISTORY_CURSOR_ID_OFFSET="
+            f"{_HISTORY_CURSOR_ID_OFFSET}"
+        )
+    if created_at >= _HISTORY_CURSOR_CREATED_OFFSET:
+        raise ValueError(
+            "history cursor packing bound violated: "
+            f"created_at={created_at} >= _HISTORY_CURSOR_CREATED_OFFSET="
+            f"{_HISTORY_CURSOR_CREATED_OFFSET}"
+        )
+    major = priority * _HISTORY_CURSOR_CREATED_OFFSET + created_at
+    return str(major * _HISTORY_CURSOR_ID_OFFSET + certificate_id)
+
+
+def _decode_history_cursor(cursor: str) -> tuple[int, int, int]:
+    major, certificate_id = divmod(_parse_cursor_int(cursor), _HISTORY_CURSOR_ID_OFFSET)
+    priority, created_at = divmod(major, _HISTORY_CURSOR_CREATED_OFFSET)
+    return priority, created_at, certificate_id
 
 
 def _new_verification_token_hash() -> str:
@@ -365,6 +404,66 @@ class CertificateService:
         if has_more and page_items:
             last = page_items[-1]
             next_cursor = _encode_cursor(last.created_at, last.id, _ME_CURSOR_ID_OFFSET)
+        return page_items, next_cursor
+
+    @staticmethod
+    def list_history(
+        db: Session, *, cursor: str | None, limit: int
+    ) -> tuple[list[Certificate], str | None]:
+        """운영진용 발급 이력. ORIGINAL_PENDING 우선, 그다음 created_at DESC.
+
+        `created_at`이 초 단위(`int(time.time())`)이므로 같은 초에 여러 건이
+        생성되면 (priority, created_at)만으로는 동순위가 생긴다. id를 세 번째
+        정렬/커서 키로 추가해 동순위 행이 페이지 경계에서 누락되지 않게 한다.
+
+        정렬 우선순위는 파이썬 쪽 `case()` 식이 아니라 실제 컬럼인
+        `Certificate.pending_priority`(생성 컬럼, ORIGINAL_PENDING이면 1)를
+        사용한다 — `idx_certificates_history_priority`
+        (pending_priority, created_at, id) 복합 인덱스가 이 정렬/커서 술어를
+        그대로 커버하기 위함이다(`case()` 식으로는 인덱스가 이 쿼리 플랜에
+        매칭될 수 없다).
+        """
+        priority = Certificate.pending_priority
+        query = (
+            db.query(Certificate)
+            .options(joinedload(Certificate.user))
+            .filter(Certificate.deleted_at.is_(None))
+        )
+
+        if cursor is not None:
+            cursor_priority, cursor_created_at, cursor_id = _decode_history_cursor(
+                cursor
+            )
+            query = query.filter(
+                or_(
+                    priority < cursor_priority,
+                    and_(
+                        priority == cursor_priority,
+                        Certificate.created_at < cursor_created_at,
+                    ),
+                    and_(
+                        priority == cursor_priority,
+                        Certificate.created_at == cursor_created_at,
+                        Certificate.id < cursor_id,
+                    ),
+                )
+            )
+
+        items = (
+            query.order_by(
+                priority.desc(), Certificate.created_at.desc(), Certificate.id.desc()
+            )
+            .limit(limit + 1)
+            .all()
+        )
+        has_more = len(items) > limit
+        page_items = items[:limit]
+        next_cursor = None
+        if has_more and page_items:
+            last = page_items[-1]
+            next_cursor = _encode_history_cursor(
+                last.pending_priority, last.created_at, last.id
+            )
         return page_items, next_cursor
 
     # === Render-only (not persisted) ===

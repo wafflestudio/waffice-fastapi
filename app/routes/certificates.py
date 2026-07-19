@@ -1,13 +1,15 @@
 """활동증명서(certificate of activities) API.
 
 - Member: 본인 발급/미리보기/내 이력 조회/다운로드 (require_certificate_eligible).
-- Staff/admin: 초안 생성/미리보기, 회장 임기 관리 (require_admin).
+- Staff/admin: 초안 생성/미리보기, 발급 이력 전체 조회, 회장 임기 관리 (require_admin).
 - President: 서명 등록/조회, 초안의 오프라인 서명 원본 등록 (require_president).
 
 라우트 등록 순서 주의: 같은 HTTP 메서드에서 리터럴 세그먼트 경로(`/preview`,
 `/me`, `/signature/me`, `/president-terms/current`, ...)는 반드시 가변 경로
-(`/{certificate_id}/download`)보다 먼저 등록해야 Starlette가 "me"를
-`certificate_id="me"`로 잘못 매칭하지 않는다.
+(`/{certificate_id}/download`, `/{certificate_id}`)보다 먼저 등록해야
+Starlette가 "me"를 `certificate_id="me"`로 잘못 매칭하지 않는다. `GET
+/{certificate_id}`는 그중에서도 가장 넓게 매칭되는(1-세그먼트) 가변 경로라서
+라우터 맨 끝에 등록한다.
 """
 
 from collections.abc import Callable
@@ -43,6 +45,7 @@ from app.models import Certificate, User
 from app.schemas import (
     CertificateDetail,
     CertificateEventItem,
+    CertificateHistoryItem,
     CertificateOptions,
     CertificateSummary,
     CursorPage,
@@ -394,3 +397,45 @@ async def get_current_president(
         ok=True,
         data=PresidentTermDetail.model_validate(term) if term else None,
     )
+
+
+# =====================================================================
+# Staff / admin -- history (registered LAST: `/{certificate_id}` is a bare
+# 1-segment variable path and must not shadow any literal-segment GET route
+# above it, e.g. `/me`, `/signature/me`, `/president-terms/current`).
+# =====================================================================
+@router.get(
+    "",
+    response_model=Response[CursorPage[CertificateHistoryItem]],
+    summary="활동증명서 발급 이력 (운영진)",
+    description="전체 활동증명서 발급 이력을 조회한다. 원본 미등록(ORIGINAL_PENDING) 건이 먼저, 그다음 최신순.",
+)
+async def list_certificate_history(
+    cursor: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    _admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    items, next_cursor = CertificateService.list_history(db, cursor=cursor, limit=limit)
+    return Response(
+        ok=True,
+        data=CursorPage(
+            items=[CertificateHistoryItem.model_validate(item) for item in items],
+            next_cursor=next_cursor,
+        ),
+    )
+
+
+@router.get(
+    "/{certificate_id}",
+    response_model=Response[CertificateDetail],
+    summary="활동증명서 발급 이력 상세 (운영진)",
+    description="특정 활동증명서의 상세 정보와 처리 이력을 조회한다.",
+)
+async def get_certificate_history_detail(
+    certificate_id: int,
+    _admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    certificate = get_existing_certificate(db, certificate_id)
+    return Response(ok=True, data=to_detail(certificate))

@@ -11,6 +11,7 @@ it: `monkeypatch.setattr("app.routes.certificates.OCIObjectStorageService", ...)
 
 import base64
 import threading
+import time
 import uuid
 from datetime import date, timedelta
 from io import BytesIO
@@ -1534,6 +1535,260 @@ class TestMyCertificates:
         ]
         assert len(page["items"]) == 1
         assert page["items"][0]["id"] is not None
+
+
+class TestHistoryListing:
+    """GET /certificates (admin) — ORIGINAL_PENDING first, then created_at DESC."""
+
+    def test_pending_rows_come_before_issued_rows(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        regular_token: str,
+        regular_user: User,
+        active_user: User,
+        president_token: str,
+        open_president_term: PresidentTerm,
+    ):
+        pytest.importorskip("weasyprint")
+        assert _upload_signature(client, president_token).status_code == 200
+
+        issued = client.post(
+            "/certificates", json=_options(), headers=_auth(regular_token)
+        ).json()["data"]
+        pending = _create_draft(client, admin_token, active_user.id).json()["data"]
+
+        response = client.get("/certificates?limit=10", headers=_auth(admin_token))
+        assert response.status_code == 200
+        items = response.json()["data"]["items"]
+        statuses = [item["status"] for item in items]
+        ids = [item["id"] for item in items]
+
+        assert statuses[0] == "original_pending"
+        assert pending["id"] in ids[: statuses.count("original_pending")]
+        assert issued["id"] in ids[statuses.count("original_pending") :]
+        # All pending rows appear before all issued rows.
+        assert statuses == sorted(statuses, key=lambda s: s != "original_pending")
+
+    def test_priority_sort_beats_created_at_when_pending_is_older(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        regular_token: str,
+        regular_user: User,
+        active_user: User,
+        president_token: str,
+        open_president_term: PresidentTerm,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """`test_pending_rows_come_before_issued_rows` above creates the
+        ISSUED row *first* and the pending draft *second*, so the pending
+        row also happens to be the newer row -- a plain `created_at DESC`
+        with no `pending_priority` at all would already sort it first, so
+        that test cannot actually tell `ORDER BY pending_priority DESC,
+        created_at DESC, id DESC` apart from a buggy `ORDER BY created_at
+        DESC, id DESC`. This test makes the ORIGINAL_PENDING draft strictly
+        *older* than the ISSUED certificate, so it can only sort first
+        because of `pending_priority` -- it must go RED if that column is
+        ever dropped from the ORDER BY."""
+        pytest.importorskip("weasyprint")
+        assert _upload_signature(client, president_token).status_code == 200
+
+        older = time.time()
+        monkeypatch.setattr(time, "time", lambda: older)
+        pending = _create_draft(client, admin_token, active_user.id).json()["data"]
+
+        # Comfortably newer than `older`, well beyond the 1-second
+        # resolution of `int(time.time())` so the ordering is unambiguous.
+        newer = older + 100_000
+        monkeypatch.setattr(time, "time", lambda: newer)
+        issued = client.post(
+            "/certificates", json=_options(), headers=_auth(regular_token)
+        ).json()["data"]
+
+        db_pending = db.get(Certificate, pending["id"])
+        db_issued = db.get(Certificate, issued["id"])
+        assert db_pending.created_at < db_issued.created_at
+
+        response = client.get("/certificates?limit=10", headers=_auth(admin_token))
+        assert response.status_code == 200
+        ids = [item["id"] for item in response.json()["data"]["items"]]
+        assert ids.index(pending["id"]) < ids.index(issued["id"]), (
+            "the older ORIGINAL_PENDING row must still sort before the "
+            "newer ISSUED row -- pending_priority must win over created_at"
+        )
+
+    def test_next_cursor_is_a_json_string_beyond_int64(
+        self,
+        client: TestClient,
+        admin_token: str,
+        regular_user: User,
+    ):
+        """The history cursor encodes (priority, created_at, id) as
+        `(priority * 10**13 + created_at) * 10**10 + id`, which not only
+        exceeds JS's safe integer bound but also signed int64
+        (2**63 - 1 = 9223372036854775807). If this were serialized as a
+        plain JSON number, a JS client could even re-serialize it in
+        exponent notation, which the `cursor: int` query param would reject
+        with 422. It must round-trip as an opaque numeric *string*."""
+        pytest.importorskip("weasyprint")
+        for _ in range(2):
+            _create_draft(client, admin_token, regular_user.id)
+
+        page1 = client.get("/certificates?limit=1", headers=_auth(admin_token)).json()[
+            "data"
+        ]
+        cursor = page1["next_cursor"]
+        assert isinstance(cursor, str)
+        assert int(cursor) > 2**63 - 1
+
+        page2 = client.get(
+            f"/certificates?limit=1&cursor={cursor}", headers=_auth(admin_token)
+        )
+        assert page2.status_code == 200
+        assert len(page2.json()["data"]["items"]) == 1
+
+    def test_invalid_cursor_returns_400(self, client: TestClient, admin_token: str):
+        response = client.get(
+            "/certificates?cursor=not-a-number", headers=_auth(admin_token)
+        )
+        assert response.status_code == 400
+        assert response.json()["error"] == "INVALID_CURSOR"
+        assert response.json()["message"] == "잘못된 페이지네이션 커서입니다."
+
+    def test_list_history_requires_admin(self, client: TestClient, regular_token: str):
+        response = client.get("/certificates", headers=_auth(regular_token))
+        assert response.status_code == 403
+
+    def test_history_detail_requires_admin(
+        self,
+        client: TestClient,
+        admin_token: str,
+        regular_token: str,
+        regular_user: User,
+    ):
+        pytest.importorskip("weasyprint")
+        draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
+
+        response = client.get(
+            f"/certificates/{draft['id']}", headers=_auth(regular_token)
+        )
+        assert response.status_code == 403
+
+    def test_history_detail_returns_full_event_history(
+        self,
+        client: TestClient,
+        admin_token: str,
+        regular_user: User,
+        president_token: str,
+        open_president_term: PresidentTerm,
+    ):
+        pytest.importorskip("weasyprint")
+        draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
+        original = client.post(
+            f"/certificates/{draft['id']}/original",
+            files={"file": ("original.pdf", VALID_PDF_BYTES, "application/pdf")},
+            headers=_auth(president_token),
+        )
+        assert original.status_code == 200
+
+        response = client.get(
+            f"/certificates/{draft['id']}", headers=_auth(admin_token)
+        )
+        assert response.status_code == 200
+        detail = response.json()["data"]
+        assert detail["status"] == "issued"
+        actions = [event["action"] for event in detail["events"]]
+        assert actions == ["draft_created", "original_registered"]
+
+    def test_cursor_pagination_round_trips_over_mixed_statuses(
+        self,
+        client: TestClient,
+        admin_token: str,
+        regular_user: User,
+        regular_token: str,
+        active_user: User,
+        president_token: str,
+        open_president_term: PresidentTerm,
+    ):
+        """Exercises *both* partitions of the (priority, created_at, id)
+        keyset -- ORIGINAL_PENDING drafts (priority=1) and an ISSUED
+        certificate (priority=0) -- so pagination has to cross the
+        priority=1 -> priority=0 boundary at least once. The previous
+        version of this test only ever created drafts (all
+        ORIGINAL_PENDING), so the cross-partition cursor branch
+        (`priority < cursor_priority`) was never exercised."""
+        pytest.importorskip("weasyprint")
+        assert _upload_signature(client, president_token).status_code == 200
+
+        created_ids = set()
+        for _ in range(5):
+            draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
+            created_ids.add(draft["id"])
+
+        issued = client.post(
+            "/certificates", json=_options(), headers=_auth(regular_token)
+        ).json()["data"]
+        created_ids.add(issued["id"])
+
+        seen_ids = []
+        cursor = None
+        for _ in range(10):  # generous upper bound on pages
+            url = "/certificates?limit=2"
+            if cursor is not None:
+                url += f"&cursor={cursor}"
+            page = client.get(url, headers=_auth(admin_token)).json()["data"]
+            seen_ids.extend(item["id"] for item in page["items"])
+            cursor = page["next_cursor"]
+            if cursor is None:
+                break
+
+        assert cursor is None
+        assert set(seen_ids) == created_ids
+        assert len(seen_ids) == len(set(seen_ids))  # no duplicates
+
+    def test_cursor_pagination_does_not_drop_rows_created_in_the_same_second(
+        self,
+        client: TestClient,
+        admin_token: str,
+        regular_user: User,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """`Certificate.created_at` has 1-second resolution
+        (`int(time.time())`), so multiple certificates created within the
+        same wall-clock second tie on the (priority, created_at) keyset. A
+        cursor predicate that only compares `created_at` (with no id
+        tiebreak) can silently drop or duplicate tied rows once the page
+        boundary lands inside the tie. This freezes time to force the tie
+        deterministically."""
+        pytest.importorskip("weasyprint")
+        frozen = time.time()
+        monkeypatch.setattr(time, "time", lambda: frozen)
+
+        created_ids = set()
+        for _ in range(3):
+            draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
+            created_ids.add(draft["id"])
+
+        seen_ids = []
+        cursor = None
+        for _ in range(10):
+            url = "/certificates?limit=1"
+            if cursor is not None:
+                url += f"&cursor={cursor}"
+            page = client.get(url, headers=_auth(admin_token)).json()["data"]
+            seen_ids.extend(item["id"] for item in page["items"])
+            cursor = page["next_cursor"]
+            if cursor is None:
+                break
+
+        assert set(seen_ids) == created_ids
+        assert len(seen_ids) == len(created_ids), (
+            "cursor pagination lost or duplicated rows that tied on "
+            "(priority, created_at) within the same second"
+        )
 
 
 class TestRenderContextMasking:

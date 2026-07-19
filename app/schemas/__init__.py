@@ -15,6 +15,7 @@ from app.schemas.auth import (
 from app.schemas.certificate import (
     CertificateDetail,
     CertificateEventItem,
+    CertificateHistoryItem,
     CertificateOptions,
     CertificateSummary,
     DraftCertificateCreate,
@@ -114,4 +115,5 @@ __all__ = [
     "CertificateDetail",
     "CertificateEventItem",
     "CertificateSummary",
+    "CertificateHistoryItem",
 ]
