@@ -22,6 +22,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.exceptions import (
+    CertificateAlreadyIssuedError,
     PresidentAppointmentConflictError,
     SignatureUploadConflictError,
 )
@@ -48,6 +49,7 @@ VALID_PNG_BYTES = base64.b64decode(
 )
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 PDF_MAGIC = b"%PDF-"
+VALID_PDF_BYTES = PDF_MAGIC + b"1.4 fake offline-signed certificate original"
 
 
 def _make_image_bytes(image_format: str) -> bytes:
@@ -565,6 +567,270 @@ class TestDraftCertificates:
             headers=_auth(admin_token),
         )
         assert response.status_code == 404
+
+
+class TestOriginalRegistration:
+    """POST /certificates/{id}/original (president only)."""
+
+    def test_non_president_admin_forbidden(
+        self, client: TestClient, admin_token: str, regular_user: User
+    ):
+        pytest.importorskip("weasyprint")
+        draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
+        response = client.post(
+            f"/certificates/{draft['id']}/original",
+            files={"file": ("original.pdf", VALID_PDF_BYTES, "application/pdf")},
+            headers=_auth(admin_token),
+        )
+        assert response.status_code == 403
+
+    def test_president_registers_original(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        regular_user: User,
+        president_token: str,
+        president_user: User,
+        open_president_term: PresidentTerm,
+    ):
+        pytest.importorskip("weasyprint")
+        draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
+        assert draft["status"] == "original_pending"
+
+        response = client.post(
+            f"/certificates/{draft['id']}/original",
+            files={"file": ("original.pdf", VALID_PDF_BYTES, "application/pdf")},
+            headers=_auth(president_token),
+        )
+        assert response.status_code == 200
+        detail = response.json()["data"]
+        assert detail["status"] == "issued"
+        assert detail["issued_at"] is not None
+        uuid.UUID(detail["issue_number"])
+
+        actions = [e["action"] for e in detail["events"]]
+        assert actions == ["draft_created", "original_registered"]
+        assert detail["events"][-1]["actor_type"] == "president"
+        assert detail["events"][-1]["actor"]["id"] == president_user.id
+
+        # The uploaded bytes are stored verbatim (system does not re-render).
+        stored = client.get(
+            f"/certificates/{draft['id']}/download", headers=_auth(admin_token)
+        )
+        assert stored.content == VALID_PDF_BYTES
+
+    def test_register_original_snapshot_reflects_registration_time_data_not_draft_time(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        regular_user: User,
+        president_token: str,
+        open_president_term: PresidentTerm,
+    ):
+        """Characterization test for a known limitation flagged in
+        `CertificateService.register_original`'s docstring (DIVERGENCE --
+        needs product/eng sign-off, not silently fixed here).
+
+        `register_original` rebuilds `certificate.snapshot` from *current*
+        DB state at registration time, not from the render context
+        `create_draft` actually produced for the physically-printed/signed
+        document (which is never persisted). If the member's data changes
+        during the offline-signing gap -- the entire reason this two-step
+        flow exists -- the "frozen at issuance" snapshot silently ends up
+        describing content different from what's on the signed original.
+
+        This pins the *current* drifting behavior so a future intentional
+        fix (e.g. persisting the draft-time context so registration can
+        reuse it) has to consciously update this test rather than
+        regressing unnoticed.
+        """
+        pytest.importorskip("weasyprint")
+        draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
+
+        # Simulate the offline-signing gap: the member's data changes after
+        # the draft (and its physical printout) already exists.
+        regular_user.name = "개명후이름"
+        db.add(regular_user)
+        db.commit()
+
+        response = client.post(
+            f"/certificates/{draft['id']}/original",
+            files={"file": ("original.pdf", VALID_PDF_BYTES, "application/pdf")},
+            headers=_auth(president_token),
+        )
+        assert response.status_code == 200
+
+        stored = CertificateService.get(db, draft["id"])
+        personal_section = next(
+            section
+            for section in stored.snapshot["sections"]
+            if section["type"] == "personal"
+        )
+        # Current (documented-limitation) behavior: the snapshot reflects
+        # the post-drift name, not what was on the printed/signed original.
+        assert personal_section["data"]["name"] == "개명후이름"
+
+    def test_reregistering_an_issued_certificate_conflicts(
+        self,
+        client: TestClient,
+        admin_token: str,
+        regular_user: User,
+        president_token: str,
+        open_president_term: PresidentTerm,
+    ):
+        pytest.importorskip("weasyprint")
+        draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
+        first = client.post(
+            f"/certificates/{draft['id']}/original",
+            files={"file": ("original.pdf", VALID_PDF_BYTES, "application/pdf")},
+            headers=_auth(president_token),
+        )
+        assert first.status_code == 200
+
+        second = client.post(
+            f"/certificates/{draft['id']}/original",
+            files={"file": ("original.pdf", VALID_PDF_BYTES, "application/pdf")},
+            headers=_auth(president_token),
+        )
+        assert second.status_code == 409
+        assert second.json()["error"] == "CERTIFICATE_ALREADY_ISSUED"
+
+    def test_register_original_race_is_not_lost_to_toctou(
+        self,
+        client: TestClient,
+        engine,
+        admin_token: str,
+        regular_user: User,
+        president_user: User,
+        open_president_term: PresidentTerm,
+        fake_storage: dict,
+    ):
+        """Two near-simultaneous `/original` requests for the same
+        ORIGINAL_PENDING certificate (e.g. a double-click during a slow
+        upload) must not both succeed. Without a row lock + status recheck
+        against the freshest committed state, both requests can load the
+        same ORIGINAL_PENDING row, both pass the guard, and both commit --
+        the second silently overwriting the first's issue_number and
+        pdf_object_key. This drives two independent DB sessions (real
+        concurrent transactions, not just two HTTP calls sharing the single
+        `client` session) through `CertificateService.register_original`
+        directly, synchronized with a barrier to maximize overlap.
+        """
+        pytest.importorskip("weasyprint")
+        draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
+        cert_id = draft["id"]
+
+        session_factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+        barrier = threading.Barrier(2)
+        results: list[tuple[str, str | None, str | None]] = []
+        results_lock = threading.Lock()
+
+        def worker(body: bytes) -> None:
+            session = session_factory()
+            try:
+                barrier.wait()
+                certificate = CertificateService.get(session, cert_id)
+                try:
+                    updated = CertificateService.register_original(
+                        session,
+                        president=president_user,
+                        certificate=certificate,
+                        file_bytes=body,
+                        storage=certificates_route.OCIObjectStorageService(),
+                    )
+                    outcome = ("ok", updated.issue_number, updated.pdf_object_key)
+                except CertificateAlreadyIssuedError:
+                    outcome = ("conflict", None, None)
+                with results_lock:
+                    results.append(outcome)
+            finally:
+                session.close()
+
+        body_a = PDF_MAGIC + b"1.4 request A original"
+        body_b = PDF_MAGIC + b"1.4 request B original"
+        t1 = threading.Thread(target=worker, args=(body_a,))
+        t2 = threading.Thread(target=worker, args=(body_b,))
+        t1.start()
+        t2.start()
+        t1.join(timeout=30)
+        t2.join(timeout=30)
+
+        assert len(results) == 2
+        oks = [r for r in results if r[0] == "ok"]
+        conflicts = [r for r in results if r[0] == "conflict"]
+        assert len(oks) == 1, (
+            "both concurrent /original requests reported success -- the "
+            "second silently overwrote the first winner's issue_number/"
+            f"pdf_object_key (results={results!r})"
+        )
+        assert len(conflicts) == 1
+
+        verify_session = session_factory()
+        try:
+            final = CertificateService.get(verify_session, cert_id)
+            assert final.status == CertificateStatus.ISSUED
+            winner = oks[0]
+            assert final.issue_number == winner[1]
+            assert final.pdf_object_key == winner[2]
+        finally:
+            verify_session.close()
+
+    def test_original_upload_rejects_non_pdf_content_type(
+        self,
+        client: TestClient,
+        admin_token: str,
+        regular_user: User,
+        president_token: str,
+        open_president_term: PresidentTerm,
+    ):
+        pytest.importorskip("weasyprint")
+        draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
+        response = client.post(
+            f"/certificates/{draft['id']}/original",
+            files={"file": ("original.pdf", VALID_PDF_BYTES, "text/plain")},
+            headers=_auth(president_token),
+        )
+        assert response.status_code == 400
+        assert response.json()["error"] == "INVALID_CERTIFICATE_FILE"
+
+    def test_original_upload_rejects_wrong_magic_bytes(
+        self,
+        client: TestClient,
+        admin_token: str,
+        regular_user: User,
+        president_token: str,
+        open_president_term: PresidentTerm,
+    ):
+        pytest.importorskip("weasyprint")
+        draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
+        response = client.post(
+            f"/certificates/{draft['id']}/original",
+            files={"file": ("original.pdf", b"not-really-a-pdf", "application/pdf")},
+            headers=_auth(president_token),
+        )
+        assert response.status_code == 400
+        assert response.json()["error"] == "INVALID_CERTIFICATE_FILE"
+
+    def test_original_upload_too_large(
+        self,
+        client: TestClient,
+        admin_token: str,
+        regular_user: User,
+        president_token: str,
+        open_president_term: PresidentTerm,
+    ):
+        pytest.importorskip("weasyprint")
+        draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
+        oversized = PDF_MAGIC + b"0" * (10 * 1024 * 1024 + 1)
+        response = client.post(
+            f"/certificates/{draft['id']}/original",
+            files={"file": ("original.pdf", oversized, "application/pdf")},
+            headers=_auth(president_token),
+        )
+        assert response.status_code == 413
+        assert response.json()["error"] == "CERTIFICATE_FILE_TOO_LARGE"
 
 
 class TestSignatureUpload:

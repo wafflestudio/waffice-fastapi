@@ -2,7 +2,7 @@
 
 - Member: 본인 발급/미리보기/내 이력 조회/다운로드 (require_certificate_eligible).
 - Staff/admin: 초안 생성/미리보기, 회장 임기 관리 (require_admin).
-- President: 서명 등록/조회 (require_president).
+- President: 서명 등록/조회, 초안의 오프라인 서명 원본 등록 (require_president).
 
 라우트 등록 순서 주의: 같은 HTTP 메서드에서 리터럴 세그먼트 경로(`/preview`,
 `/me`, `/signature/me`, `/president-terms/current`, ...)는 반드시 가변 경로
@@ -31,8 +31,10 @@ from app.deps.auth import (
     require_president,
 )
 from app.exceptions import (
+    CertificateFileTooLargeError,
     CertificateNotFoundError,
     ForbiddenError,
+    InvalidCertificateFileError,
     InvalidSignatureFileError,
     NotFoundError,
     SignatureFileTooLargeError,
@@ -61,7 +63,10 @@ from app.services import (
 
 router = APIRouter()
 
+PDF_MAGIC = b"%PDF-"
+
 MAX_SIGNATURE_FILE_SIZE = 5 * 1024 * 1024
+MAX_CERTIFICATE_FILE_SIZE = 10 * 1024 * 1024
 
 
 def _is_png(body: bytes) -> bool:
@@ -270,6 +275,44 @@ async def upsert_my_signature(
         db, user_id=president.id, object_key=object_key, storage=storage
     )
     return Response(ok=True, data=SignatureDetail.model_validate(signature))
+
+
+@router.post(
+    "/{certificate_id}/original",
+    response_model=Response[CertificateDetail],
+    summary="활동증명서 원본 등록",
+    description=(
+        "회장이 오프라인으로 서명한 원본 PDF를 등록한다. 초안(DRAFT, "
+        "ORIGINAL_PENDING) 상태의 증명서에만 가능하며, 이 시점에 발행번호가 "
+        "부여되고 발급이 완료(ISSUED)된다."
+    ),
+)
+async def register_certificate_original(
+    certificate_id: int,
+    file: UploadFile = File(...),
+    president: User = Depends(require_president),
+    db: Session = Depends(get_db),
+):
+    certificate = get_existing_certificate(db, certificate_id)
+
+    if file.content_type != "application/pdf":
+        raise InvalidCertificateFileError()
+
+    body = await file.read()
+    if not body.startswith(PDF_MAGIC):
+        raise InvalidCertificateFileError()
+    if len(body) > MAX_CERTIFICATE_FILE_SIZE:
+        raise CertificateFileTooLargeError()
+
+    storage = OCIObjectStorageService()
+    updated = CertificateService.register_original(
+        db,
+        president=president,
+        certificate=certificate,
+        file_bytes=body,
+        storage=storage,
+    )
+    return Response(ok=True, data=to_detail(updated))
 
 
 # =====================================================================

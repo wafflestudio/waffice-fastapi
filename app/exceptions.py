@@ -277,3 +277,24 @@ class InvalidCursorError(AppError):
 
     def __init__(self, message: str = "잘못된 페이지네이션 커서입니다."):
         super().__init__("INVALID_CURSOR", message, 400)
+
+
+class InvalidCertificateFileError(AppError):
+    """400 - Uploaded certificate original is not a valid PDF"""
+
+    def __init__(self, message: str = ".pdf 파일이 맞는지 확인해주세요."):
+        super().__init__("INVALID_CERTIFICATE_FILE", message, 400)
+
+
+class CertificateFileTooLargeError(AppError):
+    """413 - Uploaded certificate original exceeds the maximum byte size"""
+
+    def __init__(self, message: str = "파일 용량이 너무 큽니다. (최대 10MB)"):
+        super().__init__("CERTIFICATE_FILE_TOO_LARGE", message, 413)
+
+
+class CertificateAlreadyIssuedError(AppError):
+    """409 - Certificate has already been issued (or is not a pending draft)"""
+
+    def __init__(self, message: str = "이미 발급이 완료된 활동증명서입니다."):
+        super().__init__("CERTIFICATE_ALREADY_ISSUED", message, 409)
