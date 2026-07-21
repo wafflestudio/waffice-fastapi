@@ -14,7 +14,7 @@ from app.exceptions import (
     RosterFileTooLargeError,
     TemporaryMemberApprovalError,
 )
-from app.models import AuditAction, Qualification, User, UserRole
+from app.models import AuditAction, Qualification, User
 from app.schemas import (
     ActivityCreateRequest,
     ActivityDetail,
@@ -161,13 +161,16 @@ async def get_my_projects(
     responses={
         200: {"description": "Activities retrieved successfully"},
         401: {"description": "Not authenticated"},
+        403: {"description": "Requires REGULAR qualification or higher"},
     },
 )
 async def get_my_activities(
-    current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
+    current_user: User = Depends(require_regular), db: Session = Depends(get_db)
 ):
     """
-    Get activities of the current user.
+    Get activities of a current member.
+
+    **Requires**: REGULAR qualification or higher.
 
     Returns a list of activities (current projects and histories).
     """
@@ -396,12 +399,17 @@ async def update_user(
         )
 
     # Log role changes
-    if "role" in update_data and update_data["role"] != user.role:
+    role_changes = {
+        field: {"from": getattr(user, field), "to": update_data[field]}
+        for field in ("is_leader", "is_admin", "is_president")
+        if field in update_data and update_data[field] != getattr(user, field)
+    }
+    if role_changes:
         AuditLogService.log(
             db=db,
             user_id=user.id,
             action=AuditAction.ROLE_CHANGED,
-            payload={"from": user.role.value, "to": update_data["role"].value},
+            payload=role_changes,
             actor_id=admin.id,
         )
 

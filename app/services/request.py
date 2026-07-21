@@ -96,7 +96,7 @@ def _can_view_or_review(
     actor: User,
     include_requester: bool = True,
 ) -> bool:
-    if actor.is_admin:
+    if actor.has_admin_access:
         return True
     if include_requester and approval_request.requester_id == actor.id:
         return True
@@ -127,7 +127,7 @@ def _build_create_body(
     request: ApprovalRequestCreateRequest,
 ) -> tuple[int | None, dict]:
     target_user_id = request.target_user_id or actor.id
-    if target_user_id != actor.id and not actor.is_admin:
+    if target_user_id != actor.id and not actor.has_admin_access:
         raise ForbiddenError("Cannot create a request for another user")
     _ensure_user_exists(db, target_user_id)
 
@@ -313,11 +313,11 @@ class RequestService:
         )
 
         if scope == RequestScope.ALL:
-            if not actor.is_admin:
+            if not actor.has_admin_access:
                 raise ForbiddenError("Admin access required")
         elif scope == RequestScope.SENT:
             query = query.filter(ApprovalRequest.requester_id == actor.id)
-        elif not actor.is_admin:
+        elif not actor.has_admin_access:
             query = query.filter(_received_condition(db, actor))
 
         if status != RequestStatusFilter.ALL:
@@ -394,7 +394,7 @@ class RequestService:
 
     @staticmethod
     def delete(db: Session, *, actor: User, approval_request: ApprovalRequest) -> None:
-        if not actor.is_admin:
+        if not actor.has_admin_access:
             if approval_request.requester_id != actor.id:
                 raise ForbiddenError("Only the requester can delete this request")
             if approval_request.status != ApprovalStatus.PENDING:

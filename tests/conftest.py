@@ -37,7 +37,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config.database import Base, Engine, get_db
 from app.main import app
-from app.models import Qualification, User, UserRole
+from app.models import Qualification, User
 from app.services import UserService
 
 # JWT config (must match app/deps/auth.py default)
@@ -179,7 +179,7 @@ def admin_user(db: Session) -> User:
         name="Admin User",
         generation="26",
         qualification=Qualification.ACTIVE,
-        role=UserRole.ADMIN,
+        is_admin=True,
         google_id="admin_google_id",
     )
     return user
@@ -219,3 +219,54 @@ def active_token(active_user: User) -> str:
 def admin_token(admin_user: User) -> str:
     """Create JWT token for admin user."""
     return create_access_token(admin_user.id, admin_user.email, admin_user.google_id)
+
+
+@pytest.fixture
+def president_user(db: Session) -> User:
+    """Create a president user for testing."""
+    user = UserService.create(
+        db,
+        email="president@example.com",
+        name="President User",
+        generation="26",
+        qualification=Qualification.ACTIVE,
+        is_admin=True,
+        is_president=True,
+        google_id="president_google_id",
+    )
+    return user
+
+
+@pytest.fixture
+def leader_and_president_user(db: Session) -> User:
+    """Create a leader_and_president user for testing."""
+    user = UserService.create(
+        db,
+        email="leader_president@example.com",
+        name="Leader President User",
+        generation="26",
+        qualification=Qualification.ACTIVE,
+        is_leader=True,
+        is_admin=True,
+        is_president=True,
+        google_id="leader_president_google_id",
+    )
+    return user
+
+
+@pytest.fixture
+def president_token(president_user: User) -> str:
+    """Create JWT token for president user."""
+    return create_access_token(
+        president_user.id, president_user.email, president_user.google_id
+    )
+
+
+@pytest.fixture
+def leader_and_president_token(leader_and_president_user: User) -> str:
+    """Create JWT token for leader_and_president user."""
+    return create_access_token(
+        leader_and_president_user.id,
+        leader_and_president_user.email,
+        leader_and_president_user.google_id,
+    )
