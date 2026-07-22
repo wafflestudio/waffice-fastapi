@@ -1,8 +1,8 @@
 from datetime import date
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, computed_field, field_validator
 
-from app.models.enums import MemberRole, ProjectStatus
+from app.models.enums import ActivityStatus, MemberRole, ProjectStatus
 from app.schemas.common import Website
 from app.schemas.user import UserBrief
 
@@ -113,11 +113,17 @@ class MemberUpdateRequest(BaseModel):
 
 
 # === Response ===
+class ProjectMemberUser(UserBrief):
+    """User fields displayed in a project member row."""
+
+    github_username: str | None = Field(description="GitHub username")
+
+
 class MemberDetail(BaseModel):
     """Project member information including user details and role."""
 
     id: int = Field(description="Unique membership record identifier")
-    user: UserBrief = Field(description="Member's user information")
+    user: ProjectMemberUser = Field(description="Member's user information")
     role: MemberRole = Field(
         description="Member's role: 'leader' (project manager) or 'member' (participant)"
     )
@@ -128,6 +134,13 @@ class MemberDetail(BaseModel):
     left_at: date | None = Field(
         description="Date when member left the project. Null for active members."
     )
+
+    @computed_field(description="Membership activity status")
+    @property
+    def activity_status(self) -> ActivityStatus:
+        return (
+            ActivityStatus.ACTIVE if self.left_at is None else ActivityStatus.INACTIVE
+        )
 
     model_config = {"from_attributes": True}
 
@@ -148,25 +161,24 @@ class ProjectBrief(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class ProjectDetail(ProjectBrief):
-    """Complete project information including members."""
+class ProjectPageDetail(ProjectBrief):
+    """Project detail page data without the separately paginated members."""
 
     description: str | None = Field(description="Detailed project description")
     ended_at: date | None = Field(
         description="Project end date. Null for ongoing projects."
     )
     websites: list[Website] | None = Field(description="Project-related links")
+
+
+class ProjectDetail(ProjectPageDetail):
+    """Complete project information including active members."""
+
     members: list[MemberDetail] = Field(
         description="Active project members (excludes members who have left)"
     )
 
-    model_config = {"from_attributes": True}
-
-    @model_validator(mode="before")
+    @field_validator("members")
     @classmethod
-    def filter_active_members(cls, data):
-        """Filter out inactive members"""
-        if hasattr(data, "members"):
-            # Filter to only active members (left_at is None)
-            data.members = [m for m in data.members if m.left_at is None]
-        return data
+    def filter_active_members(cls, members: list[MemberDetail]):
+        return [member for member in members if member.left_at is None]
