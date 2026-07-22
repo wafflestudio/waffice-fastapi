@@ -53,8 +53,7 @@ router = APIRouter()
     },
 )
 async def list_projects(
-    cursor: int
-    | None = Query(
+    cursor: int | None = Query(
         None, description="Pagination cursor (project ID). Omit for first page."
     ),
     limit: int = Query(
@@ -138,12 +137,12 @@ async def download_project_member_template(
 @router.put(
     "/{project_id}/members/bulk",
     response_model=Response[ProjectDetail],
-    summary="Replace all active project members from an XLSX or CSV file",
+    summary="Replace all active project members from an XLSX or CSV file. Admin only.",
     responses={
         200: {"description": "Project members replaced successfully"},
         400: {"description": "Invalid workbook or resulting member roster"},
         401: {"description": "Not authenticated"},
-        403: {"description": "Must be project leader or admin"},
+        403: {"description": "Admin access required"},
         404: {"description": "Project or user not found"},
         413: {"description": "File exceeds 5MB"},
     },
@@ -151,10 +150,10 @@ async def download_project_member_template(
 async def replace_project_members(
     project_id: int,
     file: UploadFile = File(..., description="팀원 명단 .xlsx 또는 .csv 파일"),
-    current_user: User = Depends(require_regular),
+    admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    require_leader_or_admin(project_id, current_user, db)
+    require_leader_or_admin(project_id, admin, db)
 
     content = await file.read(MAX_ROSTER_FILE_BYTES + 1)
     if len(content) > MAX_ROSTER_FILE_BYTES:
@@ -165,7 +164,7 @@ async def replace_project_members(
         raise InvalidProjectMemberFileError(errors)
 
     project = ProjectService.replace_members(
-        db, project_id=project_id, rows=rows, actor_id=current_user.id
+        db, project_id=project_id, rows=rows, actor_id=admin.id
     )
     return Response(ok=True, data=project)
 

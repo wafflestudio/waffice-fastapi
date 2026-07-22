@@ -99,6 +99,28 @@ def test_project_list_uses_summary_and_id_cursor(
     assert second["next_cursor"] is None
 
 
+def test_bulk_replace_requires_admin(
+    client: TestClient,
+    admin_token: str,
+    regular_token: str,
+    regular_user: User,
+):
+    project_id = _create_project(
+        client,
+        admin_token,
+        "Admin Only Bulk",
+        [{"user_id": regular_user.id, "role": "leader"}],
+    )
+
+    response = _replace(
+        client,
+        regular_token,
+        project_id,
+        [(regular_user.name, regular_user.email, "", "팀장", "")],
+    )
+    assert response.status_code == 403
+
+
 def test_template_and_bulk_replace_members_atomically(
     client: TestClient,
     db: Session,
