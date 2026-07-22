@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.models import AuditAction, MemberRole, ProjectMember
 
+_UNSET = object()
+
 
 class LastLeaderError(Exception):
     """Raised when trying to remove the last leader from a project"""
@@ -178,9 +180,9 @@ class MemberService:
     def change(
         db: Session,
         member: ProjectMember,
-        role: MemberRole | None,
-        position: str | None,
         actor_id: int,
+        role: MemberRole | None = None,
+        position: str | None | object = _UNSET,
     ) -> ProjectMember:
         """
         Change member role/position by ending current membership and creating new one.
@@ -192,6 +194,7 @@ class MemberService:
         old_role = member.role
         old_position = member.position
         new_role = role if role is not None else old_role
+        new_position = old_position if position is _UNSET else position
 
         # Check if demoting the last leader
         if old_role == MemberRole.LEADER and new_role == MemberRole.MEMBER:
@@ -207,8 +210,8 @@ class MemberService:
         new_member = ProjectMember(
             project_id=member.project_id,
             user_id=member.user_id,
-            role=role if role is not None else old_role,
-            position=position if position is not None else old_position,
+            role=new_role,
+            position=new_position,
             joined_at=date.today(),
             left_at=None,
         )

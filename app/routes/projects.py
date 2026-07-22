@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, Query
+import io
+
+from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
@@ -6,10 +9,11 @@ from app.deps.auth import require_admin, require_regular
 from app.deps.project import require_leader_or_admin
 from app.exceptions import (
     CannotRemoveSelfError,
+    InvalidProjectMemberFileError,
     LastLeaderError,
     NoLeaderError,
     NotFoundError,
-    TemporaryMemberProjectError,
+    RosterFileTooLargeError,
 )
 from app.models import MemberRole, User
 from app.schemas import (
@@ -18,6 +22,7 @@ from app.schemas import (
     MemberUpdateRequest,
     ProjectCreateRequest,
     ProjectDetail,
+    ProjectListItem,
     ProjectUpdateRequest,
     Response,
 )
@@ -26,13 +31,19 @@ from app.services.member import (
     CannotRemoveSelfError as ServiceCannotRemoveSelfError,
     LastLeaderError as ServiceLastLeaderError,
 )
+from app.services.roster import (
+    MAX_ROSTER_FILE_BYTES,
+    XLSX_CONTENT_TYPE,
+    build_project_member_template,
+    parse_project_member_roster,
+)
 
 router = APIRouter()
 
 
 @router.get(
     "",
-    response_model=Response[CursorPage[ProjectDetail]],
+    response_model=Response[CursorPage[ProjectListItem]],
     summary="List all projects",
     description="Returns paginated list of all projects.",
     responses={
@@ -62,7 +73,101 @@ async def list_projects(
     members, use `GET /projects/{id}`.
     """
     projects, next_cursor = ProjectService.list(db, cursor=cursor, limit=limit)
-    return Response(ok=True, data=CursorPage(items=projects, next_cursor=next_cursor))
+    items = []
+    for project in projects:
+        active_members = sorted(
+            (
+                member
+                for member in project.members
+                if member.left_at is None
+                and member.user is not None
+                and member.user.deleted_at is None
+            ),
+            key=lambda member: (member.user.name, member.user_id),
+        )
+        items.append(
+            ProjectListItem(
+                id=project.id,
+                name=project.name,
+                leader_names=[
+                    member.user.name
+                    for member in active_members
+                    if member.role == MemberRole.LEADER
+                ],
+                member_count=len(active_members),
+                active_member_names=[member.user.name for member in active_members],
+                status=project.status,
+            )
+        )
+    return Response(ok=True, data=CursorPage(items=items, next_cursor=next_cursor))
+
+
+@router.get(
+    "/{project_id}/members/template",
+    summary="Download the project member XLSX template",
+    responses={
+        200: {"content": {XLSX_CONTENT_TYPE: {}}},
+        401: {"description": "Not authenticated"},
+        403: {"description": "Must be project leader or admin"},
+        404: {"description": "Project not found"},
+    },
+)
+async def download_project_member_template(
+    project_id: int,
+    current_user: User = Depends(require_regular),
+    db: Session = Depends(get_db),
+):
+    require_leader_or_admin(project_id, current_user, db)
+    members = [
+        member
+        for member in MemberService.list_active(db, project_id)
+        if member.user is not None and member.user.deleted_at is None
+    ]
+    content = build_project_member_template(members)
+    return StreamingResponse(
+        io.BytesIO(content),
+        media_type=XLSX_CONTENT_TYPE,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="project-{project_id}-members.xlsx"'
+            )
+        },
+    )
+
+
+@router.put(
+    "/{project_id}/members/bulk",
+    response_model=Response[ProjectDetail],
+    summary="Replace all active project members from an XLSX or CSV file",
+    responses={
+        200: {"description": "Project members replaced successfully"},
+        400: {"description": "Invalid workbook or resulting member roster"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "Must be project leader or admin"},
+        404: {"description": "Project or user not found"},
+        413: {"description": "File exceeds 5MB"},
+    },
+)
+async def replace_project_members(
+    project_id: int,
+    file: UploadFile = File(..., description="팀원 명단 .xlsx 또는 .csv 파일"),
+    current_user: User = Depends(require_regular),
+    db: Session = Depends(get_db),
+):
+    require_leader_or_admin(project_id, current_user, db)
+
+    content = await file.read(MAX_ROSTER_FILE_BYTES + 1)
+    if len(content) > MAX_ROSTER_FILE_BYTES:
+        raise RosterFileTooLargeError()
+
+    rows, errors = parse_project_member_roster(content, file.filename or "")
+    if errors:
+        raise InvalidProjectMemberFileError(errors)
+
+    project = ProjectService.replace_members(
+        db, project_id=project_id, rows=rows, actor_id=current_user.id
+    )
+    return Response(ok=True, data=project)
 
 
 @router.post(
@@ -106,10 +211,6 @@ async def create_project(
         user = UserService.get(db, member_input.user_id)
         if not user:
             raise NotFoundError(f"User {member_input.user_id} not found")
-        # Temporary members are roster placeholders with no OAuth identity and
-        # must not be treated as real project members (mirrors the /approve guard).
-        if user.is_temporary:
-            raise TemporaryMemberProjectError()
 
     # Create project
     project_data = request.model_dump(exclude={"members"})
@@ -274,10 +375,6 @@ async def add_project_member(
     target_user = UserService.get(db, member_input.user_id)
     if not target_user:
         raise NotFoundError(f"User {member_input.user_id} not found")
-    # Temporary members are roster placeholders with no OAuth identity and must
-    # not be treated as real project members (mirrors the /approve guard).
-    if target_user.is_temporary:
-        raise TemporaryMemberProjectError()
 
     # Add member (idempotent)
     MemberService.add(
@@ -337,14 +434,15 @@ async def update_project_member(
         raise NotFoundError("Member not found in this project")
 
     # Update member
+    changes = request.model_dump(exclude_unset=True)
     try:
-        MemberService.change(
-            db=db,
-            member=member,
-            role=request.role,
-            position=request.position,
-            actor_id=current_user.id,
-        )
+        if changes:
+            MemberService.change(
+                db=db,
+                member=member,
+                actor_id=current_user.id,
+                **changes,
+            )
     except ServiceLastLeaderError:
         raise LastLeaderError()
     db.commit()

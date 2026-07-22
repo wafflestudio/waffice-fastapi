@@ -66,9 +66,12 @@ from app.exceptions import AppError
 
 @app.exception_handler(AppError)
 async def app_error_handler(request: Request, exc: AppError):
+    content = {"ok": False, "error": exc.code, "message": exc.message}
+    if exc.data is not None:
+        content["data"] = exc.data
     return JSONResponse(
         status_code=exc.status_code,
-        content={"ok": False, "error": exc.code, "message": exc.message},
+        content=content,
     )
 
 

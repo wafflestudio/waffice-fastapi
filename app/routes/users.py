@@ -32,12 +32,9 @@ from app.schemas import (
     UserUpdateRequest,
 )
 from app.services import ActivityService, AuditLogService, ProjectService, UserService
-from app.services.roster import parse_member_roster
+from app.services.roster import MAX_ROSTER_FILE_BYTES, parse_member_roster
 
 router = APIRouter()
-
-# 5 MB is generous for a <=2000-row roster; blocks oversized uploads.
-MAX_FILE_BYTES = 5 * 1024 * 1024
 
 
 def _skip_message(name: str, student_id: str, reason: str) -> str:
@@ -295,8 +292,8 @@ async def import_temporary_members(
     - Existing members who never recorded a `student_id` cannot be matched and
       will be duplicated as temporary members.
     """
-    content = await file.read(MAX_FILE_BYTES + 1)
-    if len(content) > MAX_FILE_BYTES:
+    content = await file.read(MAX_ROSTER_FILE_BYTES + 1)
+    if len(content) > MAX_ROSTER_FILE_BYTES:
         raise RosterFileTooLargeError()
     valid_rows, invalid_rows = parse_member_roster(content, file.filename)
 

@@ -20,6 +20,7 @@ from app.schemas.project import (
     ProjectBrief,
     ProjectCreateRequest,
     ProjectDetail,
+    ProjectListItem,
     ProjectUpdateRequest,
 )
 from app.schemas.request import (
@@ -76,6 +77,7 @@ __all__ = [
     "MemberDetail",
     "ProjectBrief",
     "ProjectDetail",
+    "ProjectListItem",
     "AuditLogDetail",
     "ActivityCreateRequest",
     "ActivityUpdateRequest",

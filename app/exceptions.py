@@ -1,10 +1,17 @@
 class AppError(Exception):
     """Base application error"""
 
-    def __init__(self, code: str, message: str, status_code: int = 400):
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        status_code: int = 400,
+        data: dict | None = None,
+    ):
         self.code = code
         self.message = message
         self.status_code = status_code
+        self.data = data
         super().__init__(message)
 
 
@@ -65,19 +72,6 @@ class TemporaryMemberApprovalError(AppError):
         super().__init__("TEMPORARY_MEMBER_CANNOT_BE_APPROVED", message, 400)
 
 
-class TemporaryMemberProjectError(AppError):
-    """Cannot add a temporary (roster-imported) member to a project"""
-
-    def __init__(
-        self,
-        message: str = (
-            "Cannot add a temporary member to a project. They must sign up "
-            "(OAuth) and be linked to this record first."
-        ),
-    ):
-        super().__init__("TEMPORARY_MEMBER_CANNOT_JOIN_PROJECT", message, 400)
-
-
 class InvalidRosterFileError(AppError):
     """Uploaded roster file is not a valid .xlsx/.csv, or is missing a header column"""
 
@@ -104,6 +98,18 @@ class RosterFileTooLargeError(AppError):
 
     def __init__(self, message: str = "파일 용량이 너무 큽니다. (최대 5MB)"):
         super().__init__("ROSTER_FILE_TOO_LARGE", message, 413)
+
+
+class InvalidProjectMemberFileError(AppError):
+    """Project member file contains invalid headers or rows."""
+
+    def __init__(self, errors: list[dict], message: str = "팀원 명단을 적용할 수 없습니다."):
+        super().__init__(
+            "INVALID_PROJECT_MEMBER_FILE",
+            message,
+            400,
+            data={"errors": errors},
+        )
 
 
 class NoLeaderError(AppError):
