@@ -133,6 +133,7 @@ class SignatureDetail(BaseModel):
 
     id: int = Field(description="서명 등록 ID")
     user_id: int = Field(description="회장(사용자) ID")
+    url: str = Field(description="서명 이미지 URL")
     created_at: int = Field(description="최초 등록 일시 (Unix epoch)")
     updated_at: int = Field(description="마지막 교체 일시 (Unix epoch)")
 

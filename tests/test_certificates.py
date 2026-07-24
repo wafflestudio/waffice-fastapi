@@ -11,6 +11,7 @@ it: `monkeypatch.setattr("app.routes.certificates.OCIObjectStorageService", ...)
 
 import base64
 import threading
+import time
 import uuid
 from datetime import date, timedelta
 from io import BytesIO
@@ -138,6 +139,9 @@ def fake_storage(monkeypatch: pytest.MonkeyPatch) -> dict:
 
         def delete_object(self, object_name: str) -> None:
             data.pop(object_name, None)
+
+        def public_url(self, object_name: str) -> str:
+            return f"https://fake.local/{object_name}"
 
     monkeypatch.setattr(
         "app.routes.certificates.OCIObjectStorageService", FakeObjectStorage
@@ -859,7 +863,7 @@ class TestSignatureUpload:
     def test_upload_rejects_unsupported_content_type(
         self, client: TestClient, president_token: str, open_president_term
     ):
-        """A genuinely non-image content-type (not in the PNG/JPEG/WebP/GIF
+        """A genuinely non-image content-type (not in the PNG/JPEG/WebP
         allowlist) is rejected before the body is even magic-byte-checked."""
         response = _upload_signature(
             client,
@@ -926,7 +930,6 @@ class TestSignatureUpload:
             ("image/png", VALID_PNG_BYTES, ".png"),
             ("image/jpeg", VALID_JPEG_BYTES, ".jpg"),
             ("image/webp", VALID_WEBP_BYTES, ".webp"),
-            ("image/gif", VALID_GIF_BYTES, ".gif"),
         ],
     )
     def test_upload_accepts_each_allowed_format(
@@ -941,7 +944,7 @@ class TestSignatureUpload:
         body: bytes,
         expected_ext: str,
     ):
-        """PNG (regression), JPEG, WebP, and GIF -- each with a real image
+        """PNG (regression), JPEG, and WebP -- each with a real image
         body of its own format -- are all accepted, and the stored
         object_key gets the matching extension."""
         response = _upload_signature(
@@ -956,6 +959,18 @@ class TestSignatureUpload:
         )
         assert row.object_key.endswith(expected_ext)
         assert row.object_key in fake_storage
+
+    def test_upload_rejects_gif(
+        self, client: TestClient, president_token: str, open_president_term
+    ):
+        """GIF is deliberately excluded from the allowlist -- animated frames
+        aren't validated, and profile image upload also excludes GIF, so
+        signatures stay consistent with that."""
+        response = _upload_signature(
+            client, president_token, body=VALID_GIF_BYTES, content_type="image/gif"
+        )
+        assert response.status_code == 400
+        assert response.json()["error"] == "INVALID_SIGNATURE_FILE"
 
     def test_upload_happy_path_and_replace(
         self,
@@ -1425,6 +1440,134 @@ class TestDownload:
         )
         assert response.status_code == 404
         assert response.json()["error"] == "CERTIFICATE_NOT_FOUND"
+
+
+class TestCertificateExpiry:
+    """`expires_at` 경과 시 원본 폐기 + CERTIFICATE_EXPIRED (lazy purge on
+    access) 및 `POST /certificates/purge-expired` (운영진 일괄 폐기)."""
+
+    def test_download_after_expiry_purges_and_returns_410(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        regular_user: User,
+        fake_storage: dict,
+    ):
+        object_key = f"certificates/expired/{uuid.uuid4()}.pdf"
+        fake_storage[object_key] = PDF_MAGIC + b"expired body"
+        cert = Certificate(
+            user_id=regular_user.id,
+            requested_by_id=regular_user.id,
+            kind=CertificateKind.SELF,
+            status=CertificateStatus.ISSUED,
+            options=_options(),
+            issue_number=str(uuid.uuid4()),
+            pdf_object_key=object_key,
+            snapshot={"some": "content"},
+            issued_at=int(time.time()),
+            expires_at=int(time.time()) - 1,
+        )
+        db.add(cert)
+        db.commit()
+
+        response = client.get(
+            f"/certificates/{cert.id}/download", headers=_auth(admin_token)
+        )
+        assert response.status_code == 410
+        assert response.json()["error"] == "CERTIFICATE_EXPIRED"
+
+        db.expire_all()
+        row = db.get(Certificate, cert.id)
+        assert row.pdf_object_key is None
+        assert row.snapshot is None
+        assert object_key not in fake_storage
+
+    def test_second_access_after_expiry_still_returns_410(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        regular_user: User,
+        fake_storage: dict,
+    ):
+        """Content is already purged on the first access -- a second access
+        must not error out trying to re-purge (`pdf_object_key` is already
+        None), and must still report the certificate as expired rather than
+        falling through to CERTIFICATE_NOT_FOUND."""
+        cert = Certificate(
+            user_id=regular_user.id,
+            requested_by_id=regular_user.id,
+            kind=CertificateKind.SELF,
+            status=CertificateStatus.ISSUED,
+            options=_options(),
+            issue_number=str(uuid.uuid4()),
+            pdf_object_key=None,
+            snapshot=None,
+            issued_at=int(time.time()),
+            expires_at=int(time.time()) - 1,
+        )
+        db.add(cert)
+        db.commit()
+
+        response = client.get(
+            f"/certificates/{cert.id}/download", headers=_auth(admin_token)
+        )
+        assert response.status_code == 410
+        assert response.json()["error"] == "CERTIFICATE_EXPIRED"
+
+    def test_purge_all_expired_purges_only_expired_rows(
+        self,
+        db: Session,
+        regular_user: User,
+        active_user: User,
+        fake_storage: dict,
+    ):
+        """`CertificateService.purge_all_expired` is what the scheduled job
+        (`app/scheduler.py`) calls -- exercised directly here rather than
+        through an HTTP endpoint, since there is no admin-facing route for
+        it (purging is scheduler-only, not operator-triggered)."""
+        expired_key = f"certificates/expired/{uuid.uuid4()}.pdf"
+        valid_key = f"certificates/valid/{uuid.uuid4()}.pdf"
+        fake_storage[expired_key] = PDF_MAGIC + b"expired"
+        fake_storage[valid_key] = PDF_MAGIC + b"valid"
+
+        expired_cert = Certificate(
+            user_id=regular_user.id,
+            requested_by_id=regular_user.id,
+            kind=CertificateKind.SELF,
+            status=CertificateStatus.ISSUED,
+            options=_options(),
+            issue_number=str(uuid.uuid4()),
+            pdf_object_key=expired_key,
+            snapshot={"some": "content"},
+            issued_at=int(time.time()),
+            expires_at=int(time.time()) - 1,
+        )
+        valid_cert = Certificate(
+            user_id=active_user.id,
+            requested_by_id=active_user.id,
+            kind=CertificateKind.SELF,
+            status=CertificateStatus.ISSUED,
+            options=_options(),
+            issue_number=str(uuid.uuid4()),
+            pdf_object_key=valid_key,
+            snapshot={"some": "content"},
+            issued_at=int(time.time()),
+            expires_at=int(time.time()) + 999999,
+        )
+        db.add_all([expired_cert, valid_cert])
+        db.commit()
+
+        storage = certificates_route.OCIObjectStorageService()
+        purged_count = CertificateService.purge_all_expired(db, storage)
+        assert purged_count == 1
+
+        db.expire_all()
+        assert db.get(Certificate, expired_cert.id).pdf_object_key is None
+        assert db.get(Certificate, valid_cert.id).pdf_object_key == valid_key
+        assert expired_key not in fake_storage
+        assert valid_key in fake_storage
 
 
 class TestMyCertificates:

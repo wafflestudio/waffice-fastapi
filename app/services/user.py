@@ -127,7 +127,7 @@ class UserService:
 
         Temporary members are created with only name and student_id populated;
         email is NULL and all other columns fall back to their model defaults
-        (qualification=PENDING, role=MEMBER, etc.).
+        (qualification=PENDING, is_leader/is_admin/is_president=False, etc.).
 
         Returns (created_users, skipped) where skipped is a list of
         (name, student_id, reason).
