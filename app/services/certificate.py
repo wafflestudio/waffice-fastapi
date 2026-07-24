@@ -289,9 +289,7 @@ class PresidentService:
             raise NotFoundError("대상 회원을 찾을 수 없습니다.")
 
         if started_at > date.today():
-            raise InvalidPresidentTermError(
-                "임기 시작일은 오늘보다 미래일 수 없습니다 (임명은 즉시 발효됩니다)."
-            )
+            raise InvalidPresidentTermError("임기 시작일은 오늘보다 미래일 수 없습니다 (임명은 즉시 발효됩니다).")
 
         current_term = PresidentService.get_current_term(db)
         if current_term is not None:
@@ -344,13 +342,9 @@ class CertificateService:
         if options.signer != CertificateSigner.ADVISOR:
             return
         if not allow_advisor:
-            raise InvalidCertificateOptionsError(
-                "지도교수님의 서명이 필요한 경우, 운영팀에 별도 문의해주세요."
-            )
+            raise InvalidCertificateOptionsError("지도교수님의 서명이 필요한 경우, 운영팀에 별도 문의해주세요.")
         if not (options.advisor_name and options.advisor_name.strip()):
-            raise InvalidCertificateOptionsError(
-                "지도교수 서명을 선택한 경우 지도교수 성함을 입력해야 합니다."
-            )
+            raise InvalidCertificateOptionsError("지도교수 서명을 선택한 경우 지도교수 성함을 입력해야 합니다.")
 
     @staticmethod
     def _ensure_target_eligible(target_user: User) -> None:

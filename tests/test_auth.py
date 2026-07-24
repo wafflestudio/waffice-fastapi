@@ -418,3 +418,78 @@ class TestCookieAuth:
         # Verify cookie is cleared (session no longer valid)
         me_response = client.get("/auth/me")
         assert me_response.status_code == 401
+
+
+class TestDevSigninPresident:
+    """`POST /auth/signin-dev` with `is_president=True` must make the user an
+    actual current president (`User.is_president`, the source of truth
+    `require_president` checks) -- not just accept the flag as inert input.
+    Regression test for a reported bug where this endpoint set
+    `is_president=True` without going through `PresidentService`, so
+    `require_president`-gated endpoints (e.g. the signature ones) still 403'd."""
+
+    def test_is_president_true_grants_president_access(self, client, db):
+        response = client.post(
+            "/auth/signin-dev",
+            json={
+                "email": "dev-president@example.com",
+                "name": "Dev President",
+                "is_president": True,
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["data"]["user"]["is_president"] is True
+
+        sig_response = client.get("/certificates/signature/me")
+        assert sig_response.status_code == 200
+
+    def test_is_president_true_is_idempotent_across_repeated_signins(self, client, db):
+        """Signing in again with is_president=True (e.g. re-running the dev
+        login) must not create a second `president_terms` row for the same
+        already-current president."""
+        from app.models import PresidentTerm
+
+        payload = {
+            "email": "dev-president-2@example.com",
+            "name": "Dev President",
+            "is_president": True,
+        }
+        first = client.post("/auth/signin-dev", json=payload)
+        second = client.post("/auth/signin-dev", json=payload)
+        assert first.status_code == 200
+        assert second.status_code == 200
+
+        user_id = first.json()["data"]["user"]["id"]
+        term_count = (
+            db.query(PresidentTerm).filter(PresidentTerm.user_id == user_id).count()
+        )
+        assert term_count == 1
+
+    def test_is_president_true_demotes_previous_president(self, client, db):
+        """Appointing a second dev-signin president must demote the first --
+        the `uq_users_current_president` constraint allows only one."""
+        from app.models import User
+
+        first = client.post(
+            "/auth/signin-dev",
+            json={
+                "email": "dev-president-3a@example.com",
+                "name": "First President",
+                "is_president": True,
+            },
+        )
+        assert first.status_code == 200
+        first_id = first.json()["data"]["user"]["id"]
+
+        second = client.post(
+            "/auth/signin-dev",
+            json={
+                "email": "dev-president-3b@example.com",
+                "name": "Second President",
+                "is_president": True,
+            },
+        )
+        assert second.status_code == 200
+
+        db.expire_all()
+        assert db.get(User, first_id).is_president is False
