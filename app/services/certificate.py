@@ -129,9 +129,7 @@ class PresidentService:
             raise NotFoundError("대상 회원을 찾을 수 없습니다.")
 
         if started_at > date.today():
-            raise InvalidPresidentTermError(
-                "임기 시작일은 오늘보다 미래일 수 없습니다 (임명은 즉시 발효됩니다)."
-            )
+            raise InvalidPresidentTermError("임기 시작일은 오늘보다 미래일 수 없습니다 (임명은 즉시 발효됩니다).")
 
         current = PresidentService.get_current(db)
         if current is not None:

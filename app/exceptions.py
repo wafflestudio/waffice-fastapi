@@ -189,9 +189,7 @@ class NotPresidentError(AppError):
 class InvalidSignatureFileError(AppError):
     """400 - Uploaded signature is not a valid PNG/JPEG/WebP image"""
 
-    def __init__(
-        self, message: str = "이미지 파일(PNG, JPG, WEBP)이 맞는지 확인해주세요."
-    ):
+    def __init__(self, message: str = "이미지 파일(PNG, JPG, WEBP)이 맞는지 확인해주세요."):
         super().__init__("INVALID_SIGNATURE_FILE", message, 400)
 
 
@@ -205,9 +203,7 @@ class SignatureFileTooLargeError(AppError):
 class PresidentAppointmentConflictError(AppError):
     """409 - Lost a race with another concurrent president appointment"""
 
-    def __init__(
-        self, message: str = "다른 회장 임명 요청과 충돌했습니다. 다시 시도해주세요."
-    ):
+    def __init__(self, message: str = "다른 회장 임명 요청과 충돌했습니다. 다시 시도해주세요."):
         super().__init__("PRESIDENT_APPOINTMENT_CONFLICT", message, 409)
 
 
@@ -227,7 +223,5 @@ class InvalidPresidentTermError(AppError):
 class SignatureUploadConflictError(AppError):
     """409 - Lost a race with another concurrent signature upload/replace"""
 
-    def __init__(
-        self, message: str = "다른 서명 등록 요청과 충돌했습니다. 다시 시도해주세요."
-    ):
+    def __init__(self, message: str = "다른 서명 등록 요청과 충돌했습니다. 다시 시도해주세요."):
         super().__init__("SIGNATURE_UPLOAD_CONFLICT", message, 409)
