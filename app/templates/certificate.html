@@ -1,0 +1,338 @@
+<!-- 활동증명서(certificate of activities) PDF 템플릿.
+     app.services.certificate_render.build_context()가 만든 컨텍스트로 렌더링된다.
+     WeasyPrint 전용 HTML이며 브라우저에서 직접 열어볼 용도가 아니다(원격 자원 fetch 금지). -->
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>활동증명서</title>
+<meta name="author" content="와플스튜디오">
+<style>
+  /* 발행번호는 페이지마다 반복되는 @page 여백 대신, 본문 하단의 .footer-note
+     블록 하나로만 표시한다(둘 다 쓰면 콘텐츠가 넘쳐 2페이지가 되는 문서에서
+     발행번호가 중복 표시된다). */
+  @page {
+    size: A4;
+    margin: 22mm 18mm 18mm 18mm;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    font-family: "Noto Sans CJK KR", "Noto Sans KR", "NanumGothic", "Malgun Gothic",
+      "Apple SD Gothic Neo", sans-serif;
+    color: #111;
+    font-size: 10.5pt;
+    line-height: 1.5;
+  }
+
+  /* 전면 대각선 워터마크: 위변조 방지용 반복 텍스트 레이어. */
+  .watermark {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+    overflow: hidden;
+  }
+  .watermark-grid {
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    display: flex;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    transform: rotate(-30deg);
+  }
+  .watermark-cell {
+    width: 50%;
+    padding: 20mm 0;
+    text-align: center;
+    font-size: 13pt;
+    font-weight: 700;
+    color: #000;
+    opacity: 0.028;
+    white-space: nowrap;
+  }
+
+  .header {
+    text-align: center;
+    margin-bottom: 8mm;
+  }
+  .header .wordmark {
+    font-size: 12pt;
+    font-weight: 700;
+    letter-spacing: 3px;
+    color: #444;
+  }
+  .header .title {
+    margin-top: 3mm;
+    font-size: 22pt;
+    font-weight: 800;
+    letter-spacing: 6px;
+  }
+
+  section.cert-section {
+    margin-bottom: 6mm;
+    /* 표 중간에서 페이지가 갈라지지 않도록 한다(제목과 표는 항상 같은 페이지). */
+    page-break-inside: avoid;
+  }
+  section.cert-section h2 {
+    font-size: 11.5pt;
+    font-weight: 700;
+    border-bottom: 1.4pt solid #111;
+    padding-bottom: 1.5mm;
+    margin: 0 0 3mm 0;
+  }
+
+  table.section-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9.8pt;
+  }
+  table.section-table th,
+  table.section-table td {
+    border: 0.7pt solid #999;
+    padding: 2.2mm 2.6mm;
+    text-align: center;
+    vertical-align: middle;
+  }
+  table.section-table th {
+    background: #f2f2f2;
+    font-weight: 700;
+  }
+  table.section-table td.empty-row {
+    padding: 4mm 0;
+    color: #555;
+  }
+
+  table.personal-table td.label {
+    width: 22%;
+    background: #f2f2f2;
+    font-weight: 700;
+  }
+  table.personal-table td.value {
+    text-align: left;
+    padding-left: 4mm;
+  }
+
+  /* 증명 문구 + 발급일/서명 + 발행번호/검증 안내를 하나의 단위로 묶어, 페이지가
+     갈라질 때 이 블록 중간에서 끊기지 않고(가능하다면) 통째로 다음 페이지로
+     넘어가게 한다. */
+  .closing-block {
+    page-break-inside: avoid;
+  }
+
+  .certification-sentence {
+    margin: 10mm 0 12mm 0;
+    text-align: center;
+    font-size: 10.8pt;
+    line-height: 1.8;
+  }
+
+  .signoff {
+    position: relative;
+    text-align: right;
+    margin-bottom: 14mm;
+  }
+  .signoff .issued-on {
+    margin-bottom: 3mm;
+  }
+  .signoff .signer-line {
+    position: relative;
+    display: inline-block;
+    font-size: 13pt;
+    font-weight: 700;
+  }
+  .signoff .signature-img {
+    position: absolute;
+    /* 이름줄 "(인)" 위에 서명을 겹쳐 얹되(top:-3mm) 위쪽 발급일 날짜줄은
+       침범하지 않는다. max-width/max-height로 양방향 상자에 가둬 어떤
+       종횡비의 서명이 와도 넘치지 않게 하고, opacity로 흐릿하게 처리해
+       겹친 글자가 비쳐 보이도록 한다. 투명 배경 PNG 권장 — JPEG는 흰 배경
+       박스가 생겨 글자를 가릴 수 있다. */
+    right: -2mm;
+    top: -3mm;
+    max-width: 46mm;
+    max-height: 12mm;
+    object-fit: contain;
+    opacity: 0.85;
+  }
+
+  .footer-note {
+    margin-top: 6mm;
+    font-size: 8.6pt;
+    color: #444;
+  }
+  .footer-note .verify-url {
+    word-break: break-all;
+  }
+</style>
+</head>
+<body>
+
+  <div class="watermark">
+    <div class="watermark-grid">
+      {% for _ in range(10) %}
+      <div class="watermark-cell">WAFFLE STUDIO 활동증명서 원본대조필</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="header">
+    <div class="wordmark">WAFFLE STUDIO</div>
+    <div class="title">활동증명서</div>
+  </div>
+
+  {% for sec in sections %}
+  <section class="cert-section">
+    <h2>{{ sec.number }}. {{ sec.title }}</h2>
+
+    {% if sec.type == "personal" %}
+    <table class="section-table personal-table">
+      <tr>
+        <td class="label">성명</td>
+        <td class="value">{{ sec.data.name }}</td>
+      </tr>
+      <tr>
+        <td class="label">학번</td>
+        <td class="value">{{ sec.data.student_id }}</td>
+      </tr>
+    </table>
+
+    {% elif sec.type == "qualification" %}
+    {% if sec.rows %}
+    <table class="section-table">
+      <thead>
+        <tr>
+          <th style="width: 22%">기준일</th>
+          <th style="width: 48%">내용</th>
+          <th style="width: 30%">사유</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in sec.rows %}
+        <tr>
+          <td>{{ row.date }}</td>
+          <td>{{ row.content }}</td>
+          <td>{{ row.reason }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <table class="section-table"><tr><td class="empty-row">(해당 사실 없음.)</td></tr></table>
+    {% endif %}
+
+    {% elif sec.type == "discipline" %}
+    {% if sec.rows %}
+    <table class="section-table">
+      <thead>
+        <tr>
+          <th>주문</th>
+          <th>이유</th>
+          <th>의결일</th>
+          <th>징계 개시일</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in sec.rows %}
+        <tr>
+          <td>{{ row.order }}</td>
+          <td>{{ row.reason }}</td>
+          <td>{{ row.resolved_on }}</td>
+          <td>{{ row.started_on }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <table class="section-table"><tr><td class="empty-row">(해당 사실 없음.)</td></tr></table>
+    {% endif %}
+
+    {% elif sec.type == "projects" %}
+    {% if sec.rows %}
+    <table class="section-table">
+      <thead>
+        <tr>
+          <th style="width: 40%">명칭</th>
+          <th style="width: 38%">기간</th>
+          <th style="width: 22%">역할</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in sec.rows %}
+        <tr>
+          <td>{{ row.name }}</td>
+          <td>{{ row.period }}</td>
+          <td>{{ row.role }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <table class="section-table"><tr><td class="empty-row">(해당 사실 없음.)</td></tr></table>
+    {% endif %}
+
+    {% elif sec.type == "executive" %}
+    {% if sec.rows %}
+    <table class="section-table">
+      <thead>
+        <tr>
+          <th style="width: 60%">기간</th>
+          <th style="width: 40%">역할</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in sec.rows %}
+        <tr>
+          <td>{{ row.period }}</td>
+          <td>{{ row.role }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <table class="section-table"><tr><td class="empty-row">(해당 사실 없음.)</td></tr></table>
+    {% endif %}
+    {% endif %}
+  </section>
+  {% endfor %}
+
+  <div class="closing-block">
+    <p class="certification-sentence">
+      위 내용은 서울대학교 컴퓨터공학부 웹/앱 개발 동아리 와플스튜디오가 보유한 기록사항과<br>
+      어긋남이 없음을 증명합니다.
+    </p>
+
+    <div class="signoff">
+      <div class="issued-on">발급일&nbsp;&nbsp;{{ issued_on_display }}</div>
+      <div class="signer-line">
+        {% if signer.type == "advisor" %}
+        와플스튜디오 지도교수 {{ signer.name }}(인)
+        {% else %}
+        와플스튜디오 회장 {{ signer.name }}(인)
+        {% if signer.signature_data_uri %}
+        <img class="signature-img" src="{{ signer.signature_data_uri }}" alt="서명">
+        {% endif %}
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="footer-note">
+      <div>발행번호&nbsp;&nbsp;{{ issue_number_display }}</div>
+      <div class="verify-url">
+        ※와플스튜디오 증명서 원본 확인 사이트({{ verify_url }})에서 발급일로부터 90일 이내에 증명서 원본의 내용을 확인할 수 있습니다.
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

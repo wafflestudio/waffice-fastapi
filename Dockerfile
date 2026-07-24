@@ -21,6 +21,19 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
+# System libraries required by WeasyPrint (활동증명서 PDF 렌더링) at runtime,
+# plus a Korean-capable font so Korean text in the PDF doesn't render as tofu.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libpango-1.0-0 \
+        libpangoft2-1.0-0 \
+        libcairo2 \
+        libgdk-pixbuf-2.0-0 \
+        libffi8 \
+        shared-mime-info \
+        fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install uv in runtime (needed to run the app)
 RUN pip install --no-cache-dir uv
 
