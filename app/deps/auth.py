@@ -6,8 +6,10 @@ from sqlalchemy.orm import Session
 from app.config.cookies import ACCESS_TOKEN_COOKIE_NAME
 from app.config.database import get_db
 from app.config.secrets import JWT_SECRET_KEY
+from app.exceptions import NotPresidentError
 from app.models import Qualification, User
 from app.services import UserService
+from app.services.certificate import PresidentService
 
 JWT_ALGORITHM = "HS256"
 
@@ -99,5 +101,25 @@ async def require_admin(user: User = Depends(get_current_user)) -> User:
     if not user.has_admin_access:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Admin permission required"
+        )
+    return user
+
+
+async def require_president(
+    user: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> User:
+    """
+    현직 회장만 접근 가능.
+
+    현직 회장 = `president_terms`에서 ended_at IS NULL인 임기의 user. 관리자
+    권한(is_admin)만으로는 충분하지 않다. 이 파일의 기존 가드들과 동일하게
+    HTTPException을 사용한다(메시지는 `NotPresidentError`의 한국어 메시지를
+    재사용해 단일 출처를 유지한다).
+    """
+    term = PresidentService.get_current(db)
+    if term is None or term.user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=NotPresidentError().message,
         )
     return user

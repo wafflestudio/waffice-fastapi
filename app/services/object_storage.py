@@ -57,22 +57,47 @@ class OCIObjectStorageService:
         object_name = (
             f"profiles/{user_id}/{uuid4()}{PROFILE_IMAGE_EXTENSIONS[file.content_type]}"
         )
+        return self.upload_bytes(
+            object_name,
+            body,
+            file.content_type,
+            error_message="Failed to upload profile image",
+        )
+
+    def delete_profile_image(self, user_id: int, url: str | None) -> None:
+        object_name = self.object_name_from_url(url)
+        if not object_name or not object_name.startswith(f"profiles/{user_id}/"):
+            return
+        self.delete_object(object_name)
+
+    def upload_bytes(
+        self,
+        object_name: str,
+        body: bytes,
+        content_type: str,
+        *,
+        error_message: str = "Failed to upload object",
+    ) -> str:
         try:
             self.client.put_object(
                 self.namespace,
                 self.bucket,
                 object_name,
                 body,
-                content_type=file.content_type,
+                content_type=content_type,
             )
         except Exception as exc:
-            raise ObjectStorageError("Failed to upload profile image") from exc
+            raise ObjectStorageError(error_message) from exc
         return self.public_url(object_name)
 
-    def delete_profile_image(self, user_id: int, url: str | None) -> None:
-        object_name = self.object_name_from_url(url)
-        if not object_name or not object_name.startswith(f"profiles/{user_id}/"):
-            return
+    def get_bytes(self, object_name: str) -> bytes:
+        try:
+            response = self.client.get_object(self.namespace, self.bucket, object_name)
+            return response.data.content
+        except Exception as exc:
+            raise ObjectStorageError("Failed to download object") from exc
+
+    def delete_object(self, object_name: str) -> None:
         try:
             self.client.delete_object(self.namespace, self.bucket, object_name)
         except Exception:
