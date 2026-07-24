@@ -187,9 +187,9 @@ class NotPresidentError(AppError):
 
 
 class InvalidSignatureFileError(AppError):
-    """400 - Uploaded signature is not a valid PNG/JPEG/WebP/GIF image"""
+    """400 - Uploaded signature is not a valid PNG/JPEG/WebP image"""
 
-    def __init__(self, message: str = "이미지 파일(PNG, JPG, WEBP, GIF)이 맞는지 확인해주세요."):
+    def __init__(self, message: str = "이미지 파일(PNG, JPG, WEBP)이 맞는지 확인해주세요."):
         super().__init__("INVALID_SIGNATURE_FILE", message, 400)
 
 

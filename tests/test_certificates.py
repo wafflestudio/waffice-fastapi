@@ -137,6 +137,9 @@ def fake_storage(monkeypatch: pytest.MonkeyPatch) -> dict:
         def delete_object(self, object_name: str) -> None:
             data.pop(object_name, None)
 
+        def public_url(self, object_name: str) -> str:
+            return f"https://fake.local/{object_name}"
+
     monkeypatch.setattr(
         "app.routes.certificates.OCIObjectStorageService", FakeObjectStorage
     )
@@ -593,7 +596,7 @@ class TestSignatureUpload:
     def test_upload_rejects_unsupported_content_type(
         self, client: TestClient, president_token: str, open_president_term
     ):
-        """A genuinely non-image content-type (not in the PNG/JPEG/WebP/GIF
+        """A genuinely non-image content-type (not in the PNG/JPEG/WebP
         allowlist) is rejected before the body is even magic-byte-checked."""
         response = _upload_signature(
             client,
@@ -660,7 +663,6 @@ class TestSignatureUpload:
             ("image/png", VALID_PNG_BYTES, ".png"),
             ("image/jpeg", VALID_JPEG_BYTES, ".jpg"),
             ("image/webp", VALID_WEBP_BYTES, ".webp"),
-            ("image/gif", VALID_GIF_BYTES, ".gif"),
         ],
     )
     def test_upload_accepts_each_allowed_format(
@@ -675,7 +677,7 @@ class TestSignatureUpload:
         body: bytes,
         expected_ext: str,
     ):
-        """PNG (regression), JPEG, WebP, and GIF -- each with a real image
+        """PNG (regression), JPEG, and WebP -- each with a real image
         body of its own format -- are all accepted, and the stored
         object_key gets the matching extension."""
         response = _upload_signature(
@@ -690,6 +692,18 @@ class TestSignatureUpload:
         )
         assert row.object_key.endswith(expected_ext)
         assert row.object_key in fake_storage
+
+    def test_upload_rejects_gif(
+        self, client: TestClient, president_token: str, open_president_term
+    ):
+        """GIF is deliberately excluded from the allowlist -- animated frames
+        aren't validated, and profile image upload also excludes GIF, so
+        signatures stay consistent with that."""
+        response = _upload_signature(
+            client, president_token, body=VALID_GIF_BYTES, content_type="image/gif"
+        )
+        assert response.status_code == 400
+        assert response.json()["error"] == "INVALID_SIGNATURE_FILE"
 
     def test_upload_happy_path_and_replace(
         self,
