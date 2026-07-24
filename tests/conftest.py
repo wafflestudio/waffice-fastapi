@@ -37,7 +37,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config.database import Base, Engine, get_db
 from app.main import app
-from app.models import PresidentTerm, Qualification, User, UserRole
+from app.models import PresidentTerm, Qualification, User
 from app.services import PresidentService, UserService
 
 # JWT config (must match app/deps/auth.py default)

@@ -115,19 +115,33 @@ class PresidentService:
         시작일보다 훨씬 전에 서명 업로드/조회 권한을 즉시 얻고 전임 회장은
         즉시 잃는다 — 접근 제어 경계가 임기 시작일과 어긋난다. 이 엔드포인트는
         "지금 임명"을 의미하므로 미래 날짜는 거부한다.
+
+        `User.is_president`(main의 `feat: add user roles`가 추가한 별도
+        boolean 컬럼, `has_admin_access = is_admin or is_president`가 참조함)를
+        여기서 함께 갱신한다: 신임 회장은 True, 전임 회장(있다면)은 False로
+        되돌린다. 이 동기화가 없으면 `president_terms`(우리 쪽 "현직 회장" 진실
+        공급원)와 `User.is_president`가 서로 다른 사람을 가리킬 수 있어 —
+        회장은 되었는데 `has_admin_access`가 안 켜지거나, 회장에서 물러난
+        사람이 계속 관리자 권한을 갖는 상황이 생긴다.
         """
         target = UserService.get(db, user_id)
         if target is None:
             raise NotFoundError("대상 회원을 찾을 수 없습니다.")
 
         if started_at > date.today():
-            raise InvalidPresidentTermError("임기 시작일은 오늘보다 미래일 수 없습니다 (임명은 즉시 발효됩니다).")
+            raise InvalidPresidentTermError(
+                "임기 시작일은 오늘보다 미래일 수 없습니다 (임명은 즉시 발효됩니다)."
+            )
 
         current = PresidentService.get_current(db)
         if current is not None:
             if started_at < current.started_at:
                 raise InvalidPresidentTermError()
             current.ended_at = started_at
+            if current.user_id != user_id:
+                current.user.is_president = False
+
+        target.is_president = True
 
         term = PresidentTerm(user_id=user_id, started_at=started_at)
         db.add(term)
