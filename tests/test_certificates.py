@@ -11,6 +11,7 @@ it: `monkeypatch.setattr("app.routes.certificates.OCIObjectStorageService", ...)
 
 import base64
 import threading
+import time
 import uuid
 from datetime import date, timedelta
 from io import BytesIO
@@ -25,7 +26,14 @@ from app.exceptions import (
     PresidentAppointmentConflictError,
     SignatureUploadConflictError,
 )
-from app.models import Certificate, CertificateSignature, PresidentTerm, User
+from app.models import (
+    Certificate,
+    CertificateEvent,
+    CertificateSignature,
+    PresidentTerm,
+    User,
+)
+from app.models.enums import AuditAction, CertificateKind, CertificateStatus
 from app.routes import certificates as certificates_route
 from app.services.certificate import (
     CertificateService,
@@ -236,6 +244,194 @@ class TestPreview:
         assert preview_resp.content.startswith(PDF_MAGIC)
         # Not persisted.
         assert db.query(Certificate).count() == 0
+
+
+class TestSelfIssuance:
+    """POST /certificates (kind=SELF)."""
+
+    def test_associate_cannot_issue(self, client: TestClient, associate_token: str):
+        response = client.post(
+            "/certificates", json=_options(), headers=_auth(associate_token)
+        )
+        assert response.status_code == 403
+        assert response.json()["error"] == "ASSOCIATE_CANNOT_ISSUE_CERTIFICATE"
+
+    def test_no_current_president_returns_409(
+        self, client: TestClient, regular_token: str
+    ):
+        """No `president_terms` row at all -> PRESIDENT_NOT_FOUND."""
+        response = client.post(
+            "/certificates", json=_options(), headers=_auth(regular_token)
+        )
+        assert response.status_code == 409
+        assert response.json()["error"] == "PRESIDENT_NOT_FOUND"
+
+    def test_president_without_signature_returns_409(
+        self,
+        client: TestClient,
+        regular_token: str,
+        open_president_term: PresidentTerm,
+    ):
+        """President exists but never registered a signature -> PRESIDENT_SIGNATURE_NOT_FOUND."""
+        response = client.post(
+            "/certificates", json=_options(), headers=_auth(regular_token)
+        )
+        assert response.status_code == 409
+        assert response.json()["error"] == "PRESIDENT_SIGNATURE_NOT_FOUND"
+
+    @pytest.mark.usefixtures("open_president_term")
+    def test_advisor_signer_rejected_on_self_issue(
+        self, client: TestClient, regular_token: str
+    ):
+        response = client.post(
+            "/certificates",
+            json=_options(signer="advisor", advisor_name="서진욱"),
+            headers=_auth(regular_token),
+        )
+        assert response.status_code == 400
+        assert response.json()["error"] == "INVALID_CERTIFICATE_OPTIONS"
+
+    def test_happy_path_self_issue(
+        self,
+        client: TestClient,
+        db: Session,
+        regular_token: str,
+        regular_user: User,
+        president_token: str,
+        open_president_term: PresidentTerm,
+    ):
+        pytest.importorskip("weasyprint")
+        upload_resp = _upload_signature(client, president_token)
+        assert upload_resp.status_code == 200
+
+        # Preview first: masked issue number, not persisted.
+        preview_resp = client.post(
+            "/certificates/preview", json=_options(), headers=_auth(regular_token)
+        )
+        assert preview_resp.status_code == 200
+        assert preview_resp.headers["content-type"] == "application/pdf"
+        assert preview_resp.content.startswith(PDF_MAGIC)
+        assert db.query(Certificate).count() == 0
+
+        issue_resp = client.post(
+            "/certificates", json=_options(), headers=_auth(regular_token)
+        )
+        assert issue_resp.status_code == 200
+        body = issue_resp.json()
+        assert body["ok"] is True
+        detail = body["data"]
+
+        assert detail["status"] == "issued"
+        assert detail["kind"] == "self"
+        assert detail["user"]["id"] == regular_user.id
+        assert detail["requested_by"]["id"] == regular_user.id
+        assert detail["issued_at"] is not None
+        assert detail["expires_at"] == detail["issued_at"] + 90 * 24 * 3600
+
+        # issue_number is a real UUID (raises if malformed).
+        uuid.UUID(detail["issue_number"])
+
+        actions = [(e["action"], e["actor_type"]) for e in detail["events"]]
+        assert actions == [
+            ("applied", "applicant"),
+            ("issued", "system"),
+        ]
+        assert detail["events"][0]["actor"]["id"] == regular_user.id
+        assert detail["events"][1]["actor"] is None
+
+        cert_id = detail["id"]
+        events_in_db = (
+            db.query(CertificateEvent)
+            .filter(CertificateEvent.certificate_id == cert_id)
+            .count()
+        )
+        assert events_in_db == 2
+
+        # PDF actually got uploaded to (fake) object storage.
+        db_cert = db.get(Certificate, cert_id)
+        assert db_cert.pdf_object_key is not None
+
+        download_resp = client.get(
+            f"/certificates/{cert_id}/download", headers=_auth(regular_token)
+        )
+        assert download_resp.status_code == 200
+        assert download_resp.headers["content-type"] == "application/pdf"
+        assert download_resp.content.startswith(PDF_MAGIC)
+
+    def test_discipline_section_always_renders(
+        self,
+        client: TestClient,
+        db: Session,
+        regular_token: str,
+        president_token: str,
+        open_president_term: PresidentTerm,
+    ):
+        """Section 3 (징계) is always present in the snapshot even when every
+        optional section is off -- it cannot be deselected."""
+        pytest.importorskip("weasyprint")
+        assert _upload_signature(client, president_token).status_code == 200
+
+        issue_resp = client.post(
+            "/certificates",
+            json=_options(
+                include_qualification_history=False,
+                include_projects=False,
+                include_executive=False,
+            ),
+            headers=_auth(regular_token),
+        )
+        assert issue_resp.status_code == 200
+        cert_id = issue_resp.json()["data"]["id"]
+
+        db_cert = db.get(Certificate, cert_id)
+        section_types = [s["type"] for s in db_cert.snapshot["sections"]]
+        assert "discipline" in section_types
+        discipline = next(
+            s for s in db_cert.snapshot["sections"] if s["type"] == "discipline"
+        )
+        assert discipline["title"] == "징계 의결의 주문, 이유, 의결일 및 징계 개시일"
+        assert discipline["rows"] == []
+        # Only the always-on sections (기본 인적 사항, 징계) are present.
+        assert section_types == ["personal", "discipline"]
+
+    def test_qualification_history_section_includes_synthetic_first_row(
+        self,
+        client: TestClient,
+        db: Session,
+        regular_token: str,
+        regular_user: User,
+        president_token: str,
+        open_president_term: PresidentTerm,
+    ):
+        pytest.importorskip("weasyprint")
+        assert _upload_signature(client, president_token).status_code == 200
+
+        from app.models import AuditLog
+
+        log = AuditLog(
+            user_id=regular_user.id,
+            actor_id=None,
+            action=AuditAction.QUALIFICATION_CHANGED,
+            payload={"from": "associate", "to": "regular"},
+        )
+        db.add(log)
+        db.commit()
+
+        issue_resp = client.post(
+            "/certificates",
+            json=_options(include_qualification_history=True),
+            headers=_auth(regular_token),
+        )
+        assert issue_resp.status_code == 200
+        cert_id = issue_resp.json()["data"]["id"]
+
+        db_cert = db.get(Certificate, cert_id)
+        qualification_section = next(
+            s for s in db_cert.snapshot["sections"] if s["type"] == "qualification"
+        )
+        rows = qualification_section["rows"]
+        assert rows[0]["content"] == "회원 자격 취득"
+        assert rows[1]["content"] == "준회원 → 정회원"
 
 
 class TestDraftCertificates:
@@ -881,6 +1077,340 @@ class TestSignatureDataUriMime:
         upload = _upload_signature(client, president_token)  # default: real PNG
         assert upload.status_code == 200
         assert self._resolved_data_uri(db).startswith("data:image/png;base64,")
+
+
+class TestDownload:
+    """GET /certificates/{certificate_id}/download (owner or admin)."""
+
+    def test_owner_can_download(
+        self,
+        client: TestClient,
+        regular_token: str,
+        president_token: str,
+        open_president_term: PresidentTerm,
+    ):
+        pytest.importorskip("weasyprint")
+        assert _upload_signature(client, president_token).status_code == 200
+        cert = client.post(
+            "/certificates", json=_options(), headers=_auth(regular_token)
+        ).json()["data"]
+
+        response = client.get(
+            f"/certificates/{cert['id']}/download", headers=_auth(regular_token)
+        )
+        assert response.status_code == 200
+        assert response.content.startswith(PDF_MAGIC)
+
+    def test_other_member_forbidden(
+        self,
+        client: TestClient,
+        regular_token: str,
+        active_token: str,
+        president_token: str,
+        open_president_term: PresidentTerm,
+    ):
+        pytest.importorskip("weasyprint")
+        assert _upload_signature(client, president_token).status_code == 200
+        cert = client.post(
+            "/certificates", json=_options(), headers=_auth(regular_token)
+        ).json()["data"]
+
+        response = client.get(
+            f"/certificates/{cert['id']}/download", headers=_auth(active_token)
+        )
+        assert response.status_code == 403
+
+    def test_admin_can_download_anyones_certificate(
+        self,
+        client: TestClient,
+        regular_token: str,
+        admin_token: str,
+        president_token: str,
+        open_president_term: PresidentTerm,
+    ):
+        pytest.importorskip("weasyprint")
+        assert _upload_signature(client, president_token).status_code == 200
+        cert = client.post(
+            "/certificates", json=_options(), headers=_auth(regular_token)
+        ).json()["data"]
+
+        response = client.get(
+            f"/certificates/{cert['id']}/download", headers=_auth(admin_token)
+        )
+        assert response.status_code == 200
+        assert response.content.startswith(PDF_MAGIC)
+
+    def test_download_without_pdf_returns_404(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        regular_user: User,
+    ):
+        """Edge case that shouldn't occur through the normal flow (both SELF
+        and DRAFT creation render+upload immediately) but is still a defined
+        contract: a certificate row with no pdf_object_key -> 404."""
+        cert = Certificate(
+            user_id=regular_user.id,
+            requested_by_id=regular_user.id,
+            kind=CertificateKind.SELF,
+            status=CertificateStatus.ISSUED,
+            options=_options(),
+        )
+        db.add(cert)
+        db.commit()
+
+        response = client.get(
+            f"/certificates/{cert.id}/download", headers=_auth(admin_token)
+        )
+        assert response.status_code == 404
+        assert response.json()["error"] == "CERTIFICATE_NOT_FOUND"
+
+    def test_download_missing_certificate_returns_404(
+        self, client: TestClient, admin_token: str
+    ):
+        response = client.get(
+            "/certificates/999999/download", headers=_auth(admin_token)
+        )
+        assert response.status_code == 404
+        assert response.json()["error"] == "CERTIFICATE_NOT_FOUND"
+
+
+class TestCertificateExpiry:
+    """`expires_at` 경과 시 원본 폐기 + CERTIFICATE_EXPIRED (lazy purge on
+    access) 및 `POST /certificates/purge-expired` (운영진 일괄 폐기)."""
+
+    def test_download_after_expiry_purges_and_returns_410(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        regular_user: User,
+        fake_storage: dict,
+    ):
+        object_key = f"certificates/expired/{uuid.uuid4()}.pdf"
+        fake_storage[object_key] = PDF_MAGIC + b"expired body"
+        cert = Certificate(
+            user_id=regular_user.id,
+            requested_by_id=regular_user.id,
+            kind=CertificateKind.SELF,
+            status=CertificateStatus.ISSUED,
+            options=_options(),
+            issue_number=str(uuid.uuid4()),
+            pdf_object_key=object_key,
+            snapshot={"some": "content"},
+            issued_at=int(time.time()),
+            expires_at=int(time.time()) - 1,
+        )
+        db.add(cert)
+        db.commit()
+
+        response = client.get(
+            f"/certificates/{cert.id}/download", headers=_auth(admin_token)
+        )
+        assert response.status_code == 410
+        assert response.json()["error"] == "CERTIFICATE_EXPIRED"
+
+        db.expire_all()
+        row = db.get(Certificate, cert.id)
+        assert row.pdf_object_key is None
+        assert row.snapshot is None
+        assert object_key not in fake_storage
+
+    def test_second_access_after_expiry_still_returns_410(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        regular_user: User,
+        fake_storage: dict,
+    ):
+        """Content is already purged on the first access -- a second access
+        must not error out trying to re-purge (`pdf_object_key` is already
+        None), and must still report the certificate as expired rather than
+        falling through to CERTIFICATE_NOT_FOUND."""
+        cert = Certificate(
+            user_id=regular_user.id,
+            requested_by_id=regular_user.id,
+            kind=CertificateKind.SELF,
+            status=CertificateStatus.ISSUED,
+            options=_options(),
+            issue_number=str(uuid.uuid4()),
+            pdf_object_key=None,
+            snapshot=None,
+            issued_at=int(time.time()),
+            expires_at=int(time.time()) - 1,
+        )
+        db.add(cert)
+        db.commit()
+
+        response = client.get(
+            f"/certificates/{cert.id}/download", headers=_auth(admin_token)
+        )
+        assert response.status_code == 410
+        assert response.json()["error"] == "CERTIFICATE_EXPIRED"
+
+    def test_purge_all_expired_purges_only_expired_rows(
+        self,
+        db: Session,
+        regular_user: User,
+        active_user: User,
+        fake_storage: dict,
+    ):
+        """`CertificateService.purge_all_expired` is what the scheduled job
+        (`app/scheduler.py`) calls -- exercised directly here rather than
+        through an HTTP endpoint, since there is no admin-facing route for
+        it (purging is scheduler-only, not operator-triggered)."""
+        expired_key = f"certificates/expired/{uuid.uuid4()}.pdf"
+        valid_key = f"certificates/valid/{uuid.uuid4()}.pdf"
+        fake_storage[expired_key] = PDF_MAGIC + b"expired"
+        fake_storage[valid_key] = PDF_MAGIC + b"valid"
+
+        expired_cert = Certificate(
+            user_id=regular_user.id,
+            requested_by_id=regular_user.id,
+            kind=CertificateKind.SELF,
+            status=CertificateStatus.ISSUED,
+            options=_options(),
+            issue_number=str(uuid.uuid4()),
+            pdf_object_key=expired_key,
+            snapshot={"some": "content"},
+            issued_at=int(time.time()),
+            expires_at=int(time.time()) - 1,
+        )
+        valid_cert = Certificate(
+            user_id=active_user.id,
+            requested_by_id=active_user.id,
+            kind=CertificateKind.SELF,
+            status=CertificateStatus.ISSUED,
+            options=_options(),
+            issue_number=str(uuid.uuid4()),
+            pdf_object_key=valid_key,
+            snapshot={"some": "content"},
+            issued_at=int(time.time()),
+            expires_at=int(time.time()) + 999999,
+        )
+        db.add_all([expired_cert, valid_cert])
+        db.commit()
+
+        storage = certificates_route.OCIObjectStorageService()
+        purged_count = CertificateService.purge_all_expired(db, storage)
+        assert purged_count == 1
+
+        db.expire_all()
+        assert db.get(Certificate, expired_cert.id).pdf_object_key is None
+        assert db.get(Certificate, valid_cert.id).pdf_object_key == valid_key
+        assert expired_key not in fake_storage
+        assert valid_key in fake_storage
+
+
+class TestMyCertificates:
+    """GET /certificates/me — created_at DESC, id DESC, cursor round-trip."""
+
+    def test_list_own_orders_newest_first_and_paginates(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        regular_token: str,
+        regular_user: User,
+    ):
+        pytest.importorskip("weasyprint")
+        ids = []
+        for _ in range(3):
+            draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
+            ids.append(draft["id"])
+
+        # Own list only shows certs where user_id == self (not requested_by).
+        page1 = client.get(
+            "/certificates/me?limit=2", headers=_auth(regular_token)
+        ).json()["data"]
+        assert len(page1["items"]) == 2
+        assert page1["next_cursor"] is not None
+        assert [item["id"] for item in page1["items"]] == list(reversed(ids))[:2]
+
+        page2 = client.get(
+            f"/certificates/me?limit=2&cursor={page1['next_cursor']}",
+            headers=_auth(regular_token),
+        ).json()["data"]
+        assert [item["id"] for item in page2["items"]] == list(reversed(ids))[2:]
+        assert page2["next_cursor"] is None
+
+    def test_next_cursor_is_a_json_string_beyond_js_safe_integer(
+        self,
+        client: TestClient,
+        admin_token: str,
+        regular_token: str,
+        regular_user: User,
+    ):
+        """`next_cursor` encodes `created_at * _ME_CURSOR_ID_OFFSET + id`, which is
+        comfortably larger than JS's safe integer bound
+        (`Number.MAX_SAFE_INTEGER` = 2**53 - 1 = 9007199254740991). If this
+        were serialized as a plain JSON number, a standard JS/TS client would
+        silently round it on `JSON.parse`, corrupting the cursor and causing
+        the next page request to skip or duplicate rows. It must round-trip
+        as an opaque numeric *string* instead."""
+        pytest.importorskip("weasyprint")
+        for _ in range(2):
+            _create_draft(client, admin_token, regular_user.id)
+
+        page1 = client.get(
+            "/certificates/me?limit=1", headers=_auth(regular_token)
+        ).json()["data"]
+        cursor = page1["next_cursor"]
+        assert isinstance(cursor, str)
+        assert int(cursor) > 2**53 - 1
+
+        page2 = client.get(
+            f"/certificates/me?limit=1&cursor={cursor}",
+            headers=_auth(regular_token),
+        )
+        assert page2.status_code == 200
+        assert len(page2.json()["data"]["items"]) == 1
+
+    def test_invalid_cursor_returns_400(self, client: TestClient, regular_token: str):
+        response = client.get(
+            "/certificates/me?cursor=not-a-number", headers=_auth(regular_token)
+        )
+        assert response.status_code == 400
+        assert response.json()["error"] == "INVALID_CURSOR"
+
+    def test_cursor_roundtrips_ids_up_to_int32_max(self):
+        """`Certificate.id` is a MySQL `INT` (signed 32-bit) column, so a
+        legitimate id can reach 2**31 - 1 (2,147,483,647). `_encode_cursor`/
+        `_decode_cursor` multiplex `(created_at, id)` into a single integer
+        via `id + created_at * _ME_CURSOR_ID_OFFSET`; if `_ME_CURSOR_ID_OFFSET`
+        were <= a real id, `divmod` would decode the wrong (created_at, id)
+        pair. Exercise the encode/decode helpers directly (no DB round-trip
+        needed) at the column's own ceiling."""
+        from app.services.certificate import (
+            _ME_CURSOR_ID_OFFSET,
+            _decode_cursor,
+            _encode_cursor,
+        )
+
+        created_at = 1_700_000_000
+        cert_id = 2**31 - 1  # INT column max.
+        cursor = _encode_cursor(created_at, cert_id, _ME_CURSOR_ID_OFFSET)
+        assert _decode_cursor(cursor, _ME_CURSOR_ID_OFFSET) == (created_at, cert_id)
+
+    def test_list_own_excludes_other_users_certificates(
+        self,
+        client: TestClient,
+        admin_token: str,
+        regular_token: str,
+        regular_user: User,
+        active_user: User,
+    ):
+        pytest.importorskip("weasyprint")
+        _create_draft(client, admin_token, regular_user.id)
+        _create_draft(client, admin_token, active_user.id)
+
+        page = client.get("/certificates/me", headers=_auth(regular_token)).json()[
+            "data"
+        ]
+        assert len(page["items"]) == 1
+        assert page["items"][0]["id"] is not None
 
 
 class TestRenderContextMasking:

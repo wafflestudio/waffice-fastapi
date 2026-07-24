@@ -16,6 +16,7 @@ from app.schemas.certificate import (
     CertificateDetail,
     CertificateEventItem,
     CertificateOptions,
+    CertificateSummary,
     DraftCertificateCreate,
     PresidentTermCreate,
     PresidentTermDetail,
@@ -112,4 +113,5 @@ __all__ = [
     "DraftCertificateCreate",
     "CertificateDetail",
     "CertificateEventItem",
+    "CertificateSummary",
 ]
