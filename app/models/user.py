@@ -3,12 +3,15 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     Column,
+    Computed,
     Enum,
     Index,
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
+from sqlalchemy.dialects.mysql import TINYINT
 from sqlalchemy.orm import relationship
 
 from app.config.database import Base
@@ -50,6 +53,18 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     is_leader = Column(Boolean, nullable=False, default=False)
     is_admin = Column(Boolean, nullable=False, default=False)
     is_president = Column(Boolean, nullable=False, default=False)
+    # `is_president`가 "현직 회장"의 진실 공급원이다 (`president_terms`는
+    # 이 값이 바뀔 때마다 `PresidentService.appoint`/`step_down`이 남기는
+    # 순수 이력 로그일 뿐, 더 이상 현직 판단에 쓰이지 않는다). 동시에 두 명
+    # 이상이 회장일 수 없다는 불변식을, `PresidentTerm.is_current`가 쓰던
+    # 것과 같은 생성 컬럼 + UNIQUE 인덱스 트릭으로 이 테이블에 직접 강제한다:
+    # is_president가 false/NULL이면 이 컬럼도 NULL이라 유니크 인덱스가
+    # 여러 명을 허용하지만, true인 사람은 최대 한 명만 허용된다.
+    is_president_marker = Column(
+        TINYINT,
+        Computed("IF(is_president, 1, NULL)", persisted=False),
+        nullable=True,
+    )
 
     @property
     def has_admin_access(self) -> bool:
@@ -122,4 +137,5 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
         Index("idx_users_is_temporary", "is_temporary"),
         # Roster import matches existing members by student_id.
         Index("idx_users_student_id", "student_id"),
+        UniqueConstraint("is_president_marker", name="uq_users_current_president"),
     )

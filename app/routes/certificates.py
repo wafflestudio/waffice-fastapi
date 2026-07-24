@@ -152,7 +152,8 @@ def get_existing_certificate(db: Session, certificate_id: int) -> Certificate:
     "/preview",
     summary="활동증명서 미리보기",
     description=(
-        "현재 로그인한 회원 기준으로 활동증명서를 렌더링해 PDF로 돌려준다. " "저장되지 않으며, 발행번호는 'XXXX'로 마스킹된다."
+        "현재 로그인한 회원 기준으로 활동증명서를 렌더링해 PDF로 돌려준다. "
+        "저장되지 않으며, 발행번호는 'XXXX'로 마스킹된다."
     ),
 )
 async def preview_certificate(
@@ -355,7 +356,10 @@ async def preview_draft_certificate(
     "/drafts",
     response_model=Response[CertificateDetail],
     summary="활동증명서 초안 생성 (운영진)",
-    description=("운영진이 지정 회원의 활동증명서 초안을 생성한다. 발행번호는 회장이 " "오프라인 서명 원본을 등록할 때 부여된다."),
+    description=(
+        "운영진이 지정 회원의 활동증명서 초안을 생성한다. 발행번호는 회장이 "
+        "오프라인 서명 원본을 등록할 때 부여된다."
+    ),
 )
 async def create_draft_certificate(
     request: DraftCertificateCreate,
@@ -404,7 +408,7 @@ async def get_current_president(
     _admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    term = PresidentService.get_current(db)
+    term = PresidentService.get_current_term(db)
     return Response(
         ok=True,
         data=PresidentTermDetail.model_validate(term) if term else None,
