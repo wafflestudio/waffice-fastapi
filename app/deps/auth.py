@@ -98,7 +98,7 @@ async def require_admin(user: User = Depends(get_current_user)) -> User:
     Require user to be admin.
     Raises 403 if user is not admin.
     """
-    if not user.is_admin:
+    if not user.has_admin_access:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Admin permission required"
         )

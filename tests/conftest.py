@@ -179,7 +179,7 @@ def admin_user(db: Session) -> User:
         name="Admin User",
         generation="26",
         qualification=Qualification.ACTIVE,
-        role=UserRole.ADMIN,
+        is_admin=True,
         google_id="admin_google_id",
     )
     return user
