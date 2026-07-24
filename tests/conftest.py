@@ -255,3 +255,61 @@ def open_president_term(db: Session, president_user: User) -> PresidentTerm:
     return PresidentService.appoint(
         db, user_id=president_user.id, started_at=date(2026, 1, 1)
     )
+
+
+@pytest.fixture
+def president_flag_user(db: Session) -> User:
+    """A user with `is_admin`/`is_president` set directly, for exercising the
+    `has_admin_access`/role-flag system in isolation. Distinct from
+    `president_user`, which represents 회장 via the `president_terms` table
+    (`PresidentService.appoint` keeps `is_president` in sync with that table,
+    but this fixture bypasses `appoint` entirely to test the flags on their
+    own)."""
+    user = UserService.create(
+        db,
+        email="president_flag@example.com",
+        name="President Flag User",
+        generation="26",
+        qualification=Qualification.ACTIVE,
+        is_admin=True,
+        is_president=True,
+        google_id="president_flag_google_id",
+    )
+    return user
+
+
+@pytest.fixture
+def president_flag_token(president_flag_user: User) -> str:
+    """Create JWT token for `president_flag_user`."""
+    return create_access_token(
+        president_flag_user.id,
+        president_flag_user.email,
+        president_flag_user.google_id,
+    )
+
+
+@pytest.fixture
+def leader_and_president_flag_user(db: Session) -> User:
+    """Like `president_flag_user`, but also `is_leader=True`."""
+    user = UserService.create(
+        db,
+        email="leader_president_flag@example.com",
+        name="Leader President Flag User",
+        generation="26",
+        qualification=Qualification.ACTIVE,
+        is_leader=True,
+        is_admin=True,
+        is_president=True,
+        google_id="leader_president_flag_google_id",
+    )
+    return user
+
+
+@pytest.fixture
+def leader_and_president_flag_token(leader_and_president_flag_user: User) -> str:
+    """Create JWT token for `leader_and_president_flag_user`."""
+    return create_access_token(
+        leader_and_president_flag_user.id,
+        leader_and_president_flag_user.email,
+        leader_and_president_flag_user.google_id,
+    )
