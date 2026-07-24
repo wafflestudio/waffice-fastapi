@@ -19,13 +19,6 @@ class MemberRole(str, Enum):
     MEMBER = "member"
 
 
-class UserRole(str, Enum):
-    MEMBER = "member"
-    LEADER = "leader"
-    ADMIN = "admin"
-    ADMIN_AND_LEADER = "admin_and_leader"
-
-
 class AuditAction(str, Enum):
     QUALIFICATION_CHANGED = "qualification_changed"
     ROLE_CHANGED = "role_changed"

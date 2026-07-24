@@ -11,7 +11,7 @@ def require_leader_or_admin(project_id: int, user: User, db: Session) -> Project
     Returns the project if authorized, raises 403 otherwise.
     """
     # Admin has full access
-    if user.is_admin:
+    if user.has_admin_access:
         project = ProjectService.get(db, project_id)
         if not project:
             raise HTTPException(

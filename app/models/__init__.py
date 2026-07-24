@@ -13,7 +13,6 @@ from app.models.enums import (
     MemberRole,
     ProjectStatus,
     Qualification,
-    UserRole,
 )
 from app.models.president import PresidentTerm
 from app.models.project import Project
@@ -30,7 +29,6 @@ __all__ = [
     "ProjectStatus",
     "MemberRole",
     "ApprovalStatus",
-    "UserRole",
     "User",
     "AuditLog",
     "UserActivity",
