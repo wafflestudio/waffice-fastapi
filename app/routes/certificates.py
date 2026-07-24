@@ -100,6 +100,18 @@ def _to_signature_detail(
     )
 
 
+def _to_signature_detail(
+    signature, storage: OCIObjectStorageService
+) -> SignatureDetail:
+    return SignatureDetail(
+        id=signature.id,
+        user_id=signature.user_id,
+        url=storage.public_url(signature.object_key),
+        created_at=signature.created_at,
+        updated_at=signature.updated_at,
+    )
+
+
 def to_detail(certificate: Certificate) -> CertificateDetail:
     """`Certificate.events`는 relationship에 order_by가 없으므로 여기서 정렬한다."""
     events = sorted(certificate.events, key=lambda event: (event.created_at, event.id))
