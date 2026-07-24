@@ -100,18 +100,6 @@ def _to_signature_detail(
     )
 
 
-def _to_signature_detail(
-    signature, storage: OCIObjectStorageService
-) -> SignatureDetail:
-    return SignatureDetail(
-        id=signature.id,
-        user_id=signature.user_id,
-        url=storage.public_url(signature.object_key),
-        created_at=signature.created_at,
-        updated_at=signature.updated_at,
-    )
-
-
 def to_detail(certificate: Certificate) -> CertificateDetail:
     """`Certificate.events`는 relationship에 order_by가 없으므로 여기서 정렬한다."""
     events = sorted(certificate.events, key=lambda event: (event.created_at, event.id))
@@ -156,7 +144,8 @@ def get_existing_certificate(db: Session, certificate_id: int) -> Certificate:
     "/preview",
     summary="활동증명서 미리보기",
     description=(
-        "현재 로그인한 회원 기준으로 활동증명서를 렌더링해 PDF로 돌려준다. " "저장되지 않으며, 발행번호는 'XXXX'로 마스킹된다."
+        "현재 로그인한 회원 기준으로 활동증명서를 렌더링해 PDF로 돌려준다. "
+        "저장되지 않으며, 발행번호는 'XXXX'로 마스킹된다."
     ),
 )
 async def preview_certificate(
@@ -321,7 +310,10 @@ async def preview_draft_certificate(
     "/drafts",
     response_model=Response[CertificateDetail],
     summary="활동증명서 초안 생성 (운영진)",
-    description=("운영진이 지정 회원의 활동증명서 초안을 생성한다. 발행번호는 회장이 " "오프라인 서명 원본을 등록할 때 부여된다."),
+    description=(
+        "운영진이 지정 회원의 활동증명서 초안을 생성한다. 발행번호는 회장이 "
+        "오프라인 서명 원본을 등록할 때 부여된다."
+    ),
 )
 async def create_draft_certificate(
     request: DraftCertificateCreate,
