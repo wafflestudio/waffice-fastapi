@@ -61,19 +61,28 @@ def _is_webp(body: bytes) -> bool:
     return len(body) >= 12 and body[:4] == b"RIFF" and body[8:12] == b"WEBP"
 
 
-def _is_gif(body: bytes) -> bool:
-    return body.startswith(b"GIF87a") or body.startswith(b"GIF89a")
-
-
-# 회장 서명으로 허용하는 이미지 포맷: content-type -> (magic-byte 검사 함수, 확장자).
-# SVG는 스크립트/외부 참조를 품을 수 있어 향후 렌더러 보안상 제외한다.
+# 회장 서명으로 허용하는 이미지 포맷: content-type -> (매직바이트 검사 함수, 확장자).
+# SVG는 스크립트/외부 참조를 품을 수 있어 향후 렌더러 보안상 제외한다. GIF는
+# 애니메이션(다중 프레임) 여부를 검증하지 않고, 프로필 이미지 업로드
+# (app/routes/profile_image.py)도 GIF를 받지 않아 일관성을 위해 제외한다.
 SIGNATURE_IMAGE_TYPES: dict[str, tuple[Callable[[bytes], bool], str]] = {
     "image/png": (_is_png, ".png"),
     "image/jpeg": (_is_jpeg, ".jpg"),
     "image/jpg": (_is_jpeg, ".jpg"),
     "image/webp": (_is_webp, ".webp"),
-    "image/gif": (_is_gif, ".gif"),
 }
+
+
+def _to_signature_detail(
+    signature, storage: OCIObjectStorageService
+) -> SignatureDetail:
+    return SignatureDetail(
+        id=signature.id,
+        user_id=signature.user_id,
+        url=storage.public_url(signature.object_key),
+        created_at=signature.created_at,
+        updated_at=signature.updated_at,
+    )
 
 
 def to_detail(certificate: Certificate) -> CertificateDetail:
@@ -144,14 +153,15 @@ async def get_my_signature(
     signature = SignatureService.get_by_user(db, president.id)
     if signature is None:
         return Response(ok=True, data=None, message="등록된 서명이 없습니다.")
-    return Response(ok=True, data=SignatureDetail.model_validate(signature))
+    storage = OCIObjectStorageService()
+    return Response(ok=True, data=_to_signature_detail(signature, storage))
 
 
 @router.put(
     "/signature/me",
     response_model=Response[SignatureDetail],
     summary="내 서명 등록/교체",
-    description="현직 회장이 서명 이미지(PNG, JPG, WEBP, GIF)를 등록하거나 기존 서명을 교체한다. 투명 배경 PNG를 권장한다 — JPEG는 배경이 불투명한 흰색 사각형으로 채워져 증명서의 성명 글자를 가릴 수 있다.",
+    description="현직 회장이 서명 이미지(PNG, JPG, WEBP)를 등록하거나 기존 서명을 교체한다. 투명 배경 PNG를 권장한다 — JPEG는 배경이 불투명한 흰색 사각형으로 채워져 증명서의 성명 글자를 가릴 수 있다.",
 )
 async def upsert_my_signature(
     file: UploadFile = File(...),
@@ -176,7 +186,7 @@ async def upsert_my_signature(
     signature = SignatureService.upsert(
         db, user_id=president.id, object_key=object_key, storage=storage
     )
-    return Response(ok=True, data=SignatureDetail.model_validate(signature))
+    return Response(ok=True, data=_to_signature_detail(signature, storage))
 
 
 # =====================================================================
