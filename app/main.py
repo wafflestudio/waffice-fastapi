@@ -9,6 +9,7 @@ from starlette.middleware.sessions import SessionMiddleware
 import app.config as config
 import app.models
 from app.config.secrets import APP_SECRET_KEY, ENV, FRONTEND_ORIGIN
+from app.scheduler import shutdown_scheduler, start_scheduler
 
 
 @asynccontextmanager
@@ -17,7 +18,9 @@ async def lifespan(app: FastAPI):
     # in async context
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, config.run_migrations)
+    start_scheduler()
     yield
+    shutdown_scheduler()
 
 
 app = FastAPI(lifespan=lifespan)

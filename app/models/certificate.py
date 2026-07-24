@@ -120,6 +120,10 @@ class Certificate(Base, TimestampMixin, SoftDeleteMixin):
             "id",
         ),
         Index("idx_certificates_created_at", "created_at"),
+        # CertificateService.purge_all_expired의
+        # WHERE expires_at IS NOT NULL AND expires_at < ? 범위 조건을 커버.
+        # 스케줄러(app/scheduler.py)가 주기적으로 이 쿼리를 실행한다.
+        Index("idx_certificates_expires_at", "expires_at"),
         UniqueConstraint("issue_number", name="uq_certificates_issue_number"),
     )
 

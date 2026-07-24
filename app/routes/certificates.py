@@ -215,10 +215,12 @@ async def download_certificate(
     certificate = get_existing_certificate(db, certificate_id)
     if certificate.user_id != current_user.id and not current_user.is_admin:
         raise ForbiddenError("본인 또는 관리자만 다운로드할 수 있습니다.")
+
+    storage = OCIObjectStorageService()
+    CertificateService.ensure_not_expired(db, certificate, storage)
     if not certificate.pdf_object_key:
         raise CertificateNotFoundError()
 
-    storage = OCIObjectStorageService()
     pdf_bytes = storage.get_bytes(certificate.pdf_object_key)
     return FastAPIResponse(
         content=pdf_bytes,

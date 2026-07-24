@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.exceptions import (
     AssociateCannotIssueCertificateError,
+    CertificateExpiredError,
     CertificateRenderFailedError,
     InvalidCertificateOptionsError,
     InvalidCursorError,
@@ -232,7 +233,9 @@ class PresidentService:
             raise NotFoundError("대상 회원을 찾을 수 없습니다.")
 
         if started_at > date.today():
-            raise InvalidPresidentTermError("임기 시작일은 오늘보다 미래일 수 없습니다 (임명은 즉시 발효됩니다).")
+            raise InvalidPresidentTermError(
+                "임기 시작일은 오늘보다 미래일 수 없습니다 (임명은 즉시 발효됩니다)."
+            )
 
         current = PresidentService.get_current(db)
         if current is not None:
@@ -261,9 +264,13 @@ class CertificateService:
         if options.signer != CertificateSigner.ADVISOR:
             return
         if not allow_advisor:
-            raise InvalidCertificateOptionsError("지도교수님의 서명이 필요한 경우, 운영팀에 별도 문의해주세요.")
+            raise InvalidCertificateOptionsError(
+                "지도교수님의 서명이 필요한 경우, 운영팀에 별도 문의해주세요."
+            )
         if not (options.advisor_name and options.advisor_name.strip()):
-            raise InvalidCertificateOptionsError("지도교수 서명을 선택한 경우 지도교수 성함을 입력해야 합니다.")
+            raise InvalidCertificateOptionsError(
+                "지도교수 서명을 선택한 경우 지도교수 성함을 입력해야 합니다."
+            )
 
     @staticmethod
     def _ensure_target_eligible(target_user: User) -> None:
@@ -343,6 +350,60 @@ class CertificateService:
             .filter(Certificate.id == certificate_id, Certificate.deleted_at.is_(None))
             .first()
         )
+
+    @staticmethod
+    def _purge_content(db: Session, certificate: Certificate, storage) -> None:
+        """원본 PDF/스냅샷을 폐기한다 (`pdf_object_key`/`snapshot`을 NULL로,
+        오브젝트 스토리지에서 실제 파일 삭제). `Certificate` row 자체(발급
+        이력 메타데이터)는 감사 기록으로 남기고 지우지 않는다."""
+        old_object_key = certificate.pdf_object_key
+        certificate.pdf_object_key = None
+        certificate.snapshot = None
+        db.commit()
+        if old_object_key:
+            storage.delete_object(old_object_key)
+
+    @staticmethod
+    def ensure_not_expired(db: Session, certificate: Certificate, storage) -> None:
+        """`expires_at`이 지난 증명서는 접근 시점에 원본을 폐기하고
+        `CertificateExpiredError`를 던진다.
+
+        이 프로젝트에는 별도 스케줄러/배치가 없어서, "90일 지나면 폐기"를
+        만료 이후 첫 접근 시점에 지연 실행(lazy purge)하는 방식으로
+        구현한다 — 그때까지 아무도 접근하지 않으면 원본이 그 순간까지는
+        스토리지에 남아있을 수 있다. 정말로 접근 여부와 무관하게 정시에
+        지우고 싶으면 `purge_all_expired`를 주기적으로 호출하는 배치가
+        별도로 필요하다.
+        """
+        if certificate.expires_at is None or int(time.time()) < certificate.expires_at:
+            return
+        if certificate.pdf_object_key or certificate.snapshot is not None:
+            CertificateService._purge_content(db, certificate, storage)
+        raise CertificateExpiredError()
+
+    @staticmethod
+    def purge_all_expired(db: Session, storage) -> int:
+        """만료됐지만 아직 원본이 안 지워진 증명서를 일괄 폐기한다.
+
+        접근이 없으면 `ensure_not_expired`의 지연 폐기가 절대 실행되지
+        않으므로, 정시 폐기가 필요하면 이 메서드를 외부 스케줄러(cron 등)가
+        주기적으로 호출해야 한다. 반환값은 이번 호출에서 실제로 폐기한
+        건수.
+        """
+        now = int(time.time())
+        candidates = (
+            db.query(Certificate)
+            .filter(
+                Certificate.deleted_at.is_(None),
+                Certificate.expires_at.isnot(None),
+                Certificate.expires_at < now,
+                Certificate.pdf_object_key.isnot(None),
+            )
+            .all()
+        )
+        for certificate in candidates:
+            CertificateService._purge_content(db, certificate, storage)
+        return len(candidates)
 
     @staticmethod
     def list_own(
