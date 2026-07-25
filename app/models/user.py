@@ -50,6 +50,10 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     qualification = Column(
         Enum(Qualification), nullable=False, default=Qualification.PENDING
     )
+    requested_qualification = Column(Enum(Qualification), nullable=True)
+    privacy_policy_agreed = Column(Boolean, nullable=False, default=False)
+    terms_agreed = Column(Boolean, nullable=False, default=False)
+    marketing_agreed = Column(Boolean, nullable=False, default=False)
     is_leader = Column(Boolean, nullable=False, default=False)
     is_admin = Column(Boolean, nullable=False, default=False)
     is_president = Column(Boolean, nullable=False, default=False)

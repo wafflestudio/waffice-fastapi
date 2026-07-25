@@ -158,6 +158,21 @@ class TestSigninEndpoint:
 class TestSignupEndpoint:
     """Tests for the /auth/signup endpoint."""
 
+    @staticmethod
+    def signup_payload(auth_token, **overrides):
+        return {
+            "auth_token": auth_token,
+            "name": "Test User",
+            "generation": "26",
+            "email": "contact@example.com",
+            "graduation_status": "학부생",
+            "qualification": "associate",
+            "privacy_policy_agreed": True,
+            "terms_agreed": True,
+            "marketing_agreed": False,
+            **overrides,
+        }
+
     def test_signup_new_user(self, client, db):
         """Signup with valid auth token should create user and return JWT."""
         auth_token = create_auth_token(
@@ -166,12 +181,17 @@ class TestSignupEndpoint:
 
         response = client.post(
             "/auth/signup",
-            json={
-                "auth_token": auth_token,
-                "name": "New User",
-                "phone": "010-1234-5678",
-                "bio": "A new user",
-            },
+            json=self.signup_payload(
+                auth_token,
+                name="New User",
+                generation="23.5",
+                graduation_status="휴학생",
+                qualification="regular",
+                phone="010-1234-5678",
+                bio="A new user",
+                github_username="new-user",
+                marketing_agreed=True,
+            ),
         )
 
         assert response.status_code == 200
@@ -180,8 +200,30 @@ class TestSignupEndpoint:
         assert data["data"]["status"] == "pending"  # New users start as pending
         assert data["data"]["user"]["name"] == "New User"
         assert data["data"]["user"]["email"] == "newuser@example.com"
+        assert data["data"]["user"]["generation"] == "23.5"
+        assert data["data"]["user"]["contact_email"] == "contact@example.com"
+        assert data["data"]["user"]["graduation_status"] == "휴학생"
+        assert data["data"]["user"]["qualification"] == "pending"
+        assert data["data"]["user"]["requested_qualification"] == "regular"
+        assert data["data"]["user"]["github_username"] == "new-user"
+        assert data["data"]["user"]["privacy_policy_agreed"] is True
+        assert data["data"]["user"]["terms_agreed"] is True
+        assert data["data"]["user"]["marketing_agreed"] is True
         # Token is set via HttpOnly cookie, not in response body
         assert "waffice_access_token" in response.cookies
+
+    @pytest.mark.parametrize("field", ["privacy_policy_agreed", "terms_agreed"])
+    def test_signup_requires_mandatory_agreements(self, client, field):
+        auth_token = create_auth_token(
+            f"missing_{field}", f"{field}@example.com", is_new=True
+        )
+
+        response = client.post(
+            "/auth/signup",
+            json=self.signup_payload(auth_token, **{field: False}),
+        )
+
+        assert response.status_code == 422
 
     def test_signup_idempotent_existing_user(self, client, db, active_user):
         """Signup with existing user's google_id should return existing user."""
@@ -191,10 +233,7 @@ class TestSignupEndpoint:
 
         response = client.post(
             "/auth/signup",
-            json={
-                "auth_token": auth_token,
-                "name": "Different Name",  # Should be ignored for existing user
-            },
+            json=self.signup_payload(auth_token, name="Different Name"),
         )
 
         assert response.status_code == 200
@@ -217,11 +256,11 @@ class TestSignupEndpoint:
         )
         response = client.post(
             "/auth/signup",
-            json={
-                "auth_token": auth_token,
-                "name": "Ignored New Name",
-                "phone": "010-9999-9999",
-            },
+            json=self.signup_payload(
+                auth_token,
+                name="Ignored New Name",
+                phone="010-9999-9999",
+            ),
         )
 
         assert response.status_code == 200
@@ -266,7 +305,7 @@ class TestSignupEndpoint:
         )
         response = client.post(
             "/auth/signup",
-            json={"auth_token": auth_token, "name": "Ignored New Name"},
+            json=self.signup_payload(auth_token, name="Ignored New Name"),
         )
 
         assert response.status_code == 200
@@ -302,7 +341,7 @@ class TestSignupEndpoint:
         )
         response = client.post(
             "/auth/signup",
-            json={"auth_token": auth_token, "name": "Conflict"},
+            json=self.signup_payload(auth_token, name="Conflict"),
         )
 
         assert response.status_code == 409
@@ -316,10 +355,7 @@ class TestSignupEndpoint:
         """Signup with invalid auth token should fail."""
         response = client.post(
             "/auth/signup",
-            json={
-                "auth_token": "invalid_token",
-                "name": "Test User",
-            },
+            json=self.signup_payload("invalid_token"),
         )
 
         assert response.status_code == 400
