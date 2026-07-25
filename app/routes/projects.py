@@ -114,7 +114,7 @@ async def list_projects(
 )
 async def download_project_member_template(
     project_id: int,
-    current_user: User = Depends(require_regular),
+    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     require_leader_or_admin(project_id, current_user, db)

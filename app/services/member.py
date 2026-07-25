@@ -196,6 +196,10 @@ class MemberService:
         new_role = role if role is not None else old_role
         new_position = old_position if position is _UNSET else position
 
+        if old_role == new_role and old_position == new_position:
+            # No change, return existing membership
+            return member
+
         # Check if demoting the last leader
         if old_role == MemberRole.LEADER and new_role == MemberRole.MEMBER:
             leader_count = MemberService.count_leaders(db, member.project_id)
