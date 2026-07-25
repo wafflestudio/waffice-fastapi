@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.config.cookies import ACCESS_TOKEN_COOKIE_NAME
 from app.config.database import get_db
 from app.config.secrets import JWT_SECRET_KEY
+from app.exceptions import AssociateCannotIssueCertificateError, NotPresidentError
 from app.models import Qualification, User
 from app.services import UserService
 
@@ -99,5 +100,41 @@ async def require_admin(user: User = Depends(get_current_user)) -> User:
     if not user.has_admin_access:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Admin permission required"
+        )
+    return user
+
+
+async def require_certificate_eligible(
+    user: User = Depends(get_current_user),
+) -> User:
+    """
+    활동증명서 발급 대상 자격 확인: 정회원/활동회원만 가능.
+
+    준회원(이하)은 `ASSOCIATE_CANNOT_ISSUE_CERTIFICATE`(403, AppError)로 거부한다.
+    기존 `require_regular`는 영어 HTTPException을 던지지만, 활동증명서 API는
+    명세가 요구하는 전용 에러 코드/한국어 메시지를 응답 바디에 실어야 하므로
+    (`{"ok": false, "error": "ASSOCIATE_CANNOT_ISSUE_CERTIFICATE", ...}`)
+    `app.exceptions.AppError`를 그대로 raise한다.
+    """
+    if user.qualification not in (Qualification.REGULAR, Qualification.ACTIVE):
+        raise AssociateCannotIssueCertificateError()
+    return user
+
+
+async def require_president(user: User = Depends(get_current_user)) -> User:
+    """
+    현직 회장만 접근 가능.
+
+    현직 회장 = `User.is_president`(진실 공급원 -- `users.uq_users_current_president`
+    유니크 제약이 동시에 최대 한 명만 허용). `get_current_user`가 이미 이
+    유저 행을 로드해 왔으므로 추가 조회 없이 바로 확인한다. 관리자 권한
+    (is_admin)만으로는 충분하지 않다. 이 파일의 기존 가드들과 동일하게
+    HTTPException을 사용한다(메시지는 `NotPresidentError`의 한국어 메시지를
+    재사용해 단일 출처를 유지한다).
+    """
+    if not user.is_president:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=NotPresidentError().message,
         )
     return user

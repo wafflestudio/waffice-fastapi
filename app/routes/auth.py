@@ -34,7 +34,7 @@ from app.schemas import (
     SigninRequest,
     SignupRequest,
 )
-from app.services import UserService
+from app.services import PresidentService, UserService
 
 logger = logging.getLogger(__name__)
 
@@ -628,7 +628,6 @@ async def signin_dev(
             user,
             is_leader=request.is_leader,
             is_admin=request.is_admin,
-            is_president=request.is_president,
             qualification=qualification,
         )
     else:
@@ -646,7 +645,6 @@ async def signin_dev(
                 qualification=qualification,
                 is_leader=request.is_leader,
                 is_admin=request.is_admin,
-                is_president=request.is_president,
             )
         except IntegrityError:
             db.rollback()
@@ -657,7 +655,6 @@ async def signin_dev(
                     user,
                     is_leader=request.is_leader,
                     is_admin=request.is_admin,
-                    is_president=request.is_president,
                     qualification=qualification,
                 )
             else:
@@ -665,6 +662,12 @@ async def signin_dev(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="Failed to create or find user",
                 )
+
+    # `is_president`는 `UserService.create/update`에 직접 안 넘긴다 -- 그러면
+    # `president_terms` 이력도 안 남고 전임 회장 강등도 안 거치는 raw 대입이
+    # 되어버린다. `sync_is_president`가 `PresidentService.appoint`/`step_down`으로
+    # 위임해서 `is_president`와 이력이 항상 같이 갱신되게 한다.
+    PresidentService.sync_is_president(db, user, request.is_president)
 
     # Generate JWT
     access_token = create_access_token(user.id, user.email, user.google_id)
