@@ -39,6 +39,17 @@ class UserService:
         )
 
     @staticmethod
+    def get_deleted_by_identity(
+        db: Session, google_id: str, email: str
+    ) -> tuple[User | None, User | None]:
+        """Get soft-deleted users matching the Google ID and email."""
+        query = db.query(User).filter(User.deleted_at.is_not(None))
+        return (
+            query.filter(User.google_id == google_id).first(),
+            query.filter(User.email == email).first(),
+        )
+
+    @staticmethod
     def get_by_student_id(db: Session, student_id: str) -> User | None:
         """Get user by student ID (excluding soft-deleted users)"""
         return (
@@ -175,3 +186,15 @@ class UserService:
 
         user.deleted_at = int(time.time())
         db.commit()
+
+    @staticmethod
+    def restore(db: Session, user: User) -> User:
+        """Restore a soft-deleted user without changing their previous state."""
+        user.deleted_at = None
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        db.refresh(user)
+        return user

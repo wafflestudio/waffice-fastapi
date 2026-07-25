@@ -1,13 +1,23 @@
 """Tests for the auth flow with auth_token."""
 
 import time
+from datetime import date
 
 import pytest
 from jose import jwt
 
 from app.deps.auth import JWT_ALGORITHM
-from app.models import Qualification
+from app.models import (
+    ActivityStatus,
+    MemberRole,
+    Project,
+    ProjectMember,
+    Qualification,
+    User,
+    UserActivity,
+)
 from app.routes.auth import create_access_token, create_auth_token, decode_auth_token
+from app.services import UserService
 
 
 class TestAuthTokenCreation:
@@ -193,6 +203,114 @@ class TestSignupEndpoint:
         # Should return existing user, not create new one
         assert data["data"]["user"]["id"] == active_user.id
         assert data["data"]["user"]["name"] == active_user.name  # Name unchanged
+
+    def test_signup_restores_deleted_pending_user(self, client, db, pending_user):
+        """Signup restores the original pending user instead of inserting a duplicate."""
+        original_id = pending_user.id
+        original_name = pending_user.name
+        pending_user.phone = "010-1111-2222"
+        db.commit()
+        UserService.delete(db, pending_user)
+
+        auth_token = create_auth_token(
+            pending_user.google_id, pending_user.email, is_new=True
+        )
+        response = client.post(
+            "/auth/signup",
+            json={
+                "auth_token": auth_token,
+                "name": "Ignored New Name",
+                "phone": "010-9999-9999",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert data["status"] == "pending"
+        assert data["user"]["id"] == original_id
+        assert data["user"]["name"] == original_name
+        assert data["user"]["phone"] == "010-1111-2222"
+        assert "waffice_access_token" in response.cookies
+
+        db.refresh(pending_user)
+        assert pending_user.deleted_at is None
+        assert (
+            db.query(User).filter(User.google_id == pending_user.google_id).count() == 1
+        )
+
+    def test_signup_restore_preserves_active_user_state(self, client, db, active_user):
+        """Restoring an active user preserves privileges, memberships, and activities."""
+        active_user.is_admin = True
+        project = Project(name="Preserved Project", started_at=date.today())
+        db.add(project)
+        db.flush()
+        membership = ProjectMember(
+            project_id=project.id,
+            user_id=active_user.id,
+            role=MemberRole.LEADER,
+            joined_at=date.today(),
+        )
+        activity = UserActivity(
+            user_id=active_user.id,
+            project_id=project.id,
+            position="Backend",
+            start_date=int(time.time()),
+            status=ActivityStatus.ACTIVE,
+        )
+        db.add_all([membership, activity])
+        db.commit()
+        UserService.delete(db, active_user)
+
+        auth_token = create_auth_token(
+            active_user.google_id, active_user.email, is_new=True
+        )
+        response = client.post(
+            "/auth/signup",
+            json={"auth_token": auth_token, "name": "Ignored New Name"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["data"]["status"] == "active"
+        db.refresh(active_user)
+        db.refresh(membership)
+        db.refresh(activity)
+        assert active_user.deleted_at is None
+        assert active_user.is_admin is True
+        assert membership.left_at is None
+        assert membership.role == MemberRole.LEADER
+        assert activity.status == ActivityStatus.ACTIVE
+
+    def test_signup_rejects_deleted_identity_split_across_users(self, client, db):
+        """Google ID and email must not restore two different deleted users."""
+        google_user = UserService.create(
+            db,
+            google_id="deleted_google_id",
+            email="first-deleted@example.com",
+            name="First Deleted",
+        )
+        email_user = UserService.create(
+            db,
+            google_id="other_deleted_google_id",
+            email="deleted-email@example.com",
+            name="Second Deleted",
+        )
+        UserService.delete(db, google_user)
+        UserService.delete(db, email_user)
+
+        auth_token = create_auth_token(
+            google_user.google_id, email_user.email, is_new=True
+        )
+        response = client.post(
+            "/auth/signup",
+            json={"auth_token": auth_token, "name": "Conflict"},
+        )
+
+        assert response.status_code == 409
+        assert response.json()["error"] == "GOOGLE_ACCOUNT_ALREADY_LINKED"
+        db.refresh(google_user)
+        db.refresh(email_user)
+        assert google_user.deleted_at is not None
+        assert email_user.deleted_at is not None
 
     def test_signup_invalid_token(self, client, db):
         """Signup with invalid auth token should fail."""
