@@ -223,8 +223,8 @@ class MemberService:
         position: str | None | object = _UNSET,
     ) -> ProjectMember:
         """
-        Change member role/position by ending current membership and creating new one.
-        Logs history entry.
+        Update the existing membership's role/position without changing its dates.
+        Logs the change in audit history.
 
         Raises:
             LastLeaderError: If demoting the last leader to member role
@@ -244,20 +244,8 @@ class MemberService:
             if leader_count <= 1:
                 raise LastLeaderError("Cannot demote the last leader")
 
-        # End current membership
-        member.left_at = date.today()
-        db.flush()
-
-        # Create new membership
-        new_member = ProjectMember(
-            project_id=member.project_id,
-            user_id=member.user_id,
-            role=new_role,
-            position=new_position,
-            joined_at=date.today(),
-            left_at=None,
-        )
-        db.add(new_member)
+        member.role = new_role
+        member.position = new_position
         db.flush()
 
         # Log history
@@ -270,13 +258,13 @@ class MemberService:
             payload={
                 "project_id": member.project_id,
                 "from_role": old_role.value,
-                "to_role": new_member.role.value,
+                "to_role": member.role.value,
                 "from_position": old_position,
-                "to_position": new_member.position,
+                "to_position": member.position,
             },
             actor_id=actor_id,
         )
 
         # Note: caller should commit the transaction
-        db.refresh(new_member)
-        return new_member
+        db.refresh(member)
+        return member
