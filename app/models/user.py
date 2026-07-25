@@ -137,5 +137,8 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
         Index("idx_users_is_temporary", "is_temporary"),
         # Roster import matches existing members by student_id.
         Index("idx_users_student_id", "student_id"),
-        UniqueConstraint("is_president_marker", name="uq_users_current_president"),
+        # (임시 비활성화 -- 재설계 전까지) "현직 회장은 동시에 한 명뿐" 제약.
+        # 인수인계 기간 중 임기가 겹치는 경우나 잘못된 임명을 정정하는 경우를
+        # 지원하기 위해 잠정적으로 풀어둔다. 재설계 시 다시 켤 수 있다.
+        # UniqueConstraint("is_president_marker", name="uq_users_current_president"),
     )

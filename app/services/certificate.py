@@ -229,30 +229,43 @@ class SignatureService:
 class PresidentService:
     """`User.is_president`가 "현직 회장"의 유일한 진실 공급원이다 --
     `require_president`, `_resolve_signer`가 이 값을 직접 확인한다.
-    `users.uq_users_current_president` 유니크 제약(생성 컬럼
-    `is_president_marker` 기반, `PresidentTerm.is_current`가 쓰던 것과 같은
-    트릭)이 "동시에 최대 한 명"을 DB 레벨에서 강제한다.
 
-    `president_terms`는 더 이상 현직 판단에 쓰이지 않는다 -- `appoint`/
-    `step_down`이 `is_president`를 바꿀 때마다 같이 남기는 순수 이력 로그일
-    뿐이다 (증명서의 "임원 이력" 섹션이 이 로그를 읽는다). `is_president`를
-    바꾸는 모든 진입점(관리자 유저 수정, dev 로그인 등)은 이 클래스의
-    메서드를 거쳐야 한다 -- `User.is_president`를 직접 대입하면 이력이 안
-    남고, 두 명 이상이 동시에 회장으로 표시되는 걸 막아주는 보정 로직(전임자
-    자동 강등)도 건너뛰게 된다.
+    (임시 비활성화 -- 재설계 전까지) 원래는 "동시에 회장은 최대 한 명"을
+    `users.uq_users_current_president`/`president_terms.uq_president_current`
+    유니크 제약으로 DB 레벨에서 강제했고, `appoint()`가 새 회장을 임명할 때
+    전임자를 자동으로 강등(닫고 is_president=False)했다. 인수인계 기간 중
+    임기가 겹치는 경우나, 잘못된 임명을 더 이른 날짜로 정정해야 하는 경우를
+    지원하기 위해 이 두 제약과 자동 강등 로직을 잠정적으로 꺼뒀다 (아래
+    `appoint()` 안의 주석 처리된 블록과 두 모델의 `__table_args__` 참고).
+    그 결과 지금은 **여러 명이 동시에 `is_president=True`일 수 있다** --
+    `get_current_president()`/`_resolve_signer`의 `.first()`는 그중 하나를
+    임의로 골라 반환하므로(순서 보장 없음), 여러 명이 동시에 회장인 상태에서
+    어떤 서명이 증명서에 실릴지는 결정론적이지 않다. 재설계 시 다시 켤 수
+    있도록 코드는 남겨뒀다.
+
+    `president_terms`는 `appoint`/`step_down`이 `is_president`를 바꿀 때마다
+    같이 남기는 이력 로그다 (증명서의 "임원 이력" 섹션이 이 로그를 읽는다).
+    `is_president`를 바꾸는 모든 진입점(관리자 유저 수정, dev 로그인 등)은
+    이 클래스의 메서드를 거쳐야 한다 -- `User.is_president`를 직접 대입하면
+    이력이 안 남는다.
     """
 
     @staticmethod
     def get_current_president(db: Session) -> User | None:
-        """현직 회장 = `is_president=True`인 유저 (유니크 제약상 최대 1명)."""
+        """현직 회장 = `is_president=True`인 유저.
+
+        (임시 비활성화 상태) 유니크 제약이 빠져 있어 여러 명이 동시에
+        `is_president=True`일 수 있다 -- `.first()`는 그중 임의의 한 명을
+        반환할 뿐, "그 한 명"이 유일한 현직이라는 보장은 없다."""
         return db.query(User).filter(User.is_president.is_(True)).first()
 
     @staticmethod
     def get_current_term(db: Session) -> PresidentTerm | None:
-        """현직 회장의 임기 이력 행(ended_at IS NULL). 조회/표시 전용 --
-        `appoint`/`step_down`이 `is_president`와 항상 같이 관리하므로 이
-        값 자체로 현직을 판단하지는 않는다 (그건 `get_current_president`의
-        몫). 관리자용 "현직 회장 조회" 화면이 이 메서드를 쓴다."""
+        """현직 회장의 임기 이력 행(ended_at IS NULL) 중 하나. 조회/표시
+        전용 -- (임시 비활성화 상태) 여러 명이 동시에 열린 임기를 가질 수
+        있어서, 이 메서드는 그중 임의의 하나만 반환한다. 특정 유저의 열린
+        임기를 정확히 찾으려면 `user_id`로 직접 필터링해야 한다 (예:
+        `step_down`)."""
         return (
             db.query(PresidentTerm)
             .options(joinedload(PresidentTerm.user))
@@ -264,40 +277,38 @@ class PresidentService:
     def appoint(db: Session, *, user_id: int, started_at: date) -> PresidentTerm:
         """새 회장을 임명한다.
 
-        전임자(있다면)의 임기를 같은 트랜잭션에서 먼저 닫고(ended_at =
-        started_at) `is_president`를 False로 되돌린 뒤, 신임 회장의
-        `is_president`를 True로 세팅하고 새 임기 행을 추가한다.
-        `uq_users_current_president` 유니크 제약이 "동시에 최대 한 명"이라는
-        불변식의 최종 방어선이다.
-
-        두 관리자가 거의 동시에 임명을 요청하면, 둘 다 이 시점의 "같은 현직"
-        (또는 둘 다 없음)을 보고 각자 다른 사람을 새 회장으로 세팅하려 시도할
-        수 있다. 유니크 제약이 실제 데이터 무결성(현직은 최대 한 명)은 항상
-        지켜주지만, 진 쪽 트랜잭션은 `db.commit()`에서 `IntegrityError`를
-        던진다 — `app/main.py`에는 `AppError` 핸들러만 있으므로 이를 그대로
-        두면 구조화되지 않은 500으로 노출된다. 여기서 잡아 깔끔한 409 도메인
-        에러로 변환한다.
+        (임시 비활성화 -- 재설계 전까지) 원래는 전임자(있다면)의 임기를
+        같은 트랜잭션에서 먼저 닫고(ended_at = started_at) `is_president`를
+        False로 되돌렸고, `started_at`이 전임자의 임기 시작일보다 이르면
+        거부했다. 인수인계 기간 중 임기가 겹치는 경우나 잘못된 임명을 더
+        이른 날짜로 정정하는 경우를 지원하기 위해 아래 블록을 잠정적으로
+        주석 처리했다 -- 지금은 그냥 신임 회장을 `is_president=True`로
+        세팅하고 새 임기 행을 추가할 뿐, 기존 현직(들)은 건드리지 않는다.
 
         `is_president`는 `started_at`을 보지 않고 즉시 바뀐다. 따라서
         `started_at`이 미래인 임명을 그대로 허용하면, 신임 회장은 의도한
-        시작일보다 훨씬 전에 서명 업로드/조회 권한을 즉시 얻고 전임 회장은
-        즉시 잃는다 — 접근 제어 경계가 임기 시작일과 어긋난다. 이 엔드포인트는
-        "지금 임명"을 의미하므로 미래 날짜는 거부한다.
+        시작일보다 훨씬 전에 서명 업로드/조회 권한을 즉시 얻는다 -- 이
+        체크는 그대로 유지한다. 이 엔드포인트는 "지금 임명"을 의미하므로
+        미래 날짜는 거부한다.
         """
         target = UserService.get(db, user_id)
         if target is None:
             raise NotFoundError("대상 회원을 찾을 수 없습니다.")
 
         if started_at > date.today():
-            raise InvalidPresidentTermError("임기 시작일은 오늘보다 미래일 수 없습니다 (임명은 즉시 발효됩니다).")
+            raise InvalidPresidentTermError(
+                "임기 시작일은 오늘보다 미래일 수 없습니다 (임명은 즉시 발효됩니다)."
+            )
 
-        current_term = PresidentService.get_current_term(db)
-        if current_term is not None:
-            if started_at < current_term.started_at:
-                raise InvalidPresidentTermError()
-            current_term.ended_at = started_at
-            if current_term.user_id != user_id:
-                current_term.user.is_president = False
+        # (임시 비활성화) "동시에 회장은 한 명뿐" -- 전임자 자동 강등 +
+        # 더 이른 날짜로는 승계 불가 제약. 클래스 docstring 참고.
+        # current_term = PresidentService.get_current_term(db)
+        # if current_term is not None:
+        #     if started_at < current_term.started_at:
+        #         raise InvalidPresidentTermError()
+        #     current_term.ended_at = started_at
+        #     if current_term.user_id != user_id:
+        #         current_term.user.is_president = False
 
         target.is_president = True
 
@@ -313,10 +324,18 @@ class PresidentService:
 
     @staticmethod
     def step_down(db: Session, *, user_id: int) -> None:
-        """현직 회장이 후임 지정 없이 물러난다. `user_id`가 현직이 아니면
-        아무 것도 하지 않는다 (없는 걸 또 지우려는 요청은 조용히 무시)."""
-        current_term = PresidentService.get_current_term(db)
-        if current_term is None or current_term.user_id != user_id:
+        """`user_id`가 후임 지정 없이 물러난다. 그 유저의 열린 임기가 없으면
+        아무 것도 하지 않는다 (없는 걸 또 지우려는 요청은 조용히 무시).
+
+        (임시 비활성화 상태 대응) 여러 명이 동시에 열린 임기를 가질 수
+        있으므로, `get_current_term()`(임의의 하나)이 아니라 `user_id`로
+        직접 필터링해서 *이 유저의* 열린 임기를 정확히 찾는다."""
+        current_term = (
+            db.query(PresidentTerm)
+            .filter(PresidentTerm.user_id == user_id, PresidentTerm.ended_at.is_(None))
+            .first()
+        )
+        if current_term is None:
             return
         current_term.ended_at = date.today()
         current_term.user.is_president = False
@@ -327,12 +346,13 @@ class PresidentService:
         """`is_president`를 직접 입력받는 진입점(관리자 유저 수정, dev
         로그인 등)이 호출해야 하는 통합 창구. `appoint`/`step_down`으로
         위임해서, 어느 진입점에서 바꾸든 `president_terms` 이력이 항상 같이
-        남고 전임자 강등도 항상 같이 처리되게 한다."""
-        current = PresidentService.get_current_president(db)
-        is_currently_president = current is not None and current.id == user.id
-        if is_president and not is_currently_president:
+        남게 한다. "이미 회장인가"는 (여러 명이 동시에 회장일 수 있는 임시
+        상태이므로) `get_current_president()`가 아니라 `user.is_president`를
+        직접 본다 -- 그래야 이미 회장인 사람을 매번 다시 `appoint`해서 이력
+        행이 쓸데없이 쌓이는 걸 막는다."""
+        if is_president and not user.is_president:
             PresidentService.appoint(db, user_id=user.id, started_at=date.today())
-        elif not is_president and is_currently_president:
+        elif not is_president and user.is_president:
             PresidentService.step_down(db, user_id=user.id)
 
 
@@ -342,9 +362,13 @@ class CertificateService:
         if options.signer != CertificateSigner.ADVISOR:
             return
         if not allow_advisor:
-            raise InvalidCertificateOptionsError("지도교수님의 서명이 필요한 경우, 운영팀에 별도 문의해주세요.")
+            raise InvalidCertificateOptionsError(
+                "지도교수님의 서명이 필요한 경우, 운영팀에 별도 문의해주세요."
+            )
         if not (options.advisor_name and options.advisor_name.strip()):
-            raise InvalidCertificateOptionsError("지도교수 서명을 선택한 경우 지도교수 성함을 입력해야 합니다.")
+            raise InvalidCertificateOptionsError(
+                "지도교수 서명을 선택한 경우 지도교수 성함을 입력해야 합니다."
+            )
 
     @staticmethod
     def _ensure_target_eligible(target_user: User) -> None:

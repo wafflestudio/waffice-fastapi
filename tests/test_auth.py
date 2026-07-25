@@ -465,6 +465,13 @@ class TestDevSigninPresident:
         )
         assert term_count == 1
 
+    @pytest.mark.skip(
+        reason=(
+            "Temporarily disabled: uq_users_current_president was dropped "
+            "and PresidentService.appoint's auto-demotion is commented out "
+            "to allow overlapping presidents. Re-enable once redesigned."
+        )
+    )
     def test_is_president_true_demotes_previous_president(self, client, db):
         """Appointing a second dev-signin president must demote the first --
         the `uq_users_current_president` constraint allows only one."""
