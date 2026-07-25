@@ -274,21 +274,6 @@ class PresidentService:
         )
 
     @staticmethod
-    def get_current_terms(db: Session) -> list[PresidentTerm]:
-        """현직 회장(들)의 임기 이력 행을 전부 반환한다 (ended_at IS NULL).
-
-        (임시 비활성화 상태) 여러 명이 동시에 열린 임기를 가질 수 있으므로,
-        `get_current_term()`(임의의 하나만)과 달리 이 메서드는 전체 목록을
-        돌려준다. 관리자용 "현직 회장 목록 조회" 화면이 이 메서드를 쓴다."""
-        return (
-            db.query(PresidentTerm)
-            .options(joinedload(PresidentTerm.user))
-            .filter(PresidentTerm.ended_at.is_(None))
-            .order_by(PresidentTerm.started_at.asc(), PresidentTerm.id.asc())
-            .all()
-        )
-
-    @staticmethod
     def appoint(db: Session, *, user_id: int, started_at: date) -> PresidentTerm:
         """새 회장을 임명한다.
 
@@ -311,9 +296,7 @@ class PresidentService:
             raise NotFoundError("대상 회원을 찾을 수 없습니다.")
 
         if started_at > date.today():
-            raise InvalidPresidentTermError(
-                "임기 시작일은 오늘보다 미래일 수 없습니다 (임명은 즉시 발효됩니다)."
-            )
+            raise InvalidPresidentTermError("임기 시작일은 오늘보다 미래일 수 없습니다 (임명은 즉시 발효됩니다).")
 
         # (임시 비활성화) "동시에 회장은 한 명뿐" -- 전임자 자동 강등 +
         # 더 이른 날짜로는 승계 불가 제약. 클래스 docstring 참고.
@@ -377,13 +360,9 @@ class CertificateService:
         if options.signer != CertificateSigner.ADVISOR:
             return
         if not allow_advisor:
-            raise InvalidCertificateOptionsError(
-                "지도교수님의 서명이 필요한 경우, 운영팀에 별도 문의해주세요."
-            )
+            raise InvalidCertificateOptionsError("지도교수님의 서명이 필요한 경우, 운영팀에 별도 문의해주세요.")
         if not (options.advisor_name and options.advisor_name.strip()):
-            raise InvalidCertificateOptionsError(
-                "지도교수 서명을 선택한 경우 지도교수 성함을 입력해야 합니다."
-            )
+            raise InvalidCertificateOptionsError("지도교수 서명을 선택한 경우 지도교수 성함을 입력해야 합니다.")
 
     @staticmethod
     def _ensure_target_eligible(target_user: User) -> None:
