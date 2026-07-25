@@ -1162,7 +1162,9 @@ class TestPresidentTermAdministration:
             "/certificates/president-terms/current", headers=_auth(admin_token)
         )
         assert response.status_code == 200
-        assert response.json()["data"]["user"]["id"] == president_user.id
+        data = response.json()["data"]
+        assert len(data) == 1
+        assert data[0]["user"]["id"] == president_user.id
 
     def test_get_current_president_when_none_appointed(
         self, client: TestClient, admin_token: str
@@ -1171,7 +1173,35 @@ class TestPresidentTermAdministration:
             "/certificates/president-terms/current", headers=_auth(admin_token)
         )
         assert response.status_code == 200
-        assert response.json()["data"] is None
+        assert response.json()["data"] == []
+
+    def test_get_current_president_lists_multiple_concurrent_presidents(
+        self,
+        client: TestClient,
+        admin_token: str,
+        regular_user: User,
+        active_user: User,
+    ):
+        """(Temporary state) With the single-current-president constraint
+        disabled, appointing a second president doesn't demote the first --
+        both must show up in the list."""
+        for user, started_at in (
+            (regular_user, "2025-01-01"),
+            (active_user, "2026-01-01"),
+        ):
+            response = client.post(
+                "/certificates/president-terms",
+                json={"user_id": user.id, "started_at": started_at},
+                headers=_auth(admin_token),
+            )
+            assert response.status_code == 200
+
+        response = client.get(
+            "/certificates/president-terms/current", headers=_auth(admin_token)
+        )
+        assert response.status_code == 200
+        user_ids = {item["user"]["id"] for item in response.json()["data"]}
+        assert user_ids == {regular_user.id, active_user.id}
 
     def test_non_admin_cannot_appoint_president(
         self, client: TestClient, regular_token: str, active_user: User
