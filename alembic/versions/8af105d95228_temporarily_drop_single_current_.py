@@ -8,6 +8,8 @@ Create Date: 2026-07-25 18:08:08.666031
 
 from typing import Sequence, Union
 
+import sqlalchemy as sa
+
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -25,8 +27,18 @@ def upgrade() -> None:
     자체는 남겨두고 유니크 제약만 지운다 -- 재설계 후 다시 추가할 수
     있도록. (`users.is_president_marker`는 애초에 유니크 제약 없이
     추가됐으므로 -- `39605960c238` 참고 -- 여기서 지울 게 없다.)
+
+    존재 여부를 먼저 확인하고 있을 때만 지운다: 어떤 환경에서 이 마이그레이션
+    계열이 절반만 적용된 상태로 남아있어 이미 지워져 있거나, 애초에 다른
+    경로로 없어졌을 가능성에 대비한 방어적 처리.
     """
-    op.drop_constraint("uq_president_current", "president_terms", type_="unique")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    existing_constraints = {
+        uc["name"] for uc in inspector.get_unique_constraints("president_terms")
+    }
+    if "uq_president_current" in existing_constraints:
+        op.drop_constraint("uq_president_current", "president_terms", type_="unique")
 
 
 def downgrade() -> None:
