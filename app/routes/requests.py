@@ -34,7 +34,15 @@ def to_list_item(approval_request) -> ApprovalRequestListItem:
     return ApprovalRequestListItem(
         id=approval_request.id,
         requester=UserBrief.model_validate(approval_request.requester),
+        target_user_id=body.target_user_id,
+        activity_id=body.activity_id,
+        reviewers=[
+            RequestReviewerDetail.model_validate(reviewer)
+            for reviewer in approval_request.reviewers
+            if reviewer.deleted_at is None
+        ],
         request_kind=RequestKind(body.request_kind),
+        after=body.after,
         status=approval_request.status,
         created_at=approval_request.created_at,
         reviewed_at=approval_request.reviewed_at,
@@ -103,6 +111,7 @@ async def list_requests(
     scope: RequestScope = Query(default=RequestScope.RECEIVED),
     status: RequestStatusFilter = Query(default=RequestStatusFilter.PENDING),
     request_kind: RequestKindFilter = Query(default=RequestKindFilter.ALL),
+    activity_id: int | None = Query(default=None, ge=1),
     cursor: int | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     current_user: User = Depends(require_regular),
@@ -114,6 +123,7 @@ async def list_requests(
         scope=scope,
         status=status,
         request_kind=request_kind,
+        activity_id=activity_id,
         cursor=cursor,
         limit=limit,
     )

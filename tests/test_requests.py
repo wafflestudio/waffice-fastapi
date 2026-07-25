@@ -242,8 +242,10 @@ class TestActivityApprovalRequests:
         data = response.json()["data"]
         assert data["status"] == "approved"
         assert data["body"]["review"]["final"]["position"] == "leader"
+        assert isinstance(data["body"]["activity_id"], int)
         activities = db.query(UserActivity).filter_by(user_id=regular_user.id).all()
         assert len(activities) == 1
+        assert data["body"]["activity_id"] == activities[0].id
         assert activities[0].position == "leader"
 
     def test_approve_with_edits_updates_activity_and_stores_diff(

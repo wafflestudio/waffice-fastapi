@@ -303,6 +303,7 @@ class RequestService:
         scope: RequestScope,
         status: RequestStatusFilter,
         request_kind: RequestKindFilter,
+        activity_id: int | None,
         cursor: int | None,
         limit: int,
     ) -> tuple[list[ApprovalRequest], int | None]:
@@ -326,6 +327,11 @@ class RequestService:
         if request_kind != RequestKindFilter.ALL:
             query = query.filter(
                 ApprovalRequest.body["request_kind"].as_string() == request_kind.value
+            )
+
+        if activity_id is not None:
+            query = query.filter(
+                ApprovalRequest.body["activity_id"].as_integer() == activity_id
             )
 
         if cursor is not None:
@@ -419,7 +425,13 @@ class RequestService:
 
         body = dict(approval_request.body)
         final = dict(body["after"]) if body.get("after") is not None else None
-        _apply_activity(db, approval_request=approval_request, final=final)
+        activity = _apply_activity(db, approval_request=approval_request, final=final)
+        if RequestKind(body["request_kind"]) == RequestKind.CREATE:
+            if activity is None:
+                raise InvalidApprovalRequestError(
+                    "Create approval did not produce an activity"
+                )
+            body["activity_id"] = activity.id
         body["review"] = {"reviewer_patch": None, "final": final, "diff": {}}
         _mark_reviewed(
             approval_request,
@@ -451,7 +463,13 @@ class RequestService:
         requested = dict(body["after"])
         patch = request.reviewer_patch.model_dump(exclude_unset=True, mode="json")
         final = {**requested, **patch}
-        _apply_activity(db, approval_request=approval_request, final=final)
+        activity = _apply_activity(db, approval_request=approval_request, final=final)
+        if RequestKind(body["request_kind"]) == RequestKind.CREATE:
+            if activity is None:
+                raise InvalidApprovalRequestError(
+                    "Create approval did not produce an activity"
+                )
+            body["activity_id"] = activity.id
         body["review"] = {
             "reviewer_patch": patch,
             "final": final,

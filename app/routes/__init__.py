@@ -1,3 +1,10 @@
-from app.routes import auth, certificates, profile_image, projects, users
+from app.routes import activities, auth, certificates, profile_image, projects, users
 
-__all__ = ["auth", "users", "projects", "profile_image", "certificates"]
+__all__ = [
+    "activities",
+    "auth",
+    "users",
+    "projects",
+    "profile_image",
+    "certificates",
+]
