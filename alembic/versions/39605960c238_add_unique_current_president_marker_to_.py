@@ -33,15 +33,19 @@ def upgrade() -> None:
     후 제약을 다시 걸고 싶으면 데이터 정합성(중복 회장)부터 정리한 뒤 별도
     마이그레이션으로 추가해야 한다.
     """
-    op.add_column(
-        "users",
-        sa.Column(
-            "is_president_marker",
-            mysql.TINYINT(),
-            sa.Computed("IF(is_president, 1, NULL)", persisted=False),
-            nullable=True,
-        ),
-    )
+    columns = {
+        column["name"] for column in sa.inspect(op.get_bind()).get_columns("users")
+    }
+    if "is_president_marker" not in columns:
+        op.add_column(
+            "users",
+            sa.Column(
+                "is_president_marker",
+                mysql.TINYINT(),
+                sa.Computed("IF(is_president, 1, NULL)", persisted=False),
+                nullable=True,
+            ),
+        )
 
 
 def downgrade() -> None:
