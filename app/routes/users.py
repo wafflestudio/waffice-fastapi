@@ -18,7 +18,10 @@ from app.models import AuditAction, Qualification, User
 from app.schemas import (
     ActivityCreateRequest,
     ActivityDetail,
+    ActivityHistoryItem,
+    ActivityHistoryStatus,
     ActivityUpdateRequest,
+    ApprovalRequestBody,
     ApproveRequest,
     AuditLogDetail,
     CursorPage,
@@ -158,9 +161,11 @@ async def get_my_projects(
 
 @router.get(
     "/me/activities",
-    response_model=Response[list[ActivityDetail]],
-    summary="Get my activities",
-    description="Returns activities of a current member.",
+    response_model=Response[list[ActivityHistoryItem]],
+    summary="Get my activity-management history",
+    description=(
+        "Returns persisted activities together with pending create/update requests."
+    ),
     responses={
         200: {"description": "Activities retrieved successfully"},
         401: {"description": "Not authenticated"},
@@ -168,17 +173,69 @@ async def get_my_projects(
     },
 )
 async def get_my_activities(
-    current_user: User = Depends(require_regular), db: Session = Depends(get_db)
+    current_user: User = Depends(require_regular),
+    db: Session = Depends(get_db),
 ):
-    """
-    Get activities of a current member.
-
-    **Requires**: REGULAR qualification or higher.
-
-    Returns a list of activities (current projects and histories).
-    """
     activities = ActivityService.list_by_user(db, current_user.id)
-    return Response(ok=True, data=activities)
+    pending_updates = ActivityService.pending_updates_by_activity(
+        db, [activity.id for activity in activities]
+    )
+
+    items = [
+        ActivityHistoryItem(
+            id=activity.id,
+            pending_request_id=(
+                pending_updates[activity.id].id
+                if activity.id in pending_updates
+                else None
+            ),
+            user_id=activity.user_id,
+            project_id=activity.project_id,
+            project_name=activity.project_name,
+            position=activity.position,
+            start_date=activity.start_date,
+            end_date=activity.end_date,
+            status=(
+                ActivityHistoryStatus.UPDATE_PENDING
+                if activity.id in pending_updates
+                else ActivityHistoryStatus.ACTIVE
+            ),
+            description=activity.description,
+            created_at=activity.created_at,
+            updated_at=activity.updated_at,
+        )
+        for activity in activities
+    ]
+
+    for approval_request in ActivityService.list_pending_creates(
+        db, user_id=current_user.id
+    ):
+        body = ApprovalRequestBody.model_validate(approval_request.body)
+        if body.after is None:
+            continue
+        items.append(
+            ActivityHistoryItem(
+                id=None,
+                pending_request_id=approval_request.id,
+                user_id=body.target_user_id,
+                project_id=body.after.project_id,
+                project_name=(
+                    approval_request.project.name
+                    if approval_request.project is not None
+                    else None
+                ),
+                position=body.after.position,
+                start_date=body.after.start_date,
+                end_date=body.after.end_date,
+                status=ActivityHistoryStatus.CREATE_PENDING,
+                description=body.after.description,
+                created_at=approval_request.created_at,
+                updated_at=approval_request.updated_at,
+            )
+        )
+
+    items.sort(key=lambda item: (item.start_date, item.created_at), reverse=True)
+    return Response(ok=True, data=items)
 
 
 # === Admin management ===
