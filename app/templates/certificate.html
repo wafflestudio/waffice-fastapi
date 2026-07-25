@@ -58,21 +58,13 @@
   }
 
   .brand-main {
-    display: flex;
-    align-items: center;
-    justify-content: center;
     height: 19pt;
-    color: #27181d;
-    font-family: Arial, sans-serif;
-    font-size: 11pt;
-    font-weight: 800;
-    letter-spacing: 0;
+    line-height: 0;
   }
 
-  .brand-mark {
-    width: 19pt;
+  .brand-logo {
+    width: 80pt;
     height: 19pt;
-    margin: 0 5pt 0 3pt;
   }
 
   .brand-studio {
@@ -213,15 +205,17 @@
 
   <div class="header">
     <div class="brand-main">
-      <span>WA</span>
-      <svg class="brand-mark" viewBox="342.758 97 18.936 19.03" aria-hidden="true">
+      <svg class="brand-logo" viewBox="310.5 97 80 19.03" aria-hidden="true">
+        <path d="M313.121 115.943L310.5 105.068H312.767L314.42 112.539L316.428 105.068H319.063L320.984 112.665L322.67 105.068H324.9L322.238 115.943H319.89L317.7 107.811L315.52 115.943H313.121Z" fill="#27181D"/>
+        <path d="M339.354 115.943H336.947L335.988 113.471H331.6L330.696 115.943H328.348L332.622 105.068H334.962L339.354 115.943ZM335.275 111.638L333.762 107.604L332.282 111.638H335.275Z" fill="#27181D"/>
         <path d="M361.694 110.424H356.125V116.03H361.694V110.424Z" fill="#ED8573"/>
         <path d="M353.897 110.424H348.328V116.03H353.897V110.424Z" fill="#F0975E"/>
         <path d="M361.694 102.607H356.125V108.214H361.694V102.607Z" fill="#F0975E"/>
         <path d="M353.897 102.607H348.328V108.214H353.897V102.607Z" fill="#F0975E"/>
         <path fill-rule="evenodd" clip-rule="evenodd" d="M348.327 97H346.101V100.4H342.758V102.606H346.101V108.212H342.758V110.419H346.101V116.025H348.327V110.423H353.896V116.03H356.122V110.423H361.692V108.217H356.122V102.606H361.692V100.4H356.122V97H353.896V100.4H348.327V97ZM353.896 108.212V102.606H348.327V108.212H353.896Z" fill="#27181D"/>
+        <path d="M369.125 115.945V105.16H371.342V114.112H376.847V115.945H369.125Z" fill="#27181D"/>
+        <path d="M382.16 115.943V105.068H390.291V106.906H384.372V109.315H389.883V111.147H384.372V114.11H390.5V115.943H382.16Z" fill="#27181D"/>
       </svg>
-      <span>LE</span>
     </div>
     <div class="brand-studio">STUDIO</div>
     <div class="title">활동증명서</div>
@@ -262,7 +256,6 @@
     {% endif %}
 
     {% elif sec.type == "discipline" %}
-    {% if sec.rows %}
     <table class="section-table">
       <thead>
         <tr>
@@ -273,6 +266,7 @@
         </tr>
       </thead>
       <tbody>
+        {% if sec.rows %}
         {% for row in sec.rows %}
         <tr>
           <td>{{ row.order }}</td>
@@ -281,11 +275,11 @@
           <td>{{ row.started_on }}</td>
         </tr>
         {% endfor %}
+        {% else %}
+        <tr><td class="empty-row" colspan="4">(해당 사실 없음.)</td></tr>
+        {% endif %}
       </tbody>
     </table>
-    {% else %}
-    <table class="section-table"><tr><td class="empty-row">(해당 사실 없음.)</td></tr></table>
-    {% endif %}
 
     {% elif sec.type == "projects" %}
     {% if sec.rows %}
