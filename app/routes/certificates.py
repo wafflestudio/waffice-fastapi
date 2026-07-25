@@ -404,7 +404,7 @@ async def get_current_president(
     _admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    term = PresidentService.get_current(db)
+    term = PresidentService.get_current_term(db)
     return Response(
         ok=True,
         data=PresidentTermDetail.model_validate(term) if term else None,

@@ -251,7 +251,7 @@ def president_token(president_user: User) -> str:
 @pytest.fixture
 def open_president_term(db: Session, president_user: User) -> PresidentTerm:
     """Open a president term for `president_user` via the real service (so
-    `require_president`/`PresidentService.get_current` see a current 회장)."""
+    `require_president` sees a current 회장 via `User.is_president`)."""
     return PresidentService.appoint(
         db, user_id=president_user.id, started_at=date(2026, 1, 1)
     )
