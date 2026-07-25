@@ -9,6 +9,7 @@ from starlette.middleware.sessions import SessionMiddleware
 import app.config as config
 import app.models
 from app.config.secrets import APP_SECRET_KEY, ENV, FRONTEND_ORIGIN
+from app.scheduler import shutdown_scheduler, start_scheduler
 
 
 @asynccontextmanager
@@ -17,7 +18,9 @@ async def lifespan(app: FastAPI):
     # in async context
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, config.run_migrations)
+    start_scheduler()
     yield
+    shutdown_scheduler()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -66,16 +69,19 @@ from app.exceptions import AppError
 
 @app.exception_handler(AppError)
 async def app_error_handler(request: Request, exc: AppError):
+    content = {"ok": False, "error": exc.code, "message": exc.message}
+    if exc.data is not None:
+        content["data"] = exc.data
     return JSONResponse(
         status_code=exc.status_code,
-        content={"ok": False, "error": exc.code, "message": exc.message},
+        content=content,
     )
 
 
 # ==============================
 # ROUTERS
 # ==============================
-from app.routes import auth, profile_image, projects, requests, users
+from app.routes import auth, certificates, profile_image, projects, requests, users
 
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])
 app.include_router(users.router, prefix="/users", tags=["Users"])
@@ -84,6 +90,7 @@ app.include_router(requests.router, prefix="/requests", tags=["Requests"])
 app.include_router(
     profile_image.router, prefix="/profile-image", tags=["Profile Image"]
 )
+app.include_router(certificates.router, prefix="/certificates", tags=["Certificates"])
 
 # Dev-only auth endpoints (only included in local/dev environments)
 if ENV in ("local", "dev"):

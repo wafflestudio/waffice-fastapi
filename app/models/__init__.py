@@ -1,13 +1,20 @@
 from app.models.audit_log import AuditLog
+from app.models.certificate import Certificate, CertificateEvent, CertificateSignature
 from app.models.enums import (
     ActivityStatus,
     ApprovalStatus,
     AuditAction,
+    CertificateActorType,
+    CertificateEventAction,
+    CertificateKind,
+    CertificateSigner,
+    CertificateStatus,
     GraduationStatus,
     MemberRole,
     ProjectStatus,
     Qualification,
 )
+from app.models.president import PresidentTerm
 from app.models.project import Project
 from app.models.project_member import ProjectMember
 from app.models.request import ApprovalRequest, RequestReviewer
@@ -29,4 +36,13 @@ __all__ = [
     "ProjectMember",
     "ApprovalRequest",
     "RequestReviewer",
+    "PresidentTerm",
+    "CertificateSignature",
+    "Certificate",
+    "CertificateEvent",
+    "CertificateKind",
+    "CertificateStatus",
+    "CertificateEventAction",
+    "CertificateActorType",
+    "CertificateSigner",
 ]

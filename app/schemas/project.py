@@ -17,7 +17,7 @@ class MemberInput(BaseModel):
     )
     position: str | None = Field(
         default=None,
-        max_length=100,
+        max_length=50,
         description="Member's position or responsibility in the project",
         examples=["Backend Developer", "Project Manager", "Designer"],
     )
@@ -107,7 +107,7 @@ class MemberUpdateRequest(BaseModel):
     )
     position: str | None = Field(
         default=None,
-        max_length=100,
+        max_length=50,
         description="New position or responsibility",
     )
 
@@ -159,6 +159,17 @@ class ProjectBrief(BaseModel):
     )
 
     model_config = {"from_attributes": True}
+
+
+class ProjectListItem(BaseModel):
+    """Project fields used by the project management list."""
+
+    id: int
+    name: str
+    leader_names: list[str]
+    member_count: int
+    active_member_names: list[str]
+    status: ProjectStatus
 
 
 class ProjectPageDetail(ProjectBrief):

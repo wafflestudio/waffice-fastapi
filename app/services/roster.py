@@ -4,16 +4,23 @@ import csv
 import io
 import re
 import zipfile
-from typing import Iterator, Sequence
+from typing import Iterator, NamedTuple, Sequence
+from xml.etree.ElementTree import ParseError
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.utils.exceptions import InvalidFileException
 
 from app.exceptions import EmptyRosterError, InvalidRosterFileError, RosterTooLargeError
+from app.models import MemberRole
 
 MAX_ROWS = 2000
+MAX_ROSTER_FILE_BYTES = 5 * 1024 * 1024
+XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+CSV_CONTENT_TYPE = "text/csv"
 _MAX_NAME = 100
+_MAX_EMAIL = 255
 _MAX_STUDENT_ID = 50
+_MAX_POSITION = 50
 
 # Header aliases (normalized: lowercased, non-alphanumeric/non-Hangul stripped).
 _NAME_HEADERS = {"이름", "성명", "성함", "name"}
@@ -21,6 +28,18 @@ _STUDENT_ID_HEADERS = {"학번", "studentid", "sid", "학번sid"}
 
 # Zero-width / format chars that str.strip() does not treat as whitespace (e.g. BOM).
 _ZERO_WIDTH = "\u200b\u200c\u200d\u2060\ufeff\u00ad"
+
+PROJECT_MEMBER_HEADERS = ("이름", "이메일", "학번", "역할", "포지션")
+_PROJECT_MEMBER_ROLES = {"팀장": MemberRole.LEADER, "팀원": MemberRole.MEMBER}
+
+
+class ProjectMemberRosterRow(NamedTuple):
+    row_number: int
+    name: str
+    email: str
+    student_id: str
+    role: MemberRole
+    position: str | None
 
 
 def _norm_header(value: object) -> str:
@@ -47,7 +66,14 @@ def _normalize(value: str) -> str:
 def _xlsx_rows(content: bytes) -> Iterator[Sequence[object]]:
     try:
         workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
-    except (InvalidFileException, zipfile.BadZipFile, KeyError, OSError):
+    except (
+        InvalidFileException,
+        zipfile.BadZipFile,
+        KeyError,
+        OSError,
+        ValueError,
+        ParseError,
+    ):
         raise InvalidRosterFileError()
     try:
         yield from workbook.active.iter_rows(values_only=True)
@@ -146,3 +172,183 @@ def parse_member_roster(
         raise EmptyRosterError()
 
     return valid, invalid
+
+
+def parse_project_member_roster(
+    content: bytes, filename: str
+) -> tuple[list[ProjectMemberRosterRow], list[dict]]:
+    """Parse the fixed Korean project-member XLSX/CSV format."""
+    name = (filename or "").lower()
+    if name.endswith(".csv"):
+        rows = _csv_rows(content)
+    elif name.endswith(".xlsx"):
+        rows = _xlsx_rows(content)
+    else:
+        return [], [
+            _project_member_error(
+                0,
+                "file",
+                "invalid_file",
+                ".xlsx 또는 .csv 파일을 첨부해주세요.",
+            )
+        ]
+
+    try:
+        header = next(rows)
+    except (InvalidRosterFileError, StopIteration):
+        return [], [
+            _project_member_error(0, "file", "invalid_file", "파일 양식이 올바르지 않습니다.")
+        ]
+
+    indexes = {_norm_header(cell): index for index, cell in enumerate(header or ())}
+    errors = [
+        _project_member_error(
+            1, header_name, "missing_header", f"{header_name} 열을 찾을 수 없습니다."
+        )
+        for header_name in PROJECT_MEMBER_HEADERS
+        if _norm_header(header_name) not in indexes
+    ]
+    if errors:
+        return [], errors
+
+    parsed: list[ProjectMemberRosterRow] = []
+    count = 0
+    for row_number, row in enumerate(rows, start=2):
+        values = {
+            header_name: _normalize(
+                _cell_to_str(row[indexes[_norm_header(header_name)]])
+                if indexes[_norm_header(header_name)] < len(row)
+                else ""
+            )
+            for header_name in PROJECT_MEMBER_HEADERS
+        }
+        if not any(values.values()):
+            continue
+
+        count += 1
+        if count > MAX_ROWS:
+            errors.append(
+                _project_member_error(
+                    row_number,
+                    "file",
+                    "too_many_rows",
+                    f"명단은 최대 {MAX_ROWS}행까지 가능합니다.",
+                )
+            )
+            break
+
+        row_errors: list[dict] = []
+        if not values["이름"]:
+            row_errors.append(
+                _project_member_error(row_number, "이름", "required", "이름을 입력해주세요.")
+            )
+        elif len(values["이름"]) > _MAX_NAME:
+            row_errors.append(
+                _project_member_error(
+                    row_number,
+                    "이름",
+                    "too_long",
+                    f"이름은 {_MAX_NAME}자 이하여야 합니다.",
+                )
+            )
+
+        if not values["이메일"] and not values["학번"]:
+            row_errors.append(
+                _project_member_error(
+                    row_number,
+                    "이메일",
+                    "missing_identifier",
+                    "이메일 또는 학번을 입력해주세요.",
+                )
+            )
+        if len(values["이메일"]) > _MAX_EMAIL:
+            row_errors.append(
+                _project_member_error(
+                    row_number,
+                    "이메일",
+                    "too_long",
+                    f"이메일은 {_MAX_EMAIL}자 이하여야 합니다.",
+                )
+            )
+        if len(values["학번"]) > _MAX_STUDENT_ID:
+            row_errors.append(
+                _project_member_error(
+                    row_number,
+                    "학번",
+                    "too_long",
+                    f"학번은 {_MAX_STUDENT_ID}자 이하여야 합니다.",
+                )
+            )
+
+        role = _PROJECT_MEMBER_ROLES.get(values["역할"])
+        if role is None:
+            row_errors.append(
+                _project_member_error(
+                    row_number,
+                    "역할",
+                    "invalid_role",
+                    "역할은 팀장 또는 팀원이어야 합니다.",
+                )
+            )
+        if len(values["포지션"]) > _MAX_POSITION:
+            row_errors.append(
+                _project_member_error(
+                    row_number,
+                    "포지션",
+                    "too_long",
+                    f"포지션은 {_MAX_POSITION}자 이하여야 합니다.",
+                )
+            )
+
+        if row_errors:
+            errors.extend(row_errors)
+            continue
+        parsed.append(
+            ProjectMemberRosterRow(
+                row_number,
+                values["이름"],
+                values["이메일"].lower(),
+                values["학번"],
+                role,
+                values["포지션"] or None,
+            )
+        )
+
+    if not parsed and not errors:
+        errors.append(
+            _project_member_error(2, "file", "empty_roster", "팀원 명단이 비어 있습니다.")
+        )
+    return parsed, errors
+
+
+def build_project_member_template(members: Sequence[object]) -> bytes:
+    """Build the editable workbook from active memberships."""
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "팀원"
+    sheet.append(PROJECT_MEMBER_HEADERS)
+    for member in sorted(
+        members,
+        key=lambda item: (
+            item.role != MemberRole.LEADER,
+            item.user.name,
+            item.user_id,
+        ),
+    ):
+        sheet.append(
+            (
+                member.user.name,
+                member.user.email or "",
+                member.user.student_id or "",
+                "팀장" if member.role == MemberRole.LEADER else "팀원",
+                member.position or "",
+            )
+        )
+    output = io.BytesIO()
+    workbook.save(output)
+    workbook.close()
+    return output.getvalue()
+
+
+def _project_member_error(row: int, field: str, code: str, message: str) -> dict:
+    return {"row": row, "field": field, "code": code, "message": message}

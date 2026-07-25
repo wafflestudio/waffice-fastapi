@@ -784,37 +784,39 @@ class TestSoftDelete:
 class TestPresidentAndLeaderRoles:
     """Test role properties and access control for PRESIDENT and LEADER_AND_PRESIDENT roles."""
 
-    def test_president_role_properties(self, client: TestClient, president_user: User):
+    def test_president_role_properties(
+        self, client: TestClient, president_flag_user: User
+    ):
         """President has is_admin=True, is_president=True, is_leader=False"""
-        assert president_user.is_admin is True
-        assert president_user.is_president is True
-        assert president_user.is_leader is False
+        assert president_flag_user.is_admin is True
+        assert president_flag_user.is_president is True
+        assert president_flag_user.is_leader is False
 
     def test_leader_and_president_role_properties(
-        self, client: TestClient, leader_and_president_user: User
+        self, client: TestClient, leader_and_president_flag_user: User
     ):
         """Leader_and_president has is_admin, is_president, and is_leader all True"""
-        assert leader_and_president_user.is_admin is True
-        assert leader_and_president_user.is_president is True
-        assert leader_and_president_user.is_leader is True
+        assert leader_and_president_flag_user.is_admin is True
+        assert leader_and_president_flag_user.is_president is True
+        assert leader_and_president_flag_user.is_leader is True
 
     def test_president_can_access_admin_endpoint(
-        self, client: TestClient, president_token: str
+        self, client: TestClient, president_flag_token: str
     ):
         """President can access admin-only endpoints"""
         response = client.get(
             "/users",
-            headers={"Authorization": f"Bearer {president_token}"},
+            headers={"Authorization": f"Bearer {president_flag_token}"},
         )
         assert response.status_code == 200
 
     def test_leader_and_president_can_access_admin_endpoint(
-        self, client: TestClient, leader_and_president_token: str
+        self, client: TestClient, leader_and_president_flag_token: str
     ):
         """Leader_and_president can access admin-only endpoints"""
         response = client.get(
             "/users",
-            headers={"Authorization": f"Bearer {leader_and_president_token}"},
+            headers={"Authorization": f"Bearer {leader_and_president_flag_token}"},
         )
         assert response.status_code == 200
 
@@ -832,8 +834,8 @@ class TestPresidentAndLeaderRoles:
         self,
         client: TestClient,
         db: Session,
-        president_user: User,
-        president_token: str,
+        president_flag_user: User,
+        president_flag_token: str,
     ):
         """President (is_admin=True) can create a project"""
         response = client.post(
@@ -841,9 +843,9 @@ class TestPresidentAndLeaderRoles:
             json={
                 "name": "President Project",
                 "started_at": str(date.today()),
-                "members": [{"user_id": president_user.id, "role": "leader"}],
+                "members": [{"user_id": president_flag_user.id, "role": "leader"}],
             },
-            headers={"Authorization": f"Bearer {president_token}"},
+            headers={"Authorization": f"Bearer {president_flag_token}"},
         )
         assert response.status_code == 200
         assert response.json()["data"]["name"] == "President Project"
@@ -852,8 +854,8 @@ class TestPresidentAndLeaderRoles:
         self,
         client: TestClient,
         db: Session,
-        president_user: User,
-        president_token: str,
+        president_flag_user: User,
+        president_flag_token: str,
         admin_user: User,
         admin_token: str,
     ):
@@ -875,7 +877,7 @@ class TestPresidentAndLeaderRoles:
         update_resp = client.patch(
             f"/projects/{project_id}",
             json={"name": "Updated By President"},
-            headers={"Authorization": f"Bearer {president_token}"},
+            headers={"Authorization": f"Bearer {president_flag_token}"},
         )
         assert update_resp.status_code == 200
         assert update_resp.json()["data"]["name"] == "Updated By President"

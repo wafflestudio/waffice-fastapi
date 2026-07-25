@@ -422,10 +422,10 @@ def test_temporary_member_cannot_be_approved_even_to_pending(
     assert response.json()["error"] == "TEMPORARY_MEMBER_CANNOT_BE_APPROVED"
 
 
-def test_temporary_member_cannot_be_added_to_project(
+def test_temporary_member_can_be_added_to_project(
     client: TestClient, db: Session, admin_token: str, admin_user: User
 ):
-    """A temp member cannot be added to an existing project."""
+    """A temp member can be added to an existing project."""
     project = client.post(
         "/projects",
         json={
@@ -442,20 +442,22 @@ def test_temporary_member_cannot_be_added_to_project(
         json={"user_id": temp_id, "role": "member"},
         headers=_auth(admin_token),
     )
-    assert response.status_code == 400
-    assert response.json()["error"] == "TEMPORARY_MEMBER_CANNOT_JOIN_PROJECT"
+    assert response.status_code == 200
+    assert temp_id in {
+        member["user"]["id"] for member in response.json()["data"]["members"]
+    }
 
 
-def test_create_project_rejects_temporary_member(
+def test_create_project_accepts_temporary_member(
     client: TestClient, db: Session, admin_token: str, admin_user: User
 ):
-    """A temp member in the initial roster blocks project creation."""
+    """A temp member can be included in the initial project roster."""
     temp_id = _import_one(client, admin_token, "임시생성", "2021-99002")
 
     response = client.post(
         "/projects",
         json={
-            "name": "Should Fail",
+            "name": "Temporary Member Project",
             "started_at": "2026-01-01",
             "members": [
                 {"user_id": admin_user.id, "role": "leader"},
@@ -464,5 +466,7 @@ def test_create_project_rejects_temporary_member(
         },
         headers=_auth(admin_token),
     )
-    assert response.status_code == 400
-    assert response.json()["error"] == "TEMPORARY_MEMBER_CANNOT_JOIN_PROJECT"
+    assert response.status_code == 200
+    assert temp_id in {
+        member["user"]["id"] for member in response.json()["data"]["members"]
+    }
