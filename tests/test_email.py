@@ -1,7 +1,7 @@
 import os
 from unittest.mock import patch
 
-from app.services.email import EmailService, SENDER
+from app.services.email import SENDER, EmailService
 
 
 class FakeEmailClient:
