@@ -1,6 +1,5 @@
-<!-- 활동증명서(certificate of activities) PDF 템플릿.
-     app.services.certificate_render.build_context()가 만든 컨텍스트로 렌더링된다.
-     WeasyPrint 전용 HTML이며 브라우저에서 직접 열어볼 용도가 아니다(원격 자원 fetch 금지). -->
+<!-- 활동증명서 PDF 템플릿.
+     app.services.certificate_render.build_context()가 만든 컨텍스트로 렌더링된다. -->
 <!doctype html>
 <html lang="ko">
 <head>
@@ -8,12 +7,9 @@
 <title>활동증명서</title>
 <meta name="author" content="와플스튜디오">
 <style>
-  /* 발행번호는 페이지마다 반복되는 @page 여백 대신, 본문 하단의 .footer-note
-     블록 하나로만 표시한다(둘 다 쓰면 콘텐츠가 넘쳐 2페이지가 되는 문서에서
-     발행번호가 중복 표시된다). */
   @page {
     size: A4;
-    margin: 22mm 18mm 18mm 18mm;
+    margin: 0;
   }
 
   * {
@@ -23,198 +19,205 @@
   html, body {
     margin: 0;
     padding: 0;
+    width: 210mm;
     font-family: "Noto Sans CJK KR", "Noto Sans KR", "NanumGothic", "Malgun Gothic",
       "Apple SD Gothic Neo", sans-serif;
-    color: #111;
-    font-size: 10.5pt;
-    line-height: 1.5;
+    color: #121212;
   }
 
-  /* 전면 대각선 워터마크: 위변조 방지용 반복 텍스트 레이어. */
-  .watermark {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    z-index: -1;
-    overflow: hidden;
-  }
-  .watermark-grid {
-    position: absolute;
-    top: -50%;
-    left: -50%;
-    width: 200%;
-    height: 200%;
-    display: flex;
-    flex-wrap: wrap;
-    align-content: flex-start;
-    transform: rotate(-30deg);
-  }
-  .watermark-cell {
-    width: 50%;
-    padding: 20mm 0;
-    text-align: center;
-    font-size: 13pt;
-    font-weight: 700;
-    color: #000;
-    opacity: 0.028;
-    white-space: nowrap;
+  body {
+    min-height: 297mm;
+    padding: 0 30pt 24pt;
+    font-size: 8pt;
+    line-height: 1.25;
   }
 
   .header {
+    height: 137pt;
+    padding-top: 20pt;
     text-align: center;
-    margin-bottom: 8mm;
   }
-  .header .wordmark {
-    font-size: 12pt;
+
+  .brand-main {
+    height: 19pt;
+    line-height: 0;
+  }
+
+  .brand-logo {
+    width: 80pt;
+    height: 19pt;
+  }
+
+  .brand-studio {
+    margin-top: 4pt;
+    color: #27181d;
+    font-family: Arial, sans-serif;
+    font-size: 4pt;
     font-weight: 700;
-    letter-spacing: 3px;
-    color: #444;
+    letter-spacing: 2.2pt;
+    line-height: 5pt;
   }
+
   .header .title {
-    margin-top: 3mm;
+    margin: 12pt 0 0;
     font-size: 22pt;
     font-weight: 800;
-    letter-spacing: 6px;
+    letter-spacing: 3pt;
+    line-height: 24pt;
   }
 
   section.cert-section {
-    margin-bottom: 6mm;
-    /* 표 중간에서 페이지가 갈라지지 않도록 한다(제목과 표는 항상 같은 페이지). */
     page-break-inside: avoid;
   }
+
+  section[data-type="qualification"] {
+    margin-top: 36pt;
+  }
+
+  section[data-type="discipline"] {
+    margin-top: 34pt;
+  }
+
+  section[data-type="projects"],
+  section[data-type="executive"] {
+    margin-top: 31pt;
+  }
+
   section.cert-section h2 {
-    font-size: 11.5pt;
+    margin: 0 0 13pt 4pt;
+    font-size: 11pt;
     font-weight: 700;
-    border-bottom: 1.4pt solid #111;
-    padding-bottom: 1.5mm;
-    margin: 0 0 3mm 0;
+    line-height: 14pt;
+  }
+
+  section[data-type="discipline"] h2 {
+    margin-bottom: 16pt;
   }
 
   table.section-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 9.8pt;
+    table-layout: fixed;
+    border-top: 1pt solid #dbdfe0;
+    font-size: 8pt;
   }
+
   table.section-table th,
   table.section-table td {
-    border: 0.7pt solid #999;
-    padding: 2.2mm 2.6mm;
+    height: 25pt;
+    padding: 3pt 8pt;
+    border: 0;
+    border-bottom: 1pt solid #dbdfe0;
     text-align: center;
     vertical-align: middle;
   }
+
   table.section-table th {
-    background: #f2f2f2;
-    font-weight: 700;
+    background: #f7f7f7;
+    font-weight: 600;
   }
+
   table.section-table td.empty-row {
-    padding: 4mm 0;
-    color: #555;
+    color: #777;
   }
 
-  table.personal-table td.label {
-    width: 22%;
-    background: #f2f2f2;
-    font-weight: 700;
-  }
-  table.personal-table td.value {
-    text-align: left;
-    padding-left: 4mm;
+  .personal-details {
+    margin-left: 50pt;
   }
 
-  /* 증명 문구 + 발급일/서명 + 발행번호/검증 안내를 하나의 단위로 묶어, 페이지가
-     갈라질 때 이 블록 중간에서 끊기지 않고(가능하다면) 통째로 다음 페이지로
-     넘어가게 한다. */
+  .personal-row {
+    line-height: 10pt;
+  }
+
+  .personal-row span:first-child {
+    display: inline-block;
+    width: 70pt;
+  }
+
+  .personal-row + .personal-row {
+    margin-top: 8pt;
+  }
+
   .closing-block {
+    margin-top: 26pt;
     page-break-inside: avoid;
   }
 
   .certification-sentence {
-    margin: 10mm 0 12mm 0;
+    margin: 0;
     text-align: center;
-    font-size: 10.8pt;
-    line-height: 1.8;
+    font-size: 8pt;
+    line-height: 12pt;
+    white-space: nowrap;
   }
 
   .signoff {
-    position: relative;
+    margin-top: 39pt;
     text-align: right;
-    margin-bottom: 14mm;
   }
+
   .signoff .issued-on {
-    margin-bottom: 3mm;
+    margin-bottom: 4pt;
+    line-height: 11pt;
   }
+
   .signoff .signer-line {
     position: relative;
     display: inline-block;
-    font-size: 13pt;
-    font-weight: 700;
-  }
-  .signoff .signature-img {
-    position: absolute;
-    /* 이름줄 "(인)" 위에 서명을 겹쳐 얹되(top:-3mm) 위쪽 발급일 날짜줄은
-       침범하지 않는다. max-width/max-height로 양방향 상자에 가둬 어떤
-       종횡비의 서명이 와도 넘치지 않게 하고, opacity로 흐릿하게 처리해
-       겹친 글자가 비쳐 보이도록 한다. 투명 배경 PNG 권장 — JPEG는 흰 배경
-       박스가 생겨 글자를 가릴 수 있다. */
-    right: -2mm;
-    top: -3mm;
-    max-width: 46mm;
-    max-height: 12mm;
-    object-fit: contain;
-    opacity: 0.85;
+    font-size: 8pt;
+    font-weight: 400;
+    line-height: 11pt;
   }
 
-  .footer-note {
-    margin-top: 6mm;
-    font-size: 8.6pt;
-    color: #444;
-  }
-  .footer-note .verify-url {
-    word-break: break-all;
+  .signoff .signature-img {
+    position: absolute;
+    right: -4pt;
+    top: -4pt;
+    max-width: 30pt;
+    max-height: 18pt;
+    object-fit: contain;
+    opacity: 0.7;
   }
 </style>
 </head>
 <body>
 
-  <div class="watermark">
-    <div class="watermark-grid">
-      {% for _ in range(10) %}
-      <div class="watermark-cell">WAFFLE STUDIO 활동증명서 원본대조필</div>
-      {% endfor %}
-    </div>
-  </div>
-
   <div class="header">
-    <div class="wordmark">WAFFLE STUDIO</div>
+    <div class="brand-main">
+      <svg class="brand-logo" viewBox="310.5 97 80 19.03" aria-hidden="true">
+        <path d="M313.121 115.943L310.5 105.068H312.767L314.42 112.539L316.428 105.068H319.063L320.984 112.665L322.67 105.068H324.9L322.238 115.943H319.89L317.7 107.811L315.52 115.943H313.121Z" fill="#27181D"/>
+        <path d="M339.354 115.943H336.947L335.988 113.471H331.6L330.696 115.943H328.348L332.622 105.068H334.962L339.354 115.943ZM335.275 111.638L333.762 107.604L332.282 111.638H335.275Z" fill="#27181D"/>
+        <path d="M361.694 110.424H356.125V116.03H361.694V110.424Z" fill="#ED8573"/>
+        <path d="M353.897 110.424H348.328V116.03H353.897V110.424Z" fill="#F0975E"/>
+        <path d="M361.694 102.607H356.125V108.214H361.694V102.607Z" fill="#F0975E"/>
+        <path d="M353.897 102.607H348.328V108.214H353.897V102.607Z" fill="#F0975E"/>
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M348.327 97H346.101V100.4H342.758V102.606H346.101V108.212H342.758V110.419H346.101V116.025H348.327V110.423H353.896V116.03H356.122V110.423H361.692V108.217H356.122V102.606H361.692V100.4H356.122V97H353.896V100.4H348.327V97ZM353.896 108.212V102.606H348.327V108.212H353.896Z" fill="#27181D"/>
+        <path d="M369.125 115.945V105.16H371.342V114.112H376.847V115.945H369.125Z" fill="#27181D"/>
+        <path d="M382.16 115.943V105.068H390.291V106.906H384.372V109.315H389.883V111.147H384.372V114.11H390.5V115.943H382.16Z" fill="#27181D"/>
+      </svg>
+    </div>
+    <div class="brand-studio">STUDIO</div>
     <div class="title">활동증명서</div>
   </div>
 
   {% for sec in sections %}
-  <section class="cert-section">
+  <section class="cert-section" data-type="{{ sec.type }}">
     <h2>{{ sec.number }}. {{ sec.title }}</h2>
 
     {% if sec.type == "personal" %}
-    <table class="section-table personal-table">
-      <tr>
-        <td class="label">성명</td>
-        <td class="value">{{ sec.data.name }}</td>
-      </tr>
-      <tr>
-        <td class="label">학번</td>
-        <td class="value">{{ sec.data.student_id }}</td>
-      </tr>
-    </table>
+    <div class="personal-details">
+      <div class="personal-row"><span>성명</span><span>{{ sec.data.name }}</span></div>
+      <div class="personal-row"><span>학번</span><span>{{ sec.data.student_id }}</span></div>
+    </div>
 
     {% elif sec.type == "qualification" %}
     {% if sec.rows %}
     <table class="section-table">
       <thead>
         <tr>
-          <th style="width: 22%">기준일</th>
-          <th style="width: 48%">내용</th>
-          <th style="width: 30%">사유</th>
+          <th style="width: 24%">기준일</th>
+          <th style="width: 23%">내용</th>
+          <th style="width: 53%">사유</th>
         </tr>
       </thead>
       <tbody>
@@ -232,7 +235,6 @@
     {% endif %}
 
     {% elif sec.type == "discipline" %}
-    {% if sec.rows %}
     <table class="section-table">
       <thead>
         <tr>
@@ -243,6 +245,7 @@
         </tr>
       </thead>
       <tbody>
+        {% if sec.rows %}
         {% for row in sec.rows %}
         <tr>
           <td>{{ row.order }}</td>
@@ -251,20 +254,20 @@
           <td>{{ row.started_on }}</td>
         </tr>
         {% endfor %}
+        {% else %}
+        <tr><td class="empty-row" colspan="4">(해당 사실 없음.)</td></tr>
+        {% endif %}
       </tbody>
     </table>
-    {% else %}
-    <table class="section-table"><tr><td class="empty-row">(해당 사실 없음.)</td></tr></table>
-    {% endif %}
 
     {% elif sec.type == "projects" %}
     {% if sec.rows %}
     <table class="section-table">
       <thead>
         <tr>
-          <th style="width: 40%">명칭</th>
-          <th style="width: 38%">기간</th>
-          <th style="width: 22%">역할</th>
+          <th style="width: 24%">명칭</th>
+          <th style="width: 23%">기간</th>
+          <th style="width: 53%">역할</th>
         </tr>
       </thead>
       <tbody>
@@ -286,8 +289,8 @@
     <table class="section-table">
       <thead>
         <tr>
-          <th style="width: 60%">기간</th>
-          <th style="width: 40%">역할</th>
+          <th style="width: 22%">기간</th>
+          <th style="width: 78%">역할</th>
         </tr>
       </thead>
       <tbody>
@@ -308,12 +311,11 @@
 
   <div class="closing-block">
     <p class="certification-sentence">
-      위 내용은 서울대학교 컴퓨터공학부 웹/앱 개발 동아리 와플스튜디오가 보유한 기록사항과<br>
-      어긋남이 없음을 증명합니다.
+      위 내용은 서울대학교 컴퓨터공학부 웹/앱 개발 동아리 와플스튜디오가 보유한 기록사항과 어긋남이 없음을 증명합니다.
     </p>
 
     <div class="signoff">
-      <div class="issued-on">발급일&nbsp;&nbsp;{{ issued_on_display }}</div>
+      <div class="issued-on">{{ issued_on_display }}</div>
       <div class="signer-line">
         {% if signer.type == "advisor" %}
         와플스튜디오 지도교수 {{ signer.name }}(인)
@@ -326,12 +328,6 @@
       </div>
     </div>
 
-    <div class="footer-note">
-      <div>발행번호&nbsp;&nbsp;{{ issue_number_display }}</div>
-      <div class="verify-url">
-        ※와플스튜디오 증명서 원본 확인 사이트({{ verify_url }})에서 발급일로부터 90일 이내에 증명서 원본의 내용을 확인할 수 있습니다.
-      </div>
-    </div>
   </div>
 
 </body>

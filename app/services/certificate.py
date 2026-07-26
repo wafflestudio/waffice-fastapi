@@ -720,11 +720,11 @@ class CertificateService:
     ) -> Certificate:
         """kind=DRAFT: 운영진이 초안만 생성. issue_number는 아직 부여하지 않는다.
 
-        여기서 렌더링되는 PDF는 `issue_number=None`으로 렌더링되므로
-        (`build_context`가 마스킹한 `XXXX` 발행번호/무효 verify_url이 찍힌다)
-        인쇄되어 회장이 오프라인으로 서명하는 실물 문서가 된다. 이 렌더 결과
-        (`_context`, 현재 폐기됨)는 어디에도 저장되지 않는다 — 알려진 한계는
-        `register_original`의 docstring 참고 (DIVERGENCE — needs sign-off).
+        여기서 렌더링되는 PDF에는 발행번호와 원본 확인 안내를 표시하지 않는다.
+        PDF는 인쇄되어 회장이 오프라인으로 서명하는 실물 문서가 된다. 이 렌더
+        결과(`_context`, 현재 폐기됨)는 어디에도 저장되지 않는다 — 알려진
+        한계는 `register_original`의 docstring 참고
+        (DIVERGENCE — needs sign-off).
         """
         CertificateService._validate_options(options, allow_advisor=True)
         CertificateService._ensure_target_eligible(target_user)
@@ -817,27 +817,18 @@ class CertificateService:
         알려진 한계 (DIVERGENCE — needs product/eng sign-off, 이 함수만으로는
         고칠 수 없음):
 
-        1. `create_draft`가 인쇄용으로 렌더링한 PDF는 `issue_number=None`으로
-           렌더링되어 마스킹된 `XXXX` 발행번호와 무효 verify_url이 이미 그
-           페이지에 박제되어 있다. 그 실물(인쇄 -> 회장 서명 -> 스캔)이 바로
-           여기서 `file_bytes`로 업로드되는 원본이고, 이 함수는 그것을
-           그대로 저장할 뿐 재렌더링하지 않는다. 반면 위에서 새로 생성하는
-           `issue_number`/`verify_url`은 이 시점에만 존재해 실물 문서에 찍힌
-           값과 절대 일치하지 않는다. 근본 수정(예: `issue_number`를 인쇄
-           전, `create_draft` 시점에 미리 예약)은 발행번호를 언제 부여할지
-           바꾸는 제품 결정이라 이 PR 범위에서 조용히 바꾸지 않는다.
-        2. 아래 `build_context` 호출은 `target_user`의 *현재* DB 상태(자격
-           이력/프로젝트/현직 회장 등)를 다시 읽어 `certificate.snapshot`에
-           저장한다 — `create_draft`가 인쇄 시점에 실제로 렌더링한 컨텍스트
-           (저장되지 않고 폐기됨)가 아니다. 오프라인 서명 대기 기간 중
-           원본 데이터가 바뀌면, "발급 시점에 보여준 내용을 그대로 얼려서
-           90일 원본 대조에 쓴다"는 `build_context`/`Certificate.snapshot`의
-           문서화된 목적과 달리 스냅샷이 실제 서명된 실물과 다른 내용을
-           담게 된다. 근본 수정은 초안 렌더 컨텍스트를 어딘가에 영속화해야
-           하는데, `Certificate.snapshot`은 "발급 전에는 NULL"이 이미
-           문서화된 불변식이라 `create_draft`에서 그대로 채우는 것도 그
-           불변식을 깨는 별도의 제품 결정이다 — 별도 컬럼(예:
-           `draft_snapshot`) 등 저장 형태를 정하는 sign-off가 필요하다.
+        아래 `build_context` 호출은 `target_user`의 *현재* DB 상태(자격
+        이력/프로젝트/현직 회장 등)를 다시 읽어 `certificate.snapshot`에
+        저장한다 — `create_draft`가 인쇄 시점에 실제로 렌더링한 컨텍스트
+        (저장되지 않고 폐기됨)가 아니다. 오프라인 서명 대기 기간 중
+        원본 데이터가 바뀌면, "발급 시점에 보여준 내용을 그대로 얼려서
+        90일 원본 대조에 쓴다"는 `build_context`/`Certificate.snapshot`의
+        문서화된 목적과 달리 스냅샷이 실제 서명된 실물과 다른 내용을
+        담게 된다. 근본 수정은 초안 렌더 컨텍스트를 어딘가에 영속화해야
+        하는데, `Certificate.snapshot`은 "발급 전에는 NULL"이 이미
+        문서화된 불변식이라 `create_draft`에서 그대로 채우는 것도 그
+        불변식을 깨는 별도의 제품 결정이다 — 별도 컬럼(예:
+        `draft_snapshot`) 등 저장 형태를 정하는 sign-off가 필요하다.
         """
         certificate = (
             db.query(Certificate)

@@ -151,9 +151,7 @@ def get_existing_certificate(db: Session, certificate_id: int) -> Certificate:
 @router.post(
     "/preview",
     summary="활동증명서 미리보기",
-    description=(
-        "현재 로그인한 회원 기준으로 활동증명서를 렌더링해 PDF로 돌려준다. " "저장되지 않으며, 발행번호는 'XXXX'로 마스킹된다."
-    ),
+    description=("현재 로그인한 회원 기준으로 활동증명서를 렌더링해 PDF로 돌려준다. " "미리보기 결과는 저장되지 않는다."),
 )
 async def preview_certificate(
     options: CertificateOptions,
