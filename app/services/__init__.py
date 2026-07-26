@@ -5,6 +5,7 @@ from app.services.certificate import (
     PresidentService,
     SignatureService,
 )
+from app.services.email import EmailService
 from app.services.member import CannotRemoveSelfError, LastLeaderError, MemberService
 from app.services.object_storage import OCIObjectStorageService
 from app.services.project import ProjectService
@@ -24,4 +25,5 @@ __all__ = [
     "SignatureService",
     "PresidentService",
     "CertificateService",
+    "EmailService",
 ]
