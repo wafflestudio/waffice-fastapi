@@ -282,9 +282,7 @@ class UserDetail(BaseModel):
         description="Whether SMS information messages were accepted",
     )
     graduation_status: str = Field(
-        description=(
-            "Graduation status of the user. One of [학부생, 졸업생, 휴학생, 대학원생]"
-        ),
+        description=("Graduation status of the user. One of [학부생, 졸업생, 휴학생, 대학원생]"),
         examples=["학부생", "졸업생", "휴학생", "대학원생"],
     )
     is_leader: bool = Field(description="Whether the user has leader privileges")
