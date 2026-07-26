@@ -35,6 +35,12 @@ class SignupRequest(BaseModel):
         max_length=20,
         examples=["23.5"],
     )
+    student_id: str = Field(
+        description="Student ID",
+        min_length=1,
+        max_length=50,
+        examples=["2021-14205"],
+    )
     email: EmailStr = Field(
         description="Preferred contact email",
         examples=["user@example.com"],
@@ -51,9 +57,13 @@ class SignupRequest(BaseModel):
     terms_agreed: Literal[True] = Field(
         description="Required consent to Waffle Studio articles and regulations",
     )
-    marketing_agreed: bool = Field(
+    email_notifications_agreed: bool = Field(
         default=False,
-        description="Optional consent to receive information by email or SMS",
+        description="Optional consent to receive information by email",
+    )
+    sms_notifications_agreed: bool = Field(
+        default=False,
+        description="Optional consent to receive information by SMS",
     )
     phone: str | None = Field(
         default=None,
@@ -265,11 +275,16 @@ class UserDetail(BaseModel):
     terms_agreed: bool = Field(
         description="Whether Waffle Studio articles and regulations were accepted",
     )
-    marketing_agreed: bool = Field(
-        description="Whether email or SMS information messages were accepted",
+    email_notifications_agreed: bool = Field(
+        description="Whether email information messages were accepted",
+    )
+    sms_notifications_agreed: bool = Field(
+        description="Whether SMS information messages were accepted",
     )
     graduation_status: str = Field(
-        description=("Graduation status of the user. One of [학부생, 졸업생, 휴학생, 대학원생]"),
+        description=(
+            "Graduation status of the user. One of [학부생, 졸업생, 휴학생, 대학원생]"
+        ),
         examples=["학부생", "졸업생", "휴학생", "대학원생"],
     )
     is_leader: bool = Field(description="Whether the user has leader privileges")

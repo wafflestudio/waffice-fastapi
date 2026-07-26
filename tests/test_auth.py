@@ -164,12 +164,14 @@ class TestSignupEndpoint:
             "auth_token": auth_token,
             "name": "Test User",
             "generation": "26",
+            "student_id": "2026-12345",
             "email": "contact@example.com",
             "graduation_status": "학부생",
             "qualification": "associate",
             "privacy_policy_agreed": True,
             "terms_agreed": True,
-            "marketing_agreed": False,
+            "email_notifications_agreed": False,
+            "sms_notifications_agreed": False,
             **overrides,
         }
 
@@ -185,12 +187,14 @@ class TestSignupEndpoint:
                 auth_token,
                 name="New User",
                 generation="23.5",
+                student_id="2021-14205",
                 graduation_status="휴학생",
                 qualification="regular",
                 phone="010-1234-5678",
                 bio="A new user",
                 github_username="new-user",
-                marketing_agreed=True,
+                email_notifications_agreed=True,
+                sms_notifications_agreed=False,
             ),
         )
 
@@ -201,6 +205,7 @@ class TestSignupEndpoint:
         assert data["data"]["user"]["name"] == "New User"
         assert data["data"]["user"]["email"] == "newuser@example.com"
         assert data["data"]["user"]["generation"] == "23.5"
+        assert data["data"]["user"]["student_id"] == "2021-14205"
         assert data["data"]["user"]["contact_email"] == "contact@example.com"
         assert data["data"]["user"]["graduation_status"] == "휴학생"
         assert data["data"]["user"]["qualification"] == "pending"
@@ -208,7 +213,8 @@ class TestSignupEndpoint:
         assert data["data"]["user"]["github_username"] == "new-user"
         assert data["data"]["user"]["privacy_policy_agreed"] is True
         assert data["data"]["user"]["terms_agreed"] is True
-        assert data["data"]["user"]["marketing_agreed"] is True
+        assert data["data"]["user"]["email_notifications_agreed"] is True
+        assert data["data"]["user"]["sms_notifications_agreed"] is False
         # Token is set via HttpOnly cookie, not in response body
         assert "waffice_access_token" in response.cookies
 

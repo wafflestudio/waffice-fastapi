@@ -54,7 +54,16 @@ def upgrade() -> None:
     op.add_column(
         "users",
         sa.Column(
-            "marketing_agreed",
+            "email_notifications_agreed",
+            sa.Boolean(),
+            nullable=False,
+            server_default=sa.false(),
+        ),
+    )
+    op.add_column(
+        "users",
+        sa.Column(
+            "sms_notifications_agreed",
             sa.Boolean(),
             nullable=False,
             server_default=sa.false(),
@@ -63,7 +72,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column("users", "marketing_agreed")
+    op.drop_column("users", "sms_notifications_agreed")
+    op.drop_column("users", "email_notifications_agreed")
     op.drop_column("users", "terms_agreed")
     op.drop_column("users", "privacy_policy_agreed")
     op.drop_column("users", "requested_qualification")
