@@ -177,35 +177,40 @@ async def get_my_activities(
     db: Session = Depends(get_db),
 ):
     activities = ActivityService.list_by_user(db, current_user.id)
-    pending_updates = ActivityService.pending_updates_by_activity(
-        db, [activity.id for activity in activities]
-    )
+    activity_ids = [activity.id for activity in activities]
+    pending_updates = ActivityService.pending_updates_by_activity(db, activity_ids)
+    rejected_updates = ActivityService.rejected_updates_by_activity(db, activity_ids)
 
-    items = [
-        ActivityHistoryItem(
-            id=activity.id,
-            pending_request_id=(
-                pending_updates[activity.id].id
-                if activity.id in pending_updates
-                else None
-            ),
-            user_id=activity.user_id,
-            project_id=activity.project_id,
-            project_name=activity.project_name,
-            position=activity.position,
-            start_date=activity.start_date,
-            end_date=activity.end_date,
-            status=(
-                ActivityHistoryStatus.UPDATE_PENDING
-                if activity.id in pending_updates
-                else ActivityHistoryStatus.ACTIVE
-            ),
-            description=activity.description,
-            created_at=activity.created_at,
-            updated_at=activity.updated_at,
+    items = []
+    for activity in activities:
+        pending_request = pending_updates.get(activity.id)
+        rejected_request = rejected_updates.get(activity.id)
+        if pending_request is not None:
+            status = ActivityHistoryStatus.UPDATE_PENDING
+            request_id = pending_request.id
+        elif rejected_request is not None:
+            status = ActivityHistoryStatus.REJECTED
+            request_id = rejected_request.id
+        else:
+            status = ActivityHistoryStatus.ACTIVE
+            request_id = None
+
+        items.append(
+            ActivityHistoryItem(
+                id=activity.id,
+                pending_request_id=request_id,
+                user_id=activity.user_id,
+                project_id=activity.project_id,
+                project_name=activity.project_name,
+                position=activity.position,
+                start_date=activity.start_date,
+                end_date=activity.end_date,
+                status=status,
+                description=activity.description,
+                created_at=activity.created_at,
+                updated_at=activity.updated_at,
+            )
         )
-        for activity in activities
-    ]
 
     for approval_request in ActivityService.list_pending_creates(
         db, user_id=current_user.id
@@ -228,6 +233,33 @@ async def get_my_activities(
                 start_date=body.after.start_date,
                 end_date=body.after.end_date,
                 status=ActivityHistoryStatus.CREATE_PENDING,
+                description=body.after.description,
+                created_at=approval_request.created_at,
+                updated_at=approval_request.updated_at,
+            )
+        )
+
+    for approval_request in ActivityService.list_recent_rejected_creates(
+        db, user_id=current_user.id
+    ):
+        body = ApprovalRequestBody.model_validate(approval_request.body)
+        if body.after is None:
+            continue
+        items.append(
+            ActivityHistoryItem(
+                id=None,
+                pending_request_id=approval_request.id,
+                user_id=body.target_user_id,
+                project_id=body.after.project_id,
+                project_name=(
+                    approval_request.project.name
+                    if approval_request.project is not None
+                    else None
+                ),
+                position=body.after.position,
+                start_date=body.after.start_date,
+                end_date=body.after.end_date,
+                status=ActivityHistoryStatus.REJECTED,
                 description=body.after.description,
                 created_at=approval_request.created_at,
                 updated_at=approval_request.updated_at,
