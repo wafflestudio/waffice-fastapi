@@ -3,6 +3,7 @@ End-to-End test scenarios covering all critical flows.
 """
 
 from datetime import date
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -29,13 +30,15 @@ class TestUserApprovalFlow:
         )
 
         # Admin approves to associate
-        response = client.post(
-            f"/users/{pending.id}/approve",
-            json={"qualification": "associate"},
-            headers={"Authorization": f"Bearer {admin_token}"},
-        )
+        with patch("app.routes.users.EmailService.send_signup_approved") as send_email:
+            response = client.post(
+                f"/users/{pending.id}/approve",
+                json={"qualification": "associate"},
+                headers={"Authorization": f"Bearer {admin_token}"},
+            )
 
         assert response.status_code == 200
+        send_email.assert_called_once_with("newuser@example.com")
         data = response.json()
         assert data["ok"] is True
         assert data["data"]["qualification"] == "associate"
@@ -72,6 +75,23 @@ class TestUserApprovalFlow:
 
         assert response.status_code == 400
         assert response.json()["error"] == "INVALID_QUALIFICATION"
+
+    def test_pending_signup_rejected_with_email(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        pending_user: User,
+    ):
+        with patch("app.routes.users.EmailService.send_signup_rejected") as send_email:
+            response = client.delete(
+                f"/users/{pending_user.id}",
+                headers={"Authorization": f"Bearer {admin_token}"},
+            )
+
+        assert response.status_code == 200
+        assert UserService.get(db, pending_user.id) is None
+        send_email.assert_called_once_with(pending_user.email)
 
 
 class TestProjectCreationAndMemberManagement:

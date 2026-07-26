@@ -1,0 +1,103 @@
+import logging
+import os
+from uuid import uuid4
+
+import oci
+from oci.email_data_plane import EmailDPClient
+from oci.email_data_plane.models import (
+    EmailAddress,
+    Recipients,
+    Sender,
+    SubmitEmailDetails,
+)
+from oci.exceptions import BaseRequestException, InvalidConfig, ServiceError
+
+from app.config.secrets import ENV
+
+SENDER = "master@waffiestudio.com"
+logger = logging.getLogger(__name__)
+
+
+class EmailService:
+    _client: EmailDPClient | None = None
+
+    @classmethod
+    def _send(cls, recipient: str, subject: str, body: str) -> None:
+        compartment_id = os.getenv("EMAIL_COMPARTMENT_ID", "")
+        if not compartment_id:
+            if ENV == "local":
+                return
+            raise RuntimeError("EMAIL_COMPARTMENT_ID is not configured")
+
+        from_email = os.getenv("EMAIL_FROM_EMAIL", SENDER)
+        sender_address = EmailAddress(email=from_email)
+        from_name = os.getenv("EMAIL_FROM_NAME", "와피스")
+        reply_to = os.getenv("EMAIL_REPLY_TO") or from_email
+        if from_name:
+            sender_address.name = from_name
+
+        try:
+            cls._get_client().submit_email(
+                SubmitEmailDetails(
+                    message_id=f"{uuid4()}@{from_email.rsplit('@', 1)[-1]}",
+                    sender=Sender(
+                        sender_address=sender_address,
+                        compartment_id=compartment_id,
+                    ),
+                    recipients=Recipients(to=[EmailAddress(email=recipient)]),
+                    subject=subject,
+                    body_text=body,
+                    reply_to=[EmailAddress(email=reply_to)],
+                )
+            )
+        except (
+            BaseRequestException,
+            InvalidConfig,
+            OSError,
+            ServiceError,
+            ValueError,
+        ) as exc:
+            logger.exception(
+                "Failed to send signup notification email to %s", recipient
+            )
+            raise RuntimeError("Failed to send signup notification email") from exc
+
+    @classmethod
+    def _get_client(cls) -> EmailDPClient:
+        if cls._client is not None:
+            return cls._client
+
+        region = os.getenv("OCI_REGION", "ap-chuncheon-1")
+        client_kwargs: dict[str, object] = {
+            "timeout": float(os.getenv("EMAIL_TIMEOUT", "10"))
+        }
+        service_endpoint = os.getenv("EMAIL_SERVICE_ENDPOINT")
+        if service_endpoint:
+            client_kwargs["service_endpoint"] = service_endpoint
+
+        try:
+            signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
+        except Exception as exc:
+            if ENV != "local":
+                raise RuntimeError("OCI instance principal is not configured") from exc
+            config_file = os.getenv("OCI_CONFIG_FILE") or "~/.oci/config"
+            profile = os.getenv("OCI_CONFIG_PROFILE", "DEFAULT")
+            cls._client = EmailDPClient(
+                oci.config.from_file(config_file, profile), **client_kwargs
+            )
+        else:
+            cls._client = EmailDPClient(
+                {"region": region}, signer=signer, **client_kwargs
+            )
+
+        return cls._client
+
+    @classmethod
+    def send_signup_approved(cls, recipient: str) -> None:
+        message = "와피스 회원가입 신청이 승인되었습니다!"
+        cls._send(recipient, message, message)
+
+    @classmethod
+    def send_signup_rejected(cls, recipient: str) -> None:
+        message = "와피스 회원가입 신청이 거절되었습니다."
+        cls._send(recipient, message, message)

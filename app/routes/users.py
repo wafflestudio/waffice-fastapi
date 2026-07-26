@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
@@ -37,6 +37,7 @@ from app.schemas import (
 from app.services import (
     ActivityService,
     AuditLogService,
+    EmailService,
     PresidentService,
     ProjectService,
     UserService,
@@ -507,6 +508,7 @@ async def update_user(
 )
 async def delete_user(
     user_id: int,
+    background_tasks: BackgroundTasks,
     _admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -522,7 +524,16 @@ async def delete_user(
     if not user:
         raise NotFoundError("User not found")
 
+    rejected_signup_email = (
+        user.email
+        if user.qualification == Qualification.PENDING and not user.is_temporary
+        else None
+    )
     UserService.delete(db, user)
+    if rejected_signup_email:
+        background_tasks.add_task(
+            EmailService.send_signup_rejected, rejected_signup_email
+        )
     return Response(ok=True, message="User deleted successfully")
 
 
@@ -544,6 +555,7 @@ async def delete_user(
 async def approve_user(
     user_id: int,
     request: ApproveRequest,
+    background_tasks: BackgroundTasks,
     admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -569,6 +581,11 @@ async def approve_user(
     if user.is_temporary:
         raise TemporaryMemberApprovalError()
 
+    if user.qualification != Qualification.PENDING or not user.email:
+        raise InvalidQualificationError(
+            "Only pending users with a login email can be approved"
+        )
+
     # Cannot approve to pending
     if request.qualification == Qualification.PENDING:
         raise InvalidQualificationError("Cannot approve user to pending status")
@@ -584,6 +601,7 @@ async def approve_user(
     )
 
     user = UserService.update(db, user, qualification=request.qualification)
+    background_tasks.add_task(EmailService.send_signup_approved, user.email)
     return Response(ok=True, data=user)
 
 
