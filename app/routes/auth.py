@@ -492,6 +492,20 @@ async def signup(
     if not user:
         user = UserService.get_by_email(db, email)
 
+    if not user:
+        deleted_by_google_id, deleted_by_email = UserService.get_deleted_by_identity(
+            db, google_id, email
+        )
+        if (
+            deleted_by_google_id
+            and deleted_by_email
+            and deleted_by_google_id.id != deleted_by_email.id
+        ):
+            raise GoogleAccountAlreadyLinkedError()
+        deleted_user = deleted_by_google_id or deleted_by_email
+        if deleted_user:
+            user = UserService.restore(db, deleted_user)
+
     if user:
         # User already exists - return existing user (idempotency)
         if not user.google_id:

@@ -274,6 +274,21 @@ class PresidentService:
         )
 
     @staticmethod
+    def get_current_terms(db: Session) -> list[PresidentTerm]:
+        """현직 회장(들)의 임기 이력 행을 전부 반환한다 (ended_at IS NULL).
+
+        (임시 비활성화 상태) 여러 명이 동시에 열린 임기를 가질 수 있으므로,
+        `get_current_term()`(임의의 하나만)과 달리 이 메서드는 전체 목록을
+        돌려준다. 관리자용 "현직 회장 목록 조회" 화면이 이 메서드를 쓴다."""
+        return (
+            db.query(PresidentTerm)
+            .options(joinedload(PresidentTerm.user))
+            .filter(PresidentTerm.ended_at.is_(None))
+            .order_by(PresidentTerm.started_at.asc(), PresidentTerm.id.asc())
+            .all()
+        )
+
+    @staticmethod
     def appoint(db: Session, *, user_id: int, started_at: date) -> PresidentTerm:
         """새 회장을 임명한다.
 

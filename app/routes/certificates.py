@@ -396,18 +396,21 @@ async def appoint_president(
 
 @router.get(
     "/president-terms/current",
-    response_model=Response[PresidentTermDetail | None],
-    summary="현직 회장 조회 (운영진)",
-    description="현재 열려 있는(ended_at IS NULL) 회장 임기를 조회한다.",
+    response_model=Response[list[PresidentTermDetail]],
+    summary="현직 회장 목록 조회 (운영진)",
+    description=(
+        "현재 열려 있는(ended_at IS NULL) 회장 임기를 전부 조회한다. "
+        "(임시 비활성화 상태) 동시에 여러 명이 현직일 수 있어 리스트로 반환한다."
+    ),
 )
 async def get_current_president(
     _admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    term = PresidentService.get_current_term(db)
+    terms = PresidentService.get_current_terms(db)
     return Response(
         ok=True,
-        data=PresidentTermDetail.model_validate(term) if term else None,
+        data=[PresidentTermDetail.model_validate(term) for term in terms],
     )
 
 

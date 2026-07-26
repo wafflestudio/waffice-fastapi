@@ -2,7 +2,7 @@ from enum import Enum
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.models.enums import ActivityStatus, ApprovalStatus, MemberRole
+from app.models.enums import ActivityStatus, ApprovalStatus
 from app.schemas.project import ProjectBrief
 from app.schemas.user import UserBrief
 
@@ -35,7 +35,7 @@ class RequestKindFilter(str, Enum):
 
 class ActivityPayload(BaseModel):
     project_id: int
-    position: MemberRole
+    position: str = Field(max_length=100)
     start_date: int
     end_date: int | None = None
     status: ActivityStatus = ActivityStatus.ACTIVE
@@ -43,7 +43,7 @@ class ActivityPayload(BaseModel):
 
 
 class ActivityPatchPayload(BaseModel):
-    position: MemberRole | None = None
+    position: str | None = Field(default=None, max_length=100)
     start_date: int | None = None
     end_date: int | None = None
     status: ActivityStatus | None = None
@@ -82,6 +82,8 @@ class ApprovalRequestCreateRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_request_body(self):
+        if self.request_kind == RequestKind.CREATE and self.activity_id is not None:
+            raise ValueError("activity_id must be omitted for create requests")
         if (
             self.request_kind in (RequestKind.UPDATE, RequestKind.DELETE)
             and self.activity_id is None
@@ -126,7 +128,11 @@ class RequestReviewerDetail(BaseModel):
 class ApprovalRequestListItem(BaseModel):
     id: int
     requester: UserBrief
+    target_user_id: int
+    activity_id: int | None
+    reviewers: list[RequestReviewerDetail]
     request_kind: RequestKind
+    after: ActivityPayload | None
     status: ApprovalStatus
     created_at: int
     reviewed_at: int | None

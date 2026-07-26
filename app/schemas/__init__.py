@@ -1,6 +1,9 @@
 from app.schemas.activity import (
     ActivityCreateRequest,
     ActivityDetail,
+    ActivityHistoryAdminItem,
+    ActivityHistoryItem,
+    ActivityHistoryStatus,
     ActivityUpdateRequest,
 )
 from app.schemas.audit_log import AuditLogDetail
@@ -67,6 +70,9 @@ from app.schemas.user import (
 __all__ = [
     "ActivityCreateRequest",
     "ActivityDetail",
+    "ActivityHistoryAdminItem",
+    "ActivityHistoryItem",
+    "ActivityHistoryStatus",
     "ActivityPatchPayload",
     "ActivityPayload",
     "ActivityUpdateRequest",

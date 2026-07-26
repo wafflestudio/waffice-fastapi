@@ -1,6 +1,15 @@
+from enum import Enum
+
 from pydantic import BaseModel, Field, model_validator
 
 from app.models.enums import ActivityStatus
+from app.schemas.user import UserBrief
+
+
+class ActivityHistoryStatus(str, Enum):
+    CREATE_PENDING = "create_pending"
+    UPDATE_PENDING = "update_pending"
+    ACTIVE = "active"
 
 
 class ActivityCreateRequest(BaseModel):
@@ -46,3 +55,24 @@ class ActivityDetail(BaseModel):
     updated_at: int
 
     model_config = {"from_attributes": True}
+
+
+class ActivityHistoryItem(BaseModel):
+    """Activity-management row, including request-backed pending creations."""
+
+    id: int | None
+    pending_request_id: int | None = None
+    user_id: int
+    project_id: int | None
+    project_name: str | None
+    position: str
+    start_date: int
+    end_date: int | None
+    status: ActivityHistoryStatus
+    description: str | None
+    created_at: int
+    updated_at: int
+
+
+class ActivityHistoryAdminItem(ActivityHistoryItem):
+    user: UserBrief
