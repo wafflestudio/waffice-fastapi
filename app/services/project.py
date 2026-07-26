@@ -7,8 +7,18 @@ from app.exceptions import (
     CannotRemoveSelfError,
     InvalidProjectMemberFileError,
     LastLeaderError,
+    NotFoundError,
+    ProjectHasPendingRequestsError,
 )
-from app.models import MemberRole, Project, ProjectMember, ProjectStatus, User
+from app.models import (
+    ApprovalRequest,
+    ApprovalStatus,
+    MemberRole,
+    Project,
+    ProjectMember,
+    ProjectStatus,
+    User,
+)
 from app.services.member import (
     CannotRemoveSelfError as ServiceCannotRemoveSelfError,
     LastLeaderError as ServiceLastLeaderError,
@@ -275,10 +285,40 @@ class ProjectService:
 
     @staticmethod
     def delete(db: Session, project: Project) -> None:
-        """Soft delete a project by setting deleted_at"""
+        """Soft delete a project unless it has a pending approval request."""
         import time
 
-        project.deleted_at = int(time.time())
+        locked_project = (
+            db.query(Project)
+            .filter(
+                and_(
+                    Project.id == project.id,
+                    Project.deleted_at.is_(None),
+                )
+            )
+            .populate_existing()
+            .with_for_update()
+            .first()
+        )
+        if locked_project is None:
+            raise NotFoundError("Project not found")
+
+        pending_request_exists = (
+            db.query(ApprovalRequest.id)
+            .filter(
+                and_(
+                    ApprovalRequest.project_id == locked_project.id,
+                    ApprovalRequest.status == ApprovalStatus.PENDING,
+                    ApprovalRequest.deleted_at.is_(None),
+                )
+            )
+            .first()
+            is not None
+        )
+        if pending_request_exists:
+            raise ProjectHasPendingRequestsError()
+
+        locked_project.deleted_at = int(time.time())
         db.commit()
 
 

@@ -315,6 +315,7 @@ async def update_project(
         401: {"description": "Not authenticated"},
         403: {"description": "Admin access required"},
         404: {"description": "Project not found"},
+        409: {"description": "Project has pending approval requests"},
     },
 )
 async def delete_project(
