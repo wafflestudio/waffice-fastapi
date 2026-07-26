@@ -343,6 +343,51 @@ class TestAuditLog:
         assert logs[0]["payload"]["from"] == "pending"
         assert logs[0]["payload"]["to"] == "associate"
 
+    def test_qualification_change_with_reason_stores_reason_in_audit_log(
+        self,
+        client: TestClient,
+        admin_token: str,
+        regular_user: User,
+    ):
+        """qualification_change_reason is stored on the qualification_changed log entry."""
+        client.patch(
+            f"/users/{regular_user.id}",
+            json={
+                "qualification": "active",
+                "qualification_change_reason": "활동 실적 우수로 활동회원 승급",
+            },
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        response = client.get(
+            f"/users/{regular_user.id}/audit-log",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        logs = response.json()["data"]
+        qual_log = next(log for log in logs if log["action"] == "qualification_changed")
+        assert qual_log["payload"]["reason"] == "활동 실적 우수로 활동회원 승급"
+
+    def test_qualification_change_without_reason_stores_null(
+        self,
+        client: TestClient,
+        admin_token: str,
+        regular_user: User,
+    ):
+        """Omitting qualification_change_reason stores a null reason in the audit log."""
+        client.patch(
+            f"/users/{regular_user.id}",
+            json={"qualification": "active"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        response = client.get(
+            f"/users/{regular_user.id}/audit-log",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        logs = response.json()["data"]
+        qual_log = next(log for log in logs if log["action"] == "qualification_changed")
+        assert qual_log["payload"]["reason"] is None
+
     def test_role_change_creates_audit_log(
         self,
         client: TestClient,
@@ -416,6 +461,26 @@ class TestProfileUpdate:
         )
         assert response.status_code == 200
         assert response.json()["data"]["qualification"] == "active"
+
+    def test_qualification_change_reason_is_not_persisted_on_user(
+        self,
+        client: TestClient,
+        admin_token: str,
+        regular_user: User,
+    ):
+        """qualification_change_reason is audit-log-only, not a user field."""
+        response = client.patch(
+            f"/users/{regular_user.id}",
+            json={
+                "qualification": "active",
+                "qualification_change_reason": "활동 실적 우수",
+            },
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert data["qualification"] == "active"
+        assert "qualification_change_reason" not in data
 
     def test_pending_user_cannot_update_profile(
         self,

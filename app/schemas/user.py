@@ -182,6 +182,14 @@ class UserUpdateRequest(ProfileUpdateRequest):
         description="Generation/cohort identifier",
         examples=["24.5", "25.0"],
     )
+    qualification_change_reason: str | None = Field(
+        default=None,
+        description=(
+            "Reason for the qualification change, shown in the user's audit log. "
+            "Only meaningful when `qualification` is also provided."
+        ),
+        examples=["활동 실적 부족으로 정회원 강등"],
+    )
 
 
 class ApproveRequest(BaseModel):

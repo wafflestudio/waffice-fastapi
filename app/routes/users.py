@@ -446,6 +446,9 @@ async def update_user(
     # `president_terms` 이력도 안 남고 전임 회장 강등도 안 거치는 raw 대입이
     # 되어버린다. 아래에서 `PresidentService.sync_is_president`로 위임한다.
     requested_is_president = update_data.pop("is_president", None)
+    # `qualification_change_reason`은 User 모델의 컬럼이 아니라 audit log에만
+    # 쓰이는 값이므로 `UserService.update`에 넘어가지 않도록 분리한다.
+    qualification_change_reason = update_data.pop("qualification_change_reason", None)
 
     # Log qualification change
     if (
@@ -458,7 +461,11 @@ async def update_user(
             db=db,
             user_id=user.id,
             action=AuditAction.QUALIFICATION_CHANGED,
-            payload={"from": old_qual.value, "to": new_qual.value},
+            payload={
+                "from": old_qual.value,
+                "to": new_qual.value,
+                "reason": qualification_change_reason,
+            },
             actor_id=admin.id,
         )
 
