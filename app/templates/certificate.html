@@ -32,25 +32,6 @@
     line-height: 1.25;
   }
 
-  .issue-number,
-  .verification {
-    position: fixed;
-    left: 10pt;
-    right: 10pt;
-    color: #777;
-    font-size: 7.3pt;
-    line-height: 10pt;
-  }
-
-  .issue-number {
-    top: 9pt;
-  }
-
-  .verification {
-    bottom: 9pt;
-    white-space: nowrap;
-  }
-
   .header {
     height: 137pt;
     padding-top: 20pt;
@@ -201,8 +182,6 @@
 </head>
 <body>
 
-  <div class="issue-number">발행번호 : {{ issue_number_display }}</div>
-
   <div class="header">
     <div class="brand-main">
       <svg class="brand-logo" viewBox="310.5 97 80 19.03" aria-hidden="true">
@@ -349,10 +328,6 @@
       </div>
     </div>
 
-  </div>
-
-  <div class="verification">
-    ※와플스튜디오 증명서 원본 확인 사이트({{ verify_url }})에서 발급일로부터 90일 이내에 증명서 원본의 내용을 확인할 수 있습니다.
   </div>
 
 </body>

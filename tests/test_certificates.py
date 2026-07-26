@@ -163,9 +163,9 @@ class TestPreview:
         self, client: TestClient, regular_token: str
     ):
         """No `president_terms` row at all -> PRESIDENT_NOT_FOUND. Preview is
-        not persisted, but it is still fully rendered (with the issue number
-        masked to 'XXXX'), so with the default signer=president it fails
-        exactly like issuance would when no president is configured."""
+        not persisted, but it is still fully rendered, so with the default
+        signer=president it fails exactly like issuance would when no president
+        is configured."""
         response = client.post(
             "/certificates/preview", json=_options(), headers=_auth(regular_token)
         )
@@ -226,7 +226,7 @@ class TestPreview:
         assert preview_resp.status_code == 502
         assert preview_resp.json()["error"] == "CERTIFICATE_RENDER_FAILED"
 
-    def test_happy_path_preview_renders_pdf_and_masks_issue_number(
+    def test_happy_path_preview_renders_pdf(
         self,
         client: TestClient,
         db: Session,
@@ -306,7 +306,7 @@ class TestSelfIssuance:
         upload_resp = _upload_signature(client, president_token)
         assert upload_resp.status_code == 200
 
-        # Preview first: masked issue number, not persisted.
+        # Preview first: generated but not persisted.
         preview_resp = client.post(
             "/certificates/preview", json=_options(), headers=_auth(regular_token)
         )
@@ -1995,8 +1995,7 @@ class TestHistoryListing:
 
 
 class TestRenderContextMasking:
-    """`build_context` is a pure function -- exercise the issue-number
-    masking contract directly, without needing WeasyPrint installed."""
+    """Keep issue metadata available internally for future verification."""
 
     def test_issue_number_is_masked_when_none(self, db: Session, regular_user: User):
         from app.services.certificate_render import build_context
@@ -2028,6 +2027,39 @@ class TestRenderContextMasking:
         )
         assert context["issue_number_display"] == real_number
         assert context["verify_url"].endswith(f"/verify/{real_number}")
+
+
+class TestIssueAndVerificationOmittedFromRender:
+    """Issue metadata stays internal until certificate verification exists."""
+
+    @pytest.mark.parametrize("issue_number", [None, str(uuid.uuid4())])
+    def test_issue_metadata_is_not_rendered_in_html(
+        self,
+        db: Session,
+        regular_user: User,
+        issue_number: str | None,
+    ):
+        from app.services.certificate_render import (
+            _TEMPLATE_NAME,
+            _jinja_env,
+            build_context,
+        )
+
+        context = build_context(
+            db,
+            regular_user,
+            _options(),
+            issue_number=issue_number,
+            issued_on=date(2026, 1, 1),
+            president_name="회장",
+            signature_data_uri=None,
+        )
+        html = _jinja_env.get_template(_TEMPLATE_NAME).render(**context)
+
+        assert "발행번호" not in html
+        assert "증명서 원본 확인 사이트" not in html
+        assert context["issue_number_display"] not in html
+        assert context["verify_url"] not in html
 
 
 class TestPurposeOmittedFromRender:
