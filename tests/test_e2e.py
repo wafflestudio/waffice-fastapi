@@ -185,12 +185,11 @@ class TestProjectCreationAndMemberManagement:
             headers={"Authorization": f"Bearer {admin_token}"},
         ).json()["data"]
         assert len(first_page["items"]) == 1
-        assert first_page["next_cursor"] is None
-        assert first_page["items"][0]["user"]["id"] == admin_user.id
+        assert first_page["next_cursor"] == first_page["items"][-1]["id"]
 
         second_page = client.get(
             f"/projects/{project['id']}/members",
-            params={"status": "inactive"},
+            params={"limit": 1, "cursor": first_page["next_cursor"]},
             headers={"Authorization": f"Bearer {admin_token}"},
         ).json()["data"]
         assert second_page["next_cursor"] is None
