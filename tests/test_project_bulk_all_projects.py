@@ -116,6 +116,7 @@ def test_student_id_must_belong_to_active_qualification(
         "Qual Project",
         [{"user_id": admin_user.id, "role": "leader"}],
     )
+    admin_user.student_id = "2030-1110"
     regular_user.student_id = "2030-1111"
     db.commit()
 
@@ -126,7 +127,7 @@ def test_student_id_must_belong_to_active_qualification(
             (
                 "Qual Project",
                 admin_user.name,
-                admin_user.student_id or "",
+                admin_user.student_id,
                 "O",
                 "",
             ),
