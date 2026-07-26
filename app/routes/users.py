@@ -305,7 +305,8 @@ async def list_pending_users(
     summary="Import temporary members from a roster (.xlsx / .csv upload)",
     description=(
         "Upload a member roster (.xlsx or .csv) to bulk-create temporary members. "
-        "Admin only."
+        "Purely additive: existing members are never updated (rows matching an "
+        "existing student_id are skipped, not synced). Admin only."
     ),
     responses={
         200: {"description": "Roster imported successfully"},
@@ -354,6 +355,15 @@ async def import_temporary_members(
       same student_id could both create a row. Avoid simultaneous uploads.
     - Existing members who never recorded a `student_id` cannot be matched and
       will be duplicated as temporary members.
+
+    **Out of scope**: this endpoint never updates an existing member. A row whose
+    `student_id` already belongs to a member is skipped as-is (`already_exists`);
+    that member's `qualification` (or any other field) is left untouched. There is
+    currently no roster-driven qualification sync (e.g. REGULAR -> ACTIVE) anywhere
+    in the codebase — qualification changes only happen one user at a time, via
+    `PATCH /users/{user_id}` or `POST /users/{user_id}/approve`. If bulk
+    qualification transitions driven by a roster are needed, that is a separate
+    feature to be designed (and is not implemented by this endpoint).
     """
     content = await file.read(MAX_ROSTER_FILE_BYTES + 1)
     if len(content) > MAX_ROSTER_FILE_BYTES:
