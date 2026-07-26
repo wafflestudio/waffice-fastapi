@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models import ActivityStatus, MemberRole, User, UserActivity
-from app.services import MemberService, ProjectService
+from app.services import ActivityService, MemberService, ProjectService
 
 
 def auth(token: str) -> dict[str, str]:
@@ -157,6 +157,136 @@ class TestMyActivityHistory:
 
         active_item = next(item for item in items if item["status"] == "active")
         assert active_item["id"] == active.id
+
+    def test_rejected_update_marks_activity_as_rejected(
+        self,
+        client: TestClient,
+        db: Session,
+        regular_user: User,
+        regular_token: str,
+        active_user: User,
+        active_token: str,
+    ):
+        project = create_project_with_leader(db, active_user)
+        updating = create_activity(
+            db,
+            user=regular_user,
+            project_id=project.id,
+            position="기존 활동",
+            start_date=300,
+        )
+
+        update_response = client.post(
+            "/requests",
+            json=request_payload(
+                project.id,
+                regular_user.id,
+                kind="update",
+                activity_id=updating.id,
+                position="수정 요청 내용",
+            ),
+            headers=auth(regular_token),
+        )
+        request_id = update_response.json()["data"]["id"]
+
+        reject_response = client.post(
+            f"/requests/{request_id}/reject",
+            json={"comment": "반려합니다"},
+            headers=auth(active_token),
+        )
+        assert reject_response.status_code == 200
+
+        response = client.get(
+            "/users/me/activities",
+            headers=auth(regular_token),
+        )
+        assert response.status_code == 200
+        items = response.json()["data"]
+
+        rejected_item = next(item for item in items if item["id"] == updating.id)
+        assert rejected_item["status"] == "rejected"
+        assert rejected_item["pending_request_id"] == request_id
+        # Rejection doesn't change the underlying activity's own fields.
+        assert rejected_item["position"] == "기존 활동"
+
+    def test_rejected_create_appears_as_virtual_rejected_item(
+        self,
+        client: TestClient,
+        db: Session,
+        regular_user: User,
+        regular_token: str,
+        active_user: User,
+        active_token: str,
+    ):
+        project = create_project_with_leader(db, active_user)
+        create_response = client.post(
+            "/requests",
+            json=request_payload(
+                project.id,
+                regular_user.id,
+                position="거절될 활동",
+            ),
+            headers=auth(regular_token),
+        )
+        request_id = create_response.json()["data"]["id"]
+
+        reject_response = client.post(
+            f"/requests/{request_id}/reject",
+            json={"comment": "반려합니다"},
+            headers=auth(active_token),
+        )
+        assert reject_response.status_code == 200
+
+        response = client.get(
+            "/users/me/activities",
+            headers=auth(regular_token),
+        )
+        assert response.status_code == 200
+        items = response.json()["data"]
+
+        rejected_item = next(item for item in items if item["status"] == "rejected")
+        assert rejected_item["id"] is None
+        assert rejected_item["pending_request_id"] == request_id
+        assert rejected_item["position"] == "거절될 활동"
+
+    def test_recent_rejected_limit_caps_number_of_rejected_creates(
+        self,
+        client: TestClient,
+        db: Session,
+        regular_user: User,
+        regular_token: str,
+        active_user: User,
+        active_token: str,
+    ):
+        project = create_project_with_leader(db, active_user)
+        limit = ActivityService.RECENT_REJECTED_LIMIT
+
+        for index in range(limit + 5):
+            create_response = client.post(
+                "/requests",
+                json=request_payload(
+                    project.id,
+                    regular_user.id,
+                    position=f"거절될 활동 {index}",
+                ),
+                headers=auth(regular_token),
+            )
+            request_id = create_response.json()["data"]["id"]
+            reject_response = client.post(
+                f"/requests/{request_id}/reject",
+                json={"comment": "반려합니다"},
+                headers=auth(active_token),
+            )
+            assert reject_response.status_code == 200
+
+        response = client.get(
+            "/users/me/activities",
+            headers=auth(regular_token),
+        )
+        assert response.status_code == 200
+        items = response.json()["data"]
+        rejected_items = [item for item in items if item["status"] == "rejected"]
+        assert len(rejected_items) == limit
 
     def test_create_approval_links_request_to_created_activity(
         self,

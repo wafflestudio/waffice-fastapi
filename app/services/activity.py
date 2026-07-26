@@ -8,6 +8,9 @@ from app.models.user_activity import UserActivity
 
 
 class ActivityService:
+    # 거절된 요청은 무한정 쌓일 수 있으므로, 최근 항목만 노출한다.
+    RECENT_REJECTED_LIMIT = 20
+
     @staticmethod
     def list_by_user(db: Session, user_id: int) -> list[UserActivity]:
         return (
@@ -76,6 +79,62 @@ class ActivityService:
                 ApprovalRequest.body["target_user_id"].as_integer() == user_id,
             )
             .order_by(ApprovalRequest.created_at.desc(), ApprovalRequest.id.desc())
+            .all()
+        )
+
+    @staticmethod
+    def rejected_updates_by_activity(
+        db: Session, activity_ids: list[int]
+    ) -> dict[int, ApprovalRequest]:
+        """Return the newest rejected update request for each activity.
+
+        Only the most recently reviewed `RECENT_REJECTED_LIMIT` rejections are
+        considered, so a long history of rejected requests doesn't get fully
+        exposed to the user.
+        """
+        if not activity_ids:
+            return {}
+
+        requests = (
+            db.query(ApprovalRequest)
+            .filter(
+                ApprovalRequest.deleted_at.is_(None),
+                ApprovalRequest.status == ApprovalStatus.REJECTED,
+                ApprovalRequest.body["request_kind"].as_string() == "update",
+                ApprovalRequest.body["activity_id"].as_integer().in_(activity_ids),
+            )
+            .order_by(ApprovalRequest.reviewed_at.desc(), ApprovalRequest.id.desc())
+            .limit(ActivityService.RECENT_REJECTED_LIMIT)
+            .all()
+        )
+
+        rejected_by_activity: dict[int, ApprovalRequest] = {}
+        for approval_request in requests:
+            activity_id = approval_request.body.get("activity_id")
+            if isinstance(activity_id, int):
+                rejected_by_activity.setdefault(activity_id, approval_request)
+        return rejected_by_activity
+
+    @staticmethod
+    def list_recent_rejected_creates(
+        db: Session, *, user_id: int
+    ) -> list[ApprovalRequest]:
+        """List the most recently rejected create requests targeting the user.
+
+        Capped at `RECENT_REJECTED_LIMIT` so a long rejection history isn't
+        dumped in full.
+        """
+        return (
+            db.query(ApprovalRequest)
+            .options(joinedload(ApprovalRequest.project))
+            .filter(
+                ApprovalRequest.deleted_at.is_(None),
+                ApprovalRequest.status == ApprovalStatus.REJECTED,
+                ApprovalRequest.body["request_kind"].as_string() == "create",
+                ApprovalRequest.body["target_user_id"].as_integer() == user_id,
+            )
+            .order_by(ApprovalRequest.reviewed_at.desc(), ApprovalRequest.id.desc())
+            .limit(ActivityService.RECENT_REJECTED_LIMIT)
             .all()
         )
 

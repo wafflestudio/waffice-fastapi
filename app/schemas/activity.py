@@ -10,6 +10,7 @@ class ActivityHistoryStatus(str, Enum):
     CREATE_PENDING = "create_pending"
     UPDATE_PENDING = "update_pending"
     ACTIVE = "active"
+    REJECTED = "rejected"
 
 
 class ActivityCreateRequest(BaseModel):
