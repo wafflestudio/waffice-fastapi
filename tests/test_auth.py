@@ -249,6 +249,70 @@ class TestSignupEndpoint:
         assert data["data"]["user"]["id"] == active_user.id
         assert data["data"]["user"]["name"] == active_user.name  # Name unchanged
 
+    def test_signup_claims_temporary_member(self, client, db):
+        """Signup converts the matching temporary row and preserves memberships."""
+        temporary_user = UserService.create(
+            db,
+            name="Imported Name",
+            student_id="2021-77777",
+            is_temporary=True,
+        )
+        project = Project(name="Inherited Project", started_at=date.today())
+        db.add(project)
+        db.flush()
+        membership = ProjectMember(
+            project_id=project.id,
+            user_id=temporary_user.id,
+            role=MemberRole.MEMBER,
+            joined_at=date.today(),
+        )
+        db.add(membership)
+        db.commit()
+
+        auth_token = create_auth_token(
+            "claimed_google_id", "claimed@example.com", is_new=True
+        )
+        response = client.post(
+            "/auth/signup",
+            json=self.signup_payload(
+                auth_token,
+                name="Claimed Name",
+                student_id=temporary_user.student_id,
+            ),
+        )
+
+        assert response.status_code == 200
+        user = response.json()["data"]["user"]
+        assert user["id"] == temporary_user.id
+        assert user["name"] == "Claimed Name"
+        assert user["email"] == "claimed@example.com"
+        assert user["is_temporary"] is False
+        db.refresh(membership)
+        assert membership.user_id == temporary_user.id
+        assert membership.left_at is None
+
+    def test_signup_rejects_registered_student_id(self, client, db, active_user):
+        """A student ID owned by a registered user cannot be signed up again."""
+        active_user.student_id = "2021-88888"
+        db.commit()
+        auth_token = create_auth_token(
+            "duplicate_student_google_id",
+            "duplicate-student@example.com",
+            is_new=True,
+        )
+
+        response = client.post(
+            "/auth/signup",
+            json=self.signup_payload(
+                auth_token,
+                student_id=active_user.student_id,
+            ),
+        )
+
+        assert response.status_code == 409
+        assert response.json()["error"] == "STUDENT_ID_ALREADY_IN_USE"
+        assert UserService.get_by_google_id(db, "duplicate_student_google_id") is None
+
     def test_signup_restores_deleted_pending_user(self, client, db, pending_user):
         """Signup restores the original pending user instead of inserting a duplicate."""
         original_id = pending_user.id
