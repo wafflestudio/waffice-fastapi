@@ -1,4 +1,6 @@
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from pydantic import BaseModel, EmailStr, Field
 
 from app.models.enums import GraduationStatus, NotificationChannel, Qualification
 from app.schemas.common import Website
@@ -26,6 +28,42 @@ class SignupRequest(BaseModel):
         min_length=1,
         max_length=100,
         examples=["John Doe"],
+    )
+    generation: str = Field(
+        description="Generation/cohort identifier",
+        min_length=1,
+        max_length=20,
+        examples=["23.5"],
+    )
+    student_id: str = Field(
+        description="Student ID",
+        min_length=1,
+        max_length=50,
+        examples=["2021-14205"],
+    )
+    email: EmailStr = Field(
+        description="Preferred contact email",
+        examples=["user@example.com"],
+    )
+    graduation_status: GraduationStatus = Field(
+        description="학부생, 졸업생, 휴학생, 대학원생",
+    )
+    qualification: Qualification = Field(
+        description="Requested membership qualification; account remains pending until approval",
+    )
+    privacy_policy_agreed: Literal[True] = Field(
+        description="Required consent to personal information collection and use",
+    )
+    terms_agreed: Literal[True] = Field(
+        description="Required consent to Waffle Studio articles and regulations",
+    )
+    email_notifications_agreed: bool = Field(
+        default=False,
+        description="Optional consent to receive information by email",
+    )
+    sms_notifications_agreed: bool = Field(
+        default=False,
+        description="Optional consent to receive information by SMS",
     )
     phone: str | None = Field(
         default=None,
@@ -227,6 +265,21 @@ class UserDetail(BaseModel):
             "Membership level determining access. "
             "PENDING < ASSOCIATE < REGULAR < ACTIVE"
         )
+    )
+    requested_qualification: Qualification | None = Field(
+        description="Membership qualification requested during signup",
+    )
+    privacy_policy_agreed: bool = Field(
+        description="Whether personal information collection and use was accepted",
+    )
+    terms_agreed: bool = Field(
+        description="Whether Waffle Studio articles and regulations were accepted",
+    )
+    email_notifications_agreed: bool = Field(
+        description="Whether email information messages were accepted",
+    )
+    sms_notifications_agreed: bool = Field(
+        description="Whether SMS information messages were accepted",
     )
     graduation_status: str = Field(
         description=("Graduation status of the user. One of [학부생, 졸업생, 휴학생, 대학원생]"),
