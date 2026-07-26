@@ -661,8 +661,7 @@ class TestActivityApprovalRequests:
         assert response.status_code == 400
         assert response.json()["error"] == "NO_ELIGIBLE_REVIEWER"
         assert response.json()["message"] == (
-            "승인 가능한 사용자가 없습니다. "
-            "승인 대상을 변경하거나 운영팀에 문의해주세요."
+            "승인 가능한 사용자가 없습니다. " "승인 대상을 변경하거나 운영팀에 문의해주세요."
         )
 
     def test_operations_request_requires_another_eligible_operator(
@@ -850,10 +849,7 @@ class TestActivityApprovalRequests:
         )
         assert blocked.status_code == 409
         assert blocked.json()["error"] == "PROJECT_HAS_PENDING_REQUESTS"
-        assert (
-            blocked.json()["message"]
-            == "대기 중인 승인 요청을 처리한 후 프로젝트를 삭제해주세요."
-        )
+        assert blocked.json()["message"] == "대기 중인 승인 요청을 처리한 후 프로젝트를 삭제해주세요."
 
         deleted_request = client.delete(
             f"/requests/{request_id}",

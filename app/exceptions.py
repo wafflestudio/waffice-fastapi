@@ -168,10 +168,7 @@ class NoEligibleReviewerError(AppError):
 
     def __init__(
         self,
-        message: str = (
-            "승인 가능한 사용자가 없습니다. "
-            "승인 대상을 변경하거나 운영팀에 문의해주세요."
-        ),
+        message: str = ("승인 가능한 사용자가 없습니다. " "승인 대상을 변경하거나 운영팀에 문의해주세요."),
     ):
         super().__init__("NO_ELIGIBLE_REVIEWER", message, 400)
 
