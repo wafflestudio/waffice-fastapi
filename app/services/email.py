@@ -94,10 +94,27 @@ class EmailService:
 
     @classmethod
     def send_signup_approved(cls, recipient: str) -> None:
-        message = "와피스 회원가입 신청이 승인되었습니다!"
-        cls._send(recipient, message, message)
+        cls._send(
+            recipient,
+            "와피스 회원가입 신청이 승인되었습니다!",
+            """안녕하세요, 와피스입니다.
+
+회원가입 신청이 승인되었습니다.
+이제 와피스에 로그인하여 서비스를 이용하실 수 있습니다.
+
+감사합니다.
+와피스 드림""",
+        )
 
     @classmethod
     def send_signup_rejected(cls, recipient: str) -> None:
-        message = "와피스 회원가입 신청이 거절되었습니다."
-        cls._send(recipient, message, message)
+        cls._send(
+            recipient,
+            "와피스 회원가입 신청이 거절되었습니다.",
+            """안녕하세요, 와피스입니다.
+
+회원가입 신청 검토 결과, 신청이 승인되지 않았습니다.
+
+감사합니다.
+와피스 드림""",
+        )

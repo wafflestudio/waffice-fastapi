@@ -38,9 +38,11 @@ def test_signup_notification_messages():
     assert approved.recipients.to[0].email == "member@example.com"
     assert approved.reply_to[0].email == SENDER
     assert approved.subject == "와피스 회원가입 신청이 승인되었습니다!"
-    assert approved.body_text == "와피스 회원가입 신청이 승인되었습니다!"
+    assert "회원가입 신청이 승인되었습니다." in approved.body_text
+    assert "와피스 드림" in approved.body_text
     assert approved.message_id.endswith("@waffiestudio.com")
 
     assert rejected.recipients.to[0].email == "member@example.com"
     assert rejected.subject == "와피스 회원가입 신청이 거절되었습니다."
-    assert rejected.body_text == "와피스 회원가입 신청이 거절되었습니다."
+    assert "신청이 승인되지 않았습니다." in rejected.body_text
+    assert "와피스 드림" in rejected.body_text
