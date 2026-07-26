@@ -57,7 +57,8 @@ router = APIRouter()
     },
 )
 async def list_projects(
-    cursor: int | None = Query(
+    cursor: int
+    | None = Query(
         None, description="Pagination cursor (project ID). Omit for first page."
     ),
     limit: int = Query(
@@ -411,13 +412,15 @@ async def delete_project(
 )
 async def list_project_members(
     project_id: int,
-    status: ActivityStatus | None = Query(
+    status: ActivityStatus
+    | None = Query(
         None,
         description="Filter by activity status; omit to return all",
     ),
     cursor: int | None = Query(None, description="Membership ID pagination cursor"),
     limit: int = Query(20, ge=1, le=100),
-    keyword: str | None = Query(
+    keyword: str
+    | None = Query(
         None,
         description="Partial match on name, position, email, or GitHub username",
     ),

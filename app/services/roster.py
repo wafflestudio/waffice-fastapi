@@ -225,9 +225,7 @@ def parse_project_member_roster(
         header = next(rows)
     except (InvalidRosterFileError, StopIteration):
         return [], [
-            _project_member_error(
-                0, "file", "invalid_file", "파일 양식이 올바르지 않습니다."
-            )
+            _project_member_error(0, "file", "invalid_file", "파일 양식이 올바르지 않습니다.")
         ]
 
     indexes = {_norm_header(cell): index for index, cell in enumerate(header or ())}
@@ -270,9 +268,7 @@ def parse_project_member_roster(
         row_errors: list[dict] = []
         if not values["이름"]:
             row_errors.append(
-                _project_member_error(
-                    row_number, "이름", "required", "이름을 입력해주세요."
-                )
+                _project_member_error(row_number, "이름", "required", "이름을 입력해주세요.")
             )
         elif len(values["이름"]) > _MAX_NAME:
             row_errors.append(
@@ -348,9 +344,7 @@ def parse_project_member_roster(
 
     if not parsed and not errors:
         errors.append(
-            _project_member_error(
-                2, "file", "empty_roster", "팀원 명단이 비어 있습니다."
-            )
+            _project_member_error(2, "file", "empty_roster", "팀원 명단이 비어 있습니다.")
         )
     return parsed, errors
 
@@ -367,9 +361,7 @@ def parse_multi_project_member_roster(
     """
     if not (filename or "").lower().endswith(".xlsx"):
         return [], [
-            _project_member_error(
-                0, "file", "invalid_file", ".xlsx 파일을 첨부해주세요."
-            )
+            _project_member_error(0, "file", "invalid_file", ".xlsx 파일을 첨부해주세요.")
         ]
 
     try:
@@ -377,9 +369,7 @@ def parse_multi_project_member_roster(
         header = next(rows)
     except (InvalidRosterFileError, StopIteration):
         return [], [
-            _project_member_error(
-                0, "file", "invalid_file", "파일 양식이 올바르지 않습니다."
-            )
+            _project_member_error(0, "file", "invalid_file", "파일 양식이 올바르지 않습니다.")
         ]
 
     indexes = {_norm_header(cell): index for index, cell in enumerate(header or ())}
@@ -409,9 +399,7 @@ def parse_multi_project_member_roster(
         row_errors: list[dict] = []
         if not values["프로젝트명"]:
             row_errors.append(
-                _project_member_error(
-                    row_number, "프로젝트명", "required", "프로젝트명을 입력해주세요."
-                )
+                _project_member_error(row_number, "프로젝트명", "required", "프로젝트명을 입력해주세요.")
             )
 
         if not values["프로젝트원 이름"]:
@@ -426,9 +414,7 @@ def parse_multi_project_member_roster(
 
         if not values["학번"]:
             row_errors.append(
-                _project_member_error(
-                    row_number, "학번", "required", "학번을 입력해주세요."
-                )
+                _project_member_error(row_number, "학번", "required", "학번을 입력해주세요.")
             )
 
         is_leader = _parse_leader_flag(values["팀장 여부"])
@@ -458,9 +444,7 @@ def parse_multi_project_member_roster(
 
     if not parsed and not errors:
         errors.append(
-            _project_member_error(
-                2, "file", "empty_roster", "팀원 명단이 비어 있습니다."
-            )
+            _project_member_error(2, "file", "empty_roster", "팀원 명단이 비어 있습니다.")
         )
     return parsed, errors
 

@@ -313,8 +313,7 @@ class ProjectService:
                         group_rows[0].row_number,
                         "프로젝트명",
                         "project_not_found",
-                        f"{project_name} 프로젝트명을 찾을 수 없습니다. "
-                        "프로젝트 목록에 존재하는지 확인해주세요.",
+                        f"{project_name} 프로젝트명을 찾을 수 없습니다. " "프로젝트 목록에 존재하는지 확인해주세요.",
                     )
                 )
                 continue
@@ -324,8 +323,7 @@ class ProjectService:
                         group_rows[0].row_number,
                         "프로젝트명",
                         "ambiguous_project_name",
-                        f"{project_name} 프로젝트명을 가진 프로젝트가 여러 개입니다. "
-                        "운영팀에 문의해주세요.",
+                        f"{project_name} 프로젝트명을 가진 프로젝트가 여러 개입니다. " "운영팀에 문의해주세요.",
                     )
                 )
                 continue

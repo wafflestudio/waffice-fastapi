@@ -65,9 +65,7 @@ def test_rejects_non_xlsx_file(client: TestClient, admin_token: str):
         headers=_auth(admin_token),
     )
     assert response.status_code == 400
-    assert (
-        response.json()["data"]["errors"][0]["message"] == ".xlsx 파일을 첨부해주세요."
-    )
+    assert response.json()["data"]["errors"][0]["message"] == ".xlsx 파일을 첨부해주세요."
 
 
 def test_missing_header_reports_column_name(client: TestClient, admin_token: str):
@@ -84,8 +82,7 @@ def test_missing_header_reports_column_name(client: TestClient, admin_token: str
     assert response.status_code == 400
     errors = response.json()["data"]["errors"]
     assert any(
-        error["code"] == "missing_header"
-        and error["message"] == "학번 열을 찾을 수 없습니다."
+        error["code"] == "missing_header" and error["message"] == "학번 열을 찾을 수 없습니다."
         for error in errors
     )
 
@@ -103,10 +100,7 @@ def test_project_not_found(
     assert response.status_code == 400
     error = response.json()["data"]["errors"][0]
     assert error["code"] == "project_not_found"
-    assert (
-        error["message"]
-        == "존재하지않는프로젝트 프로젝트명을 찾을 수 없습니다. 프로젝트 목록에 존재하는지 확인해주세요."
-    )
+    assert error["message"] == "존재하지않는프로젝트 프로젝트명을 찾을 수 없습니다. 프로젝트 목록에 존재하는지 확인해주세요."
 
 
 def test_student_id_must_belong_to_active_qualification(
