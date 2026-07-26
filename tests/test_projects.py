@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from openpyxl import Workbook, load_workbook
 from sqlalchemy.orm import Session
 
-from app.models import User
+from app.models import ProjectMember, User
 from app.services import MemberService, UserService
 
 XLSX_CT = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -282,6 +282,7 @@ def test_bulk_rejects_identifier_mismatch_and_missing_leader(
 
 def test_member_patch_distinguishes_omitted_and_null_position(
     client: TestClient,
+    db: Session,
     admin_token: str,
     admin_user: User,
     regular_user: User,
@@ -295,6 +296,9 @@ def test_member_patch_distinguishes_omitted_and_null_position(
             {"user_id": regular_user.id, "role": "member", "position": "Backend"},
         ],
     )
+    original = MemberService.get_active(db, project_id, regular_user.id)
+    original_id = original.id
+    original_joined_at = original.joined_at
 
     role_only = client.patch(
         f"/projects/{project_id}/members/{regular_user.id}",
@@ -321,3 +325,13 @@ def test_member_patch_distinguishes_omitted_and_null_position(
         if item["user"]["id"] == regular_user.id
     )
     assert member["position"] is None
+    updated = MemberService.get_active(db, project_id, regular_user.id)
+    assert updated.id == original_id
+    assert updated.joined_at == original_joined_at
+    assert updated.left_at is None
+    assert (
+        db.query(ProjectMember)
+        .filter_by(project_id=project_id, user_id=regular_user.id)
+        .count()
+        == 1
+    )

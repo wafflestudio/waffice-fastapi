@@ -118,6 +118,106 @@ class TestProjectCreationAndMemberManagement:
         histories = admin_history.json()["data"]
         assert any(h["action"] == "project_joined" for h in histories)
 
+    def test_project_members_are_paginated_and_filterable(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_token: str,
+        admin_user: User,
+        regular_user: User,
+    ):
+        regular_user.github_username = "regular-dev"
+        db.commit()
+        websites = [
+            {
+                "url": "https://github.com/wafflestudio/waffice",
+                "type": "github",
+                "description": "Source repository",
+            },
+            {
+                "url": "https://waffice.example.com",
+                "type": "released",
+                "description": "Released service",
+            },
+            {
+                "url": "https://docs.example.com/waffice",
+                "type": "etc",
+                "description": "Project documentation",
+            },
+        ]
+        project = client.post(
+            "/projects",
+            json={
+                "name": "Detail Project",
+                "status": "maintenance",
+                "started_at": str(date.today()),
+                "websites": websites,
+                "members": [
+                    {"user_id": admin_user.id, "role": "leader", "position": "PM"},
+                    {
+                        "user_id": regular_user.id,
+                        "role": "member",
+                        "position": "Backend",
+                    },
+                ],
+            },
+            headers={"Authorization": f"Bearer {admin_token}"},
+        ).json()["data"]
+
+        response = client.delete(
+            f"/projects/{project['id']}/members/{regular_user.id}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert response.status_code == 200
+
+        response = client.get(
+            f"/projects/{project['id']}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert response.status_code == 200
+        detail = response.json()["data"]
+        assert detail["status"] == "maintenance"
+        assert detail["websites"] == websites
+        assert "members" not in detail
+
+        first_page = client.get(
+            f"/projects/{project['id']}/members?limit=1",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        ).json()["data"]
+        assert len(first_page["items"]) == 1
+        assert first_page["next_cursor"] == first_page["items"][-1]["id"]
+
+        second_page = client.get(
+            f"/projects/{project['id']}/members",
+            params={"limit": 1, "cursor": first_page["next_cursor"]},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        ).json()["data"]
+        assert second_page["next_cursor"] is None
+        members = {
+            member["user"]["id"]: member
+            for member in first_page["items"] + second_page["items"]
+        }
+        assert members[admin_user.id]["activity_status"] == "active"
+        assert members[regular_user.id]["user"]["email"] == regular_user.email
+        assert members[regular_user.id]["user"]["github_username"] == "regular-dev"
+        assert members[regular_user.id]["activity_status"] == "inactive"
+
+        past_members = client.get(
+            f"/projects/{project['id']}/members?status=inactive",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        ).json()["data"]["items"]
+        assert [member["user"]["id"] for member in past_members] == [regular_user.id]
+
+        for keyword in ("gular", "BACK", "regular@", "ular-dev"):
+            search_results = client.get(
+                f"/projects/{project['id']}/members",
+                params={"status": "inactive", "keyword": keyword},
+                headers={"Authorization": f"Bearer {admin_token}"},
+            ).json()["data"]["items"]
+            assert [member["user"]["id"] for member in search_results] == [
+                regular_user.id
+            ]
+
     def test_cannot_create_project_without_leader(
         self, client: TestClient, db: Session, admin_token: str, regular_user: User
     ):

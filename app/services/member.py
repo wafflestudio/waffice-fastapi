@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import and_
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, or_
+from sqlalchemy.orm import Session, joinedload
 
-from app.models import AuditAction, MemberRole, ProjectMember
+from app.models import ActivityStatus, AuditAction, MemberRole, ProjectMember, User
 
 _UNSET = object()
 
@@ -23,6 +23,44 @@ class CannotRemoveSelfError(Exception):
 
 
 class MemberService:
+    @staticmethod
+    def list(
+        db: Session,
+        project_id: int,
+        *,
+        cursor: int | None = None,
+        limit: int = 20,
+        status: ActivityStatus | None = None,
+        keyword: str | None = None,
+    ) -> tuple[list[ProjectMember], int | None]:
+        query = (
+            db.query(ProjectMember)
+            .options(joinedload(ProjectMember.user))
+            .filter(ProjectMember.project_id == project_id)
+        )
+        if status == ActivityStatus.ACTIVE:
+            query = query.filter(ProjectMember.left_at.is_(None))
+        elif status == ActivityStatus.INACTIVE:
+            query = query.filter(ProjectMember.left_at.is_not(None))
+        if keyword is not None:
+            pattern = f"%{keyword}%"
+            query = query.join(ProjectMember.user).filter(
+                or_(
+                    User.name.ilike(pattern),
+                    ProjectMember.position.ilike(pattern),
+                    User.email.ilike(pattern),
+                    User.github_username.ilike(pattern),
+                )
+            )
+        if cursor is not None:
+            query = query.filter(ProjectMember.id < cursor)
+
+        members = query.order_by(ProjectMember.id.desc()).limit(limit + 1).all()
+        has_more = len(members) > limit
+        members = members[:limit]
+        next_cursor = members[-1].id if has_more else None
+        return members, next_cursor
+
     @staticmethod
     def get_active(db: Session, project_id: int, user_id: int) -> ProjectMember | None:
         """Get active membership for a user in a project"""
@@ -185,8 +223,8 @@ class MemberService:
         position: str | None | object = _UNSET,
     ) -> ProjectMember:
         """
-        Change member role/position by ending current membership and creating new one.
-        Logs history entry.
+        Update the existing membership's role/position without changing its dates.
+        Logs the change in audit history.
 
         Raises:
             LastLeaderError: If demoting the last leader to member role
@@ -206,20 +244,8 @@ class MemberService:
             if leader_count <= 1:
                 raise LastLeaderError("Cannot demote the last leader")
 
-        # End current membership
-        member.left_at = date.today()
-        db.flush()
-
-        # Create new membership
-        new_member = ProjectMember(
-            project_id=member.project_id,
-            user_id=member.user_id,
-            role=new_role,
-            position=new_position,
-            joined_at=date.today(),
-            left_at=None,
-        )
-        db.add(new_member)
+        member.role = new_role
+        member.position = new_position
         db.flush()
 
         # Log history
@@ -232,13 +258,13 @@ class MemberService:
             payload={
                 "project_id": member.project_id,
                 "from_role": old_role.value,
-                "to_role": new_member.role.value,
+                "to_role": member.role.value,
                 "from_position": old_position,
-                "to_position": new_member.position,
+                "to_position": member.position,
             },
             actor_id=actor_id,
         )
 
         # Note: caller should commit the transaction
-        db.refresh(new_member)
-        return new_member
+        db.refresh(member)
+        return member

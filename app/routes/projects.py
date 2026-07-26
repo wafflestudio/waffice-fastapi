@@ -15,14 +15,16 @@ from app.exceptions import (
     NotFoundError,
     RosterFileTooLargeError,
 )
-from app.models import MemberRole, User
+from app.models import ActivityStatus, MemberRole, User
 from app.schemas import (
     CursorPage,
+    MemberDetail,
     MemberInput,
     MemberUpdateRequest,
     ProjectCreateRequest,
     ProjectDetail,
     ProjectListItem,
+    ProjectPageDetail,
     ProjectUpdateRequest,
     Response,
 )
@@ -237,9 +239,9 @@ async def create_project(
 
 @router.get(
     "/{project_id}",
-    response_model=Response[ProjectDetail],
+    response_model=Response[ProjectPageDetail],
     summary="Get project details",
-    description="Returns complete project information including active members.",
+    description="Returns project information. Members are available separately.",
     responses={
         200: {"description": "Project retrieved successfully"},
         401: {"description": "Not authenticated"},
@@ -253,14 +255,13 @@ async def get_project(
     db: Session = Depends(get_db),
 ):
     """
-    Get complete project details including members.
+    Get complete project details.
 
     **Requires**: REGULAR qualification or higher.
 
-    Returns full project information with the list of active members
-    (excludes members who have left the project).
+    Use `GET /projects/{id}/members` for paginated membership records.
     """
-    project = ProjectService.get_with_members(db, project_id)
+    project = ProjectService.get(db, project_id)
     if not project:
         raise NotFoundError("Project not found")
     return Response(ok=True, data=project)
@@ -338,6 +339,48 @@ async def delete_project(
 
 
 # === Project Members ===
+@router.get(
+    "/{project_id}/members",
+    response_model=Response[CursorPage[MemberDetail]],
+    summary="List project members",
+    description="Returns paginated current and former project memberships.",
+    responses={
+        200: {"description": "Members retrieved successfully"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "Requires REGULAR qualification or higher"},
+        404: {"description": "Project not found"},
+    },
+)
+async def list_project_members(
+    project_id: int,
+    status: ActivityStatus
+    | None = Query(
+        None,
+        description="Filter by activity status; omit to return all",
+    ),
+    cursor: int | None = Query(None, description="Membership ID pagination cursor"),
+    limit: int = Query(20, ge=1, le=100),
+    keyword: str
+    | None = Query(
+        None,
+        description="Partial match on name, position, email, or GitHub username",
+    ),
+    _user: User = Depends(require_regular),
+    db: Session = Depends(get_db),
+):
+    if not ProjectService.get(db, project_id):
+        raise NotFoundError("Project not found")
+    members, next_cursor = MemberService.list(
+        db,
+        project_id,
+        cursor=cursor,
+        limit=limit,
+        status=status,
+        keyword=keyword,
+    )
+    return Response(ok=True, data=CursorPage(items=members, next_cursor=next_cursor))
+
+
 @router.post(
     "/{project_id}/members",
     response_model=Response[ProjectDetail],
