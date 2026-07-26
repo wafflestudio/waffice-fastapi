@@ -68,12 +68,6 @@ class EmailService:
             return cls._client
 
         region = os.getenv("OCI_REGION", "ap-chuncheon-1")
-        client_kwargs: dict[str, object] = {
-            "timeout": float(os.getenv("EMAIL_TIMEOUT", "10"))
-        }
-        service_endpoint = os.getenv("EMAIL_SERVICE_ENDPOINT")
-        if service_endpoint:
-            client_kwargs["service_endpoint"] = service_endpoint
 
         try:
             signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
@@ -82,13 +76,9 @@ class EmailService:
                 raise RuntimeError("OCI instance principal is not configured") from exc
             config_file = os.getenv("OCI_CONFIG_FILE") or "~/.oci/config"
             profile = os.getenv("OCI_CONFIG_PROFILE", "DEFAULT")
-            cls._client = EmailDPClient(
-                oci.config.from_file(config_file, profile), **client_kwargs
-            )
+            cls._client = EmailDPClient(oci.config.from_file(config_file, profile))
         else:
-            cls._client = EmailDPClient(
-                {"region": region}, signer=signer, **client_kwargs
-            )
+            cls._client = EmailDPClient({"region": region}, signer=signer)
 
         return cls._client
 
