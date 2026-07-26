@@ -22,6 +22,7 @@ from app.exceptions import (
     EmailAlreadyInUseError,
     GoogleAccountAlreadyLinkedError,
     InvalidAuthTokenError,
+    StudentIdAlreadyInUseError,
     UserNotRegisteredError,
 )
 from app.models import Qualification, User
@@ -466,6 +467,7 @@ async def signin(
     responses={
         200: {"description": "Signup successful, returns access token and user"},
         400: {"description": "Invalid auth token"},
+        409: {"description": "Student ID already belongs to a registered user"},
     },
 )
 async def signup(
@@ -511,9 +513,7 @@ async def signup(
         if not user.google_id:
             UserService.update(db, user, google_id=google_id)
     else:
-        # Create new user
-        user = UserService.create(
-            db,
+        signup_data = dict(
             google_id=google_id,
             email=email,
             name=request.name,
@@ -532,6 +532,18 @@ async def signup(
             github_username=request.github_username,
             qualification=Qualification.PENDING,
         )
+        student_user = UserService.get_by_student_id(db, request.student_id)
+        if student_user:
+            if not student_user.is_temporary:
+                raise StudentIdAlreadyInUseError()
+            user = UserService.update(
+                db,
+                student_user,
+                **signup_data,
+                is_temporary=False,
+            )
+        else:
+            user = UserService.create(db, **signup_data)
 
     # Generate JWT
     access_token = create_access_token(user.id, user.email, user.google_id)

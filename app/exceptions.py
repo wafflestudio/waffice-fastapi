@@ -149,6 +149,13 @@ class EmailAlreadyInUseError(AppError):
         super().__init__("EMAIL_ALREADY_IN_USE", message, 409)
 
 
+class StudentIdAlreadyInUseError(AppError):
+    """Student ID is already used by a registered user"""
+
+    def __init__(self, message: str = "Student ID is already in use"):
+        super().__init__("STUDENT_ID_ALREADY_IN_USE", message, 409)
+
+
 class InvalidApprovalRequestError(AppError):
     """Invalid activity approval request"""
 

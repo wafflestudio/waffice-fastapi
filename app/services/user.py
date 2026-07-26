@@ -55,6 +55,7 @@ class UserService:
         return (
             db.query(User)
             .filter(and_(User.student_id == student_id, User.deleted_at.is_(None)))
+            .order_by(User.is_temporary.asc())
             .first()
         )
 
