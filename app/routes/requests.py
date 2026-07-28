@@ -43,6 +43,7 @@ def to_list_item(approval_request) -> ApprovalRequestListItem:
         ],
         request_kind=RequestKind(body.request_kind),
         after=body.after,
+        review_target=body.review_target,
         status=approval_request.status,
         created_at=approval_request.created_at,
         reviewed_at=approval_request.reviewed_at,
@@ -50,6 +51,7 @@ def to_list_item(approval_request) -> ApprovalRequestListItem:
 
 
 def to_detail(approval_request) -> ApprovalRequestDetail:
+    body = ApprovalRequestBody.model_validate(approval_request.body)
     return ApprovalRequestDetail(
         id=approval_request.id,
         requester=UserBrief.model_validate(approval_request.requester),
@@ -63,13 +65,14 @@ def to_detail(approval_request) -> ApprovalRequestDetail:
             if approval_request.reviewed_by
             else None
         ),
+        review_target=body.review_target,
         reviewers=[
             RequestReviewerDetail.model_validate(reviewer)
             for reviewer in approval_request.reviewers
             if reviewer.deleted_at is None
         ],
         status=approval_request.status,
-        body=ApprovalRequestBody.model_validate(approval_request.body),
+        body=body,
         review_comment=approval_request.review_comment,
         created_at=approval_request.created_at,
         updated_at=approval_request.updated_at,
@@ -112,7 +115,7 @@ async def list_requests(
     status: RequestStatusFilter = Query(default=RequestStatusFilter.PENDING),
     request_kind: RequestKindFilter = Query(default=RequestKindFilter.ALL),
     activity_id: int | None = Query(default=None, ge=1),
-    cursor: int | None = Query(default=None),
+    cursor: str | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     current_user: User = Depends(require_regular),
     db: Session = Depends(get_db),

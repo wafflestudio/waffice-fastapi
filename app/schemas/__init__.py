@@ -55,6 +55,7 @@ from app.schemas.request import (
     RequestReviewerDetail,
     RequestScope,
     RequestStatusFilter,
+    ReviewTarget,
 )
 from app.schemas.user import (
     ApproveRequest,
@@ -115,6 +116,7 @@ __all__ = [
     "RequestReviewerDetail",
     "RequestScope",
     "RequestStatusFilter",
+    "ReviewTarget",
     "Response",
     "SignatureDetail",
     "SigninRequest",

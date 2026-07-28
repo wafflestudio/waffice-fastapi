@@ -163,11 +163,31 @@ class InvalidApprovalRequestError(AppError):
         super().__init__("INVALID_APPROVAL_REQUEST", message, 400)
 
 
+class NoEligibleReviewerError(AppError):
+    """400 - No eligible reviewer exists"""
+
+    def __init__(
+        self,
+        message: str = ("승인 가능한 사용자가 없습니다. " "승인 대상을 변경하거나 운영팀에 문의해주세요."),
+    ):
+        super().__init__("NO_ELIGIBLE_REVIEWER", message, 400)
+
+
 class RequestAlreadyProcessedError(AppError):
     """Approval request has already been processed"""
 
     def __init__(self, message: str = "Request has already been processed"):
         super().__init__("REQUEST_ALREADY_PROCESSED", message, 400)
+
+
+class ProjectHasPendingRequestsError(AppError):
+    """409 - Project deletion is blocked by pending approval requests"""
+
+    def __init__(
+        self,
+        message: str = "대기 중인 승인 요청을 처리한 후 프로젝트를 삭제해주세요.",
+    ):
+        super().__init__("PROJECT_HAS_PENDING_REQUESTS", message, 409)
 
 
 class InvalidProfileImageError(AppError):
