@@ -37,12 +37,7 @@ from app.exceptions import (
     PresidentSignatureNotFoundError,
     SignatureUploadConflictError,
 )
-from app.models import (
-    Certificate,
-    CertificateEvent,
-    CertificateSignature,
-    User,
-)
+from app.models import Certificate, CertificateEvent, CertificateSignature, User
 from app.models.enums import (
     CertificateActorType,
     CertificateEventAction,
@@ -239,13 +234,9 @@ class CertificateService:
         if options.signer != CertificateSigner.ADVISOR:
             return
         if not allow_advisor:
-            raise InvalidCertificateOptionsError(
-                "지도교수님의 서명이 필요한 경우, 운영팀에 별도 문의해주세요."
-            )
+            raise InvalidCertificateOptionsError("지도교수님의 서명이 필요한 경우, 운영팀에 별도 문의해주세요.")
         if not (options.advisor_name and options.advisor_name.strip()):
-            raise InvalidCertificateOptionsError(
-                "지도교수 서명을 선택한 경우 지도교수 성함을 입력해야 합니다."
-            )
+            raise InvalidCertificateOptionsError("지도교수 서명을 선택한 경우 지도교수 성함을 입력해야 합니다.")
 
     @staticmethod
     def _ensure_target_eligible(target_user: User) -> None:

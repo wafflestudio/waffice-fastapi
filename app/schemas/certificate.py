@@ -75,9 +75,7 @@ class CertificateEventItem(BaseModel):
     actor_type: CertificateActorType = Field(
         description="처리 주체 구분: 'applicant' | 'system' | 'president' | 'admin'"
     )
-    actor: UserBrief | None = Field(
-        description="처리한 사용자. 시스템이 자동 처리한 경우 null"
-    )
+    actor: UserBrief | None = Field(description="처리한 사용자. 시스템이 자동 처리한 경우 null")
     created_at: int = Field(description="처리 일시 (Unix epoch)")
 
     model_config = {"from_attributes": True}
@@ -90,9 +88,7 @@ class CertificateDetail(BaseModel):
     kind: CertificateKind = Field(description="'self'(본인 발급) | 'draft'(초안 생성)")
     status: CertificateStatus = Field(description="발급 상태")
     user: UserBrief = Field(description="발급 대상 회원")
-    requested_by: UserBrief | None = Field(
-        description="신청자/초안 생성자. SELF 발급은 본인과 동일"
-    )
+    requested_by: UserBrief | None = Field(description="신청자/초안 생성자. SELF 발급은 본인과 동일")
     options: CertificateOptions = Field(description="발급 시 선택한 옵션")
     issue_number: str | None = Field(description="발행번호. 발급 확정 전에는 null")
     issued_at: int | None = Field(description="발급 일시 (Unix epoch). 미발급 시 null")
@@ -127,9 +123,7 @@ class CertificateHistoryItem(BaseModel):
     """운영진용 발급 이력 목록 항목 (GET /certificates)."""
 
     id: int = Field(description="증명서 ID")
-    kind: CertificateKind = Field(
-        description="구분: 'self'(본인 발급) | 'draft'(초안 생성)"
-    )
+    kind: CertificateKind = Field(description="구분: 'self'(본인 발급) | 'draft'(초안 생성)")
     issued_at: int | None = Field(description="발급일시. 미발급 시 null")
     status: CertificateStatus = Field(description="발급 상태")
     user: UserBrief = Field(description="발급 대상 회원")

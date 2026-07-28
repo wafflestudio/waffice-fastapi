@@ -148,9 +148,7 @@ def _build_project_rows(db, user) -> list[dict[str, str]]:
         project = membership.project
         start = membership.joined_at or (project.started_at if project else None)
         end = membership.left_at or (project.ended_at if project else None)
-        period = (
-            f"{_format_date(start) or '-'} ~ {_format_date(end) if end else '현재'}"
-        )
+        period = f"{_format_date(start) or '-'} ~ {_format_date(end) if end else '현재'}"
         role = membership.position or _member_role_label(membership.role)
         rows.append(
             {

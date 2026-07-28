@@ -283,7 +283,8 @@ async def get_my_activities(
     },
 )
 async def list_users(
-    cursor: int | None = Query(
+    cursor: int
+    | None = Query(
         None, description="Pagination cursor (user ID). Omit for first page."
     ),
     limit: int = Query(
@@ -340,9 +341,7 @@ async def list_pending_users(
     ),
     responses={
         200: {"description": "Roster imported successfully"},
-        400: {
-            "description": "파일 양식이 올바르지 않습니다 / 이름·학번 헤더 누락 / 최대 행 초과"
-        },
+        400: {"description": "파일 양식이 올바르지 않습니다 / 이름·학번 헤더 누락 / 최대 행 초과"},
         401: {"description": "Not authenticated"},
         403: {"description": "Admin access required"},
         413: {"description": "파일 용량 초과 (최대 5MB)"},

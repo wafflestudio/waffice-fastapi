@@ -103,9 +103,7 @@ class RosterFileTooLargeError(AppError):
 class InvalidProjectMemberFileError(AppError):
     """Project member file contains invalid headers or rows."""
 
-    def __init__(
-        self, errors: list[dict], message: str = "팀원 명단을 적용할 수 없습니다."
-    ):
+    def __init__(self, errors: list[dict], message: str = "팀원 명단을 적용할 수 없습니다."):
         super().__init__(
             "INVALID_PROJECT_MEMBER_FILE",
             message,
@@ -170,10 +168,7 @@ class NoEligibleReviewerError(AppError):
 
     def __init__(
         self,
-        message: str = (
-            "승인 가능한 사용자가 없습니다. "
-            "승인 대상을 변경하거나 운영팀에 문의해주세요."
-        ),
+        message: str = ("승인 가능한 사용자가 없습니다. " "승인 대상을 변경하거나 운영팀에 문의해주세요."),
     ):
         super().__init__("NO_ELIGIBLE_REVIEWER", message, 400)
 
@@ -227,9 +222,7 @@ class NotPresidentError(AppError):
 class InvalidSignatureFileError(AppError):
     """400 - Uploaded signature is not a valid PNG/JPEG/WebP image"""
 
-    def __init__(
-        self, message: str = "이미지 파일(PNG, JPG, WEBP)이 맞는지 확인해주세요."
-    ):
+    def __init__(self, message: str = "이미지 파일(PNG, JPG, WEBP)이 맞는지 확인해주세요."):
         super().__init__("INVALID_SIGNATURE_FILE", message, 400)
 
 
@@ -251,9 +244,7 @@ class PresidentAppointmentForbiddenError(AppError):
 class SignatureUploadConflictError(AppError):
     """409 - Lost a race with another concurrent signature upload/replace"""
 
-    def __init__(
-        self, message: str = "다른 서명 등록 요청과 충돌했습니다. 다시 시도해주세요."
-    ):
+    def __init__(self, message: str = "다른 서명 등록 요청과 충돌했습니다. 다시 시도해주세요."):
         super().__init__("SIGNATURE_UPLOAD_CONFLICT", message, 409)
 
 
@@ -267,9 +258,7 @@ class AssociateCannotIssueCertificateError(AppError):
 class PresidentNotFoundError(AppError):
     """409 - No current president is registered"""
 
-    def __init__(
-        self, message: str = "현재 등록된 회장이 없습니다. 운영팀에 문의해주세요."
-    ):
+    def __init__(self, message: str = "현재 등록된 회장이 없습니다. 운영팀에 문의해주세요."):
         super().__init__("PRESIDENT_NOT_FOUND", message, 409)
 
 
@@ -308,9 +297,7 @@ class CertificateExpiredError(AppError):
     """410 - Certificate's 90-day original-comparison window has passed; the
     original PDF/snapshot has been (or is being) purged"""
 
-    def __init__(
-        self, message: str = "만료된 활동증명서입니다. 원본이 폐기되었습니다."
-    ):
+    def __init__(self, message: str = "만료된 활동증명서입니다. 원본이 폐기되었습니다."):
         super().__init__("CERTIFICATE_EXPIRED", message, 410)
 
 
