@@ -31,9 +31,18 @@ from app.models import (
     CertificateEvent,
     CertificateSignature,
     PresidentTerm,
+    Project,
+    ProjectMember,
     User,
+    UserActivity,
 )
-from app.models.enums import AuditAction, CertificateKind, CertificateStatus
+from app.models.enums import (
+    ActivityStatus,
+    AuditAction,
+    CertificateKind,
+    CertificateStatus,
+    MemberRole,
+)
 from app.routes import certificates as certificates_route
 from app.services.certificate import (
     CertificateService,
@@ -2016,6 +2025,61 @@ class TestRenderContextMasking:
         )
         assert context["issue_number_display"] == real_number
         assert context["verify_url"].endswith(f"/verify/{real_number}")
+
+
+class TestProjectRows:
+    def test_uses_activity_history_instead_of_project_memberships(
+        self, db: Session, regular_user: User
+    ):
+        from app.services.certificate_render import build_context
+
+        activity_project = Project(name="승인된 활동", started_at=date(2025, 1, 1))
+        membership_only_project = Project(
+            name="멤버십만 존재", started_at=date(2025, 1, 1)
+        )
+        db.add_all([activity_project, membership_only_project])
+        db.flush()
+        db.add_all(
+            [
+                ProjectMember(
+                    project_id=membership_only_project.id,
+                    user_id=regular_user.id,
+                    role=MemberRole.MEMBER,
+                    position="출력되면 안 됨",
+                    joined_at=date(2025, 1, 1),
+                ),
+                UserActivity(
+                    user_id=regular_user.id,
+                    project_id=activity_project.id,
+                    position="백엔드",
+                    start_date=1735689600,
+                    end_date=1743465600,
+                    status=ActivityStatus.INACTIVE,
+                ),
+            ]
+        )
+        db.commit()
+
+        context = build_context(
+            db,
+            regular_user,
+            _options(include_projects=True),
+            issue_number=None,
+            issued_on=date(2026, 1, 1),
+            president_name="회장",
+            signature_data_uri=None,
+        )
+        project_section = next(
+            section for section in context["sections"] if section["type"] == "projects"
+        )
+
+        assert project_section["rows"] == [
+            {
+                "name": "승인된 활동",
+                "period": "2025.01.01. ~ 2025.04.01.",
+                "role": "백엔드",
+            }
+        ]
 
 
 class TestIssueAndVerificationOmittedFromRender:
