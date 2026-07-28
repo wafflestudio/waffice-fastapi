@@ -19,6 +19,18 @@ load_dotenv()
 ENV = os.getenv("ENV") or os.getenv("SPRING_PROFILES_ACTIVE") or "local"
 
 
+def get_email_secrets() -> dict[str, str]:
+    def get(name: str, default: str = "") -> str:
+        return os.getenv(name, os.getenv(name.lower(), default))
+
+    return {
+        "compartment_id": get("EMAIL_COMPARTMENT_ID"),
+        "from_email": get("EMAIL_FROM_EMAIL", "master@waffiestudio.com"),
+        "from_name": get("EMAIL_FROM_NAME", "와피스"),
+        "reply_to": get("EMAIL_REPLY_TO", "master@waffiestudio.com"),
+    }
+
+
 @lru_cache(maxsize=1)
 def _get_secrets_from_aws() -> dict[str, Any]:
     """*deprecated*
