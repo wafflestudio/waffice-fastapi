@@ -278,7 +278,15 @@ class ProjectService:
         """Soft delete a project by setting deleted_at"""
         import time
 
+        leader_user_ids = {
+            member.user_id
+            for member in MemberService.list_active(db, project.id)
+            if member.role == MemberRole.LEADER
+        }
         project.deleted_at = int(time.time())
+        db.flush()
+        for user_id in leader_user_ids:
+            MemberService.sync_leader_flag(db, user_id)
         db.commit()
 
 
