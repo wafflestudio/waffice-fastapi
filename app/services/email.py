@@ -23,16 +23,16 @@ class EmailService:
 
     @classmethod
     def _send(cls, recipient: str, subject: str, body: str) -> None:
-        compartment_id = os.getenv("EMAIL_COMPARTMENT_ID", "")
+        compartment_id = os.getenv("email_compartment_id", "")
         if not compartment_id:
             if ENV == "local":
                 return
-            raise RuntimeError("EMAIL_COMPARTMENT_ID is not configured")
+            raise RuntimeError("email_compartment_id is not configured")
 
-        from_email = os.getenv("EMAIL_FROM_EMAIL", SENDER)
+        from_email = os.getenv("email_from_email", SENDER)
         sender_address = EmailAddress(email=from_email)
-        from_name = os.getenv("EMAIL_FROM_NAME", "와피스")
-        reply_to = os.getenv("EMAIL_REPLY_TO") or from_email
+        from_name = os.getenv("email_from_name", "와피스")
+        reply_to = os.getenv("email_reply_to") or from_email
         if from_name:
             sender_address.name = from_name
 
