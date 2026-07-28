@@ -12,7 +12,7 @@ from datetime import date
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models import Project, User
+from app.models import MemberRole, Project, ProjectMember, User
 from app.services.certificate_render import _build_executive_rows
 
 
@@ -20,9 +20,27 @@ def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _create_admin_team(db: Session) -> Project:
+def _create_admin_team(db: Session, *members: tuple[User, MemberRole]) -> Project:
+    """Create the 운영팀 project, optionally seeded with initial members.
+
+    Tests that make more than one request as `admin_user` must seed them
+    here as a member -- otherwise the first request's resync (which resets
+    is_admin to False for everyone not actually in the team) revokes
+    `admin_user`'s own admin access, since the `admin_user` fixture grants it
+    as a raw flag rather than through team membership.
+    """
     project = Project(name="운영팀", is_admin_team=True, started_at=date.today())
     db.add(project)
+    db.flush()
+    for user, role in members:
+        db.add(
+            ProjectMember(
+                project_id=project.id,
+                user_id=user.id,
+                role=role,
+                joined_at=date.today(),
+            )
+        )
     db.commit()
     db.refresh(project)
     return project
@@ -54,7 +72,7 @@ def test_leaving_admin_team_revokes_is_admin(
     admin_user: User,
     regular_user: User,
 ):
-    admin_team = _create_admin_team(db)
+    admin_team = _create_admin_team(db, (admin_user, MemberRole.MEMBER))
     client.post(
         f"/projects/{admin_team.id}/members",
         json={"user_id": regular_user.id, "role": "member"},
@@ -125,7 +143,7 @@ def test_demoting_leader_revokes_president_but_keeps_admin(
     regular_user: User,
     active_user: User,
 ):
-    admin_team = _create_admin_team(db)
+    admin_team = _create_admin_team(db, (admin_user, MemberRole.MEMBER))
     # Bootstrap: admin appoints the first leader (no sitting president yet).
     client.post(
         f"/projects/{admin_team.id}/members",
@@ -195,7 +213,7 @@ def test_non_president_admin_cannot_appoint_second_leader(
     regular_user: User,
     active_user: User,
 ):
-    admin_team = _create_admin_team(db)
+    admin_team = _create_admin_team(db, (admin_user, MemberRole.MEMBER))
     bootstrap = client.post(
         f"/projects/{admin_team.id}/members",
         json={"user_id": regular_user.id, "role": "leader"},
@@ -203,8 +221,8 @@ def test_non_president_admin_cannot_appoint_second_leader(
     )
     assert bootstrap.status_code == 200
 
-    # admin_user has is_admin=True (unrelated to the admin team) but is not
-    # the sitting president, so appointing a second leader must be forbidden.
+    # admin_user is an admin-team member (but not its leader/president), so
+    # appointing a second leader must be forbidden.
     response = client.post(
         f"/projects/{admin_team.id}/members",
         json={"user_id": active_user.id, "role": "leader"},
@@ -239,12 +257,11 @@ def test_superadmin_keeps_is_admin_after_sync(
 
 
 def test_build_executive_rows_reflects_demotion_not_just_membership(
-    db: Session, regular_user: User
+    db: Session, regular_user: User, active_user: User
 ):
     """A member who was leader, then demoted to member (still in the admin
     team), should show an executive period that ENDS at the demotion --
     ProjectMember.left_at alone can't tell us that, since it stays null."""
-    from app.models import MemberRole
     from app.services.member import MemberService
 
     admin_team = _create_admin_team(db)
@@ -252,6 +269,17 @@ def test_build_executive_rows_reflects_demotion_not_just_membership(
         db,
         project_id=admin_team.id,
         user_id=regular_user.id,
+        role=MemberRole.LEADER,
+        position=None,
+        actor_id=regular_user.id,
+    )
+    db.commit()
+    # A co-leader must exist first, or demoting the sole leader below would
+    # hit the "can't demote the last leader" invariant.
+    MemberService.add(
+        db,
+        project_id=admin_team.id,
+        user_id=active_user.id,
         role=MemberRole.LEADER,
         position=None,
         actor_id=regular_user.id,
