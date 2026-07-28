@@ -38,7 +38,6 @@ from app.services import (
     ActivityService,
     AuditLogService,
     EmailService,
-    PresidentService,
     ProjectService,
     UserService,
 )
@@ -284,8 +283,7 @@ async def get_my_activities(
     },
 )
 async def list_users(
-    cursor: int
-    | None = Query(
+    cursor: int | None = Query(
         None, description="Pagination cursor (user ID). Omit for first page."
     ),
     limit: int = Query(
@@ -342,7 +340,9 @@ async def list_pending_users(
     ),
     responses={
         200: {"description": "Roster imported successfully"},
-        400: {"description": "파일 양식이 올바르지 않습니다 / 이름·학번 헤더 누락 / 최대 행 초과"},
+        400: {
+            "description": "파일 양식이 올바르지 않습니다 / 이름·학번 헤더 누락 / 최대 행 초과"
+        },
         401: {"description": "Not authenticated"},
         403: {"description": "Admin access required"},
         413: {"description": "파일 용량 초과 (최대 5MB)"},
@@ -463,22 +463,21 @@ async def update_user(
     db: Session = Depends(get_db),
 ):
     """
-    Update a user's profile, qualification, or admin status.
+    Update a user's profile or qualification.
 
     **Requires**: Admin privileges.
 
-    Changes to qualification and admin status are logged in the user's
-    history for audit purposes. Only provided fields will be updated.
+    is_admin/is_leader/is_president are not settable here -- is_admin/
+    is_president are derived from 운영팀 (admin team) project membership
+    (see ProjectService.sync_operations_roles); is_leader is unused. Changes
+    to qualification are logged in the user's history for audit purposes.
+    Only provided fields will be updated.
     """
     user = UserService.get(db, user_id)
     if not user:
         raise NotFoundError("User not found")
 
     update_data = request.model_dump(exclude_unset=True)
-    # `is_president`는 `UserService.update`에 직접 안 넘긴다 -- 그러면
-    # `president_terms` 이력도 안 남고 전임 회장 강등도 안 거치는 raw 대입이
-    # 되어버린다. 아래에서 `PresidentService.sync_is_president`로 위임한다.
-    requested_is_president = update_data.pop("is_president", None)
     # `qualification_change_reason`은 User 모델의 컬럼이 아니라 audit log에만
     # 쓰이는 값이므로 `UserService.update`에 넘어가지 않도록 분리한다.
     qualification_change_reason = update_data.pop("qualification_change_reason", None)
@@ -502,33 +501,7 @@ async def update_user(
             actor_id=admin.id,
         )
 
-    # Log role changes
-    role_changes = {
-        field: {"from": getattr(user, field), "to": update_data[field]}
-        for field in ("is_leader", "is_admin")
-        if field in update_data and update_data[field] != getattr(user, field)
-    }
-    if (
-        requested_is_president is not None
-        and requested_is_president != user.is_president
-    ):
-        role_changes["is_president"] = {
-            "from": user.is_president,
-            "to": requested_is_president,
-        }
-    if role_changes:
-        AuditLogService.log(
-            db=db,
-            user_id=user.id,
-            action=AuditAction.ROLE_CHANGED,
-            payload=role_changes,
-            actor_id=admin.id,
-        )
-
     updated_user = UserService.update(db, user, **update_data)
-
-    if requested_is_president is not None:
-        PresidentService.sync_is_president(db, updated_user, requested_is_president)
 
     return Response(ok=True, data=updated_user)
 

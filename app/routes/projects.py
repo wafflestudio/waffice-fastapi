@@ -13,9 +13,10 @@ from app.exceptions import (
     LastLeaderError,
     NoLeaderError,
     NotFoundError,
+    PresidentAppointmentForbiddenError,
     RosterFileTooLargeError,
 )
-from app.models import ActivityStatus, MemberRole, User
+from app.models import ActivityStatus, MemberRole, Project, User
 from app.schemas import (
     CursorPage,
     MemberDetail,
@@ -57,8 +58,7 @@ router = APIRouter()
     },
 )
 async def list_projects(
-    cursor: int
-    | None = Query(
+    cursor: int | None = Query(
         None, description="Pagination cursor (project ID). Omit for first page."
     ),
     limit: int = Query(
@@ -405,6 +405,24 @@ async def delete_project(
 
 
 # === Project Members ===
+def _check_president_appointment_permission(
+    db: Session, project: Project, actor: User, requested_role: MemberRole | None
+) -> None:
+    """Appointing (promoting/adding) the next president -- i.e. a new leader
+    of the 운영팀 project -- requires being the sitting president, unless the
+    team currently has no leader at all (bootstrap/vacancy), in which case the
+    normal require_leader_or_admin check already applied is enough."""
+    if requested_role != MemberRole.LEADER or not project.is_admin_team:
+        return
+    if MemberService.count_leaders(db, project.id) > 0 and not actor.is_president:
+        raise PresidentAppointmentForbiddenError()
+
+
+def _sync_if_admin_team(db: Session, project: Project) -> None:
+    if project.is_admin_team:
+        ProjectService.sync_admin_team_roles(db)
+
+
 @router.get(
     "/{project_id}/members",
     response_model=Response[CursorPage[MemberDetail]],
@@ -419,15 +437,13 @@ async def delete_project(
 )
 async def list_project_members(
     project_id: int,
-    status: ActivityStatus
-    | None = Query(
+    status: ActivityStatus | None = Query(
         None,
         description="Filter by activity status; omit to return all",
     ),
     cursor: int | None = Query(None, description="Membership ID pagination cursor"),
     limit: int = Query(20, ge=1, le=100),
-    keyword: str
-    | None = Query(
+    keyword: str | None = Query(
         None,
         description="Partial match on name, position, email, or GitHub username",
     ),
@@ -478,7 +494,8 @@ async def add_project_member(
     - `member`: Regular project participant
     """
     # Check permission
-    require_leader_or_admin(project_id, user, db)
+    project = require_leader_or_admin(project_id, user, db)
+    _check_president_appointment_permission(db, project, user, member_input.role)
 
     # Verify user exists
     target_user = UserService.get(db, member_input.user_id)
@@ -494,6 +511,7 @@ async def add_project_member(
         position=member_input.position,
         actor_id=user.id,
     )
+    _sync_if_admin_team(db, project)
     db.commit()
 
     # Return updated project
@@ -535,7 +553,7 @@ async def update_project_member(
     - `member`: Regular project participant
     """
     # Check permission
-    require_leader_or_admin(project_id, current_user, db)
+    project = require_leader_or_admin(project_id, current_user, db)
 
     # Get member
     member = MemberService.get_active(db, project_id, user_id)
@@ -544,6 +562,9 @@ async def update_project_member(
 
     # Update member
     changes = request.model_dump(exclude_unset=True)
+    _check_president_appointment_permission(
+        db, project, current_user, changes.get("role")
+    )
     try:
         if changes:
             MemberService.change(
@@ -554,6 +575,7 @@ async def update_project_member(
             )
     except ServiceLastLeaderError:
         raise LastLeaderError()
+    _sync_if_admin_team(db, project)
     db.commit()
 
     # Return updated project
@@ -595,7 +617,7 @@ async def remove_project_member(
     historical reference.
     """
     # Check permission
-    require_leader_or_admin(project_id, current_user, db)
+    project = require_leader_or_admin(project_id, current_user, db)
 
     # Get member
     member = MemberService.get_active(db, project_id, user_id)
@@ -609,6 +631,7 @@ async def remove_project_member(
         raise LastLeaderError()
     except ServiceCannotRemoveSelfError:
         raise CannotRemoveSelfError()
+    _sync_if_admin_team(db, project)
     db.commit()
 
     # Return updated project

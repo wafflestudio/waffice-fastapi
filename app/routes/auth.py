@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 # Google OAuth configuration
 from authlib.integrations.starlette_client import OAuth
@@ -25,7 +25,7 @@ from app.exceptions import (
     StudentIdAlreadyInUseError,
     UserNotRegisteredError,
 )
-from app.models import Qualification, User
+from app.models import MemberRole, Qualification, User
 from app.schemas import (
     AuthResult,
     AuthStatus,
@@ -35,7 +35,7 @@ from app.schemas import (
     SigninRequest,
     SignupRequest,
 )
-from app.services import PresidentService, UserService
+from app.services import MemberService, ProjectService, UserService
 
 logger = logging.getLogger(__name__)
 
@@ -619,6 +619,51 @@ async def logout(response: FastAPIResponse):
     return Response(ok=True, data=None)
 
 
+def _grant_admin_team_membership(
+    db: Session, user: User, *, is_admin: bool, is_president: bool
+) -> None:
+    """Dev-only shortcut: reflect is_admin/is_president by directly adding,
+    changing, or removing this user's 운영팀 (admin team) membership, then
+    resyncing -- rather than setting those derived columns directly.
+
+    Bypasses two guards that don't make sense for this trusted, non-actor-
+    gated bootstrap tool: the "only the sitting president may appoint a new
+    leader" rule (an HTTP-route-level check, not enforced at the service
+    layer this calls into) and the "can't remove/demote yourself or the last
+    leader" guards on MemberService.remove/change (this always acts on the
+    signing-in user themselves, so those guards would otherwise always fire).
+    No-ops if the 운영팀 project hasn't been bootstrapped yet.
+    """
+    admin_team = ProjectService.get_admin_team_project(db)
+    if admin_team is None:
+        return
+
+    desired_role = (
+        MemberRole.LEADER if is_president else MemberRole.MEMBER if is_admin else None
+    )
+    existing = MemberService.get_active(db, admin_team.id, user.id)
+
+    if desired_role is None:
+        if existing is not None:
+            existing.left_at = date.today()
+            db.flush()
+    elif existing is None:
+        MemberService.add(
+            db,
+            project_id=admin_team.id,
+            user_id=user.id,
+            role=desired_role,
+            position=None,
+            actor_id=user.id,
+        )
+    elif existing.role != desired_role:
+        existing.role = desired_role
+        db.flush()
+
+    ProjectService.sync_admin_team_roles(db)
+    db.commit()
+
+
 @dev_router.post(
     "/signin-dev",
     response_model=Response[AuthResult],
@@ -638,7 +683,14 @@ async def signin_dev(
 
     This endpoint allows signing in with any email/name combination for testing purposes.
     It creates a new user if one doesn't exist, or updates an existing user's
-    is_admin and qualification fields.
+    qualification/is_leader.
+
+    is_admin/is_president are derived from 운영팀 (admin team) project
+    membership (see ProjectService.sync_admin_team_roles) -- rather than
+    setting those columns directly, this endpoint adds/updates/removes the
+    user's 운영팀 membership accordingly (see _grant_admin_team_membership),
+    so the result matches what actually granting them through the projects
+    API would look like.
 
     This router is only included in local/dev environments (see main.py).
     """
@@ -657,12 +709,11 @@ async def signin_dev(
     user = UserService.get_by_email(db, request.email)
 
     if user:
-        # Update existing user's admin status and qualification
+        # Update existing user's is_leader and qualification
         UserService.update(
             db,
             user,
             is_leader=request.is_leader,
-            is_admin=request.is_admin,
             qualification=qualification,
         )
     else:
@@ -679,7 +730,6 @@ async def signin_dev(
                 name=request.name,
                 qualification=qualification,
                 is_leader=request.is_leader,
-                is_admin=request.is_admin,
             )
         except IntegrityError:
             db.rollback()
@@ -689,7 +739,6 @@ async def signin_dev(
                     db,
                     user,
                     is_leader=request.is_leader,
-                    is_admin=request.is_admin,
                     qualification=qualification,
                 )
             else:
@@ -698,11 +747,9 @@ async def signin_dev(
                     detail="Failed to create or find user",
                 )
 
-    # `is_president`는 `UserService.create/update`에 직접 안 넘긴다 -- 그러면
-    # `president_terms` 이력도 안 남고 전임 회장 강등도 안 거치는 raw 대입이
-    # 되어버린다. `sync_is_president`가 `PresidentService.appoint`/`step_down`으로
-    # 위임해서 `is_president`와 이력이 항상 같이 갱신되게 한다.
-    PresidentService.sync_is_president(db, user, request.is_president)
+    _grant_admin_team_membership(
+        db, user, is_admin=request.is_admin, is_president=request.is_president
+    )
 
     # Generate JWT
     access_token = create_access_token(user.id, user.email, user.google_id)

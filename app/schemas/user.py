@@ -172,11 +172,6 @@ class UserUpdateRequest(ProfileUpdateRequest):
             "ACTIVE: fully active member with all privileges"
         ),
     )
-    is_leader: bool | None = Field(default=None, description="Grant leader privileges")
-    is_admin: bool | None = Field(default=None, description="Grant admin privileges")
-    is_president: bool | None = Field(
-        default=None, description="Grant president privileges"
-    )
     generation: str | None = Field(
         default=None,
         description="Generation/cohort identifier",
@@ -290,7 +285,9 @@ class UserDetail(BaseModel):
         description="Whether SMS information messages were accepted",
     )
     graduation_status: str = Field(
-        description=("Graduation status of the user. One of [학부생, 졸업생, 휴학생, 대학원생]"),
+        description=(
+            "Graduation status of the user. One of [학부생, 졸업생, 휴학생, 대학원생]"
+        ),
         examples=["학부생", "졸업생", "휴학생", "대학원생"],
     )
     is_leader: bool = Field(description="Whether the user has leader privileges")

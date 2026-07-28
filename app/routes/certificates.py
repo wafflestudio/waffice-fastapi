@@ -1,15 +1,17 @@
 """활동증명서(certificate of activities) API.
 
 - Member: 본인 발급/미리보기/내 이력 조회/다운로드 (require_certificate_eligible).
-- Staff/admin: 초안 생성/미리보기, 발급 이력 전체 조회, 회장 임기 관리 (require_admin).
+- Staff/admin: 초안 생성/미리보기, 발급 이력 전체 조회 (require_admin).
 - President: 서명 등록/조회, 초안의 오프라인 서명 원본 등록 (require_president).
 
+회장 임명/이력은 이제 운영팀 프로젝트 멤버십으로 관리된다 (`app/routes/projects.py`
+의 `/projects/{project_id}/members*` 참고) — 여기엔 없다.
+
 라우트 등록 순서 주의: 같은 HTTP 메서드에서 리터럴 세그먼트 경로(`/preview`,
-`/me`, `/signature/me`, `/president-terms/current`, ...)는 반드시 가변 경로
-(`/{certificate_id}/download`, `/{certificate_id}`)보다 먼저 등록해야
-Starlette가 "me"를 `certificate_id="me"`로 잘못 매칭하지 않는다. `GET
-/{certificate_id}`는 그중에서도 가장 넓게 매칭되는(1-세그먼트) 가변 경로라서
-라우터 맨 끝에 등록한다.
+`/me`, `/signature/me`, ...)는 반드시 가변 경로(`/{certificate_id}/download`,
+`/{certificate_id}`)보다 먼저 등록해야 Starlette가 "me"를
+`certificate_id="me"`로 잘못 매칭하지 않는다. `GET /{certificate_id}`는 그중에서도
+가장 넓게 매칭되는(1-세그먼트) 가변 경로라서 라우터 맨 끝에 등록한다.
 """
 
 from collections.abc import Callable
@@ -50,8 +52,6 @@ from app.schemas import (
     CertificateSummary,
     CursorPage,
     DraftCertificateCreate,
-    PresidentTermCreate,
-    PresidentTermDetail,
     Response,
     SignatureDetail,
     UserBrief,
@@ -59,7 +59,6 @@ from app.schemas import (
 from app.services import (
     CertificateService,
     OCIObjectStorageService,
-    PresidentService,
     SignatureService,
     UserService,
 )
@@ -151,7 +150,10 @@ def get_existing_certificate(db: Session, certificate_id: int) -> Certificate:
 @router.post(
     "/preview",
     summary="활동증명서 미리보기",
-    description=("현재 로그인한 회원 기준으로 활동증명서를 렌더링해 PDF로 돌려준다. " "미리보기 결과는 저장되지 않는다."),
+    description=(
+        "현재 로그인한 회원 기준으로 활동증명서를 렌더링해 PDF로 돌려준다. "
+        "미리보기 결과는 저장되지 않는다."
+    ),
 )
 async def preview_certificate(
     options: CertificateOptions,
@@ -353,7 +355,10 @@ async def preview_draft_certificate(
     "/drafts",
     response_model=Response[CertificateDetail],
     summary="활동증명서 초안 생성 (운영진)",
-    description=("운영진이 지정 회원의 활동증명서 초안을 생성한다. 발행번호는 회장이 " "오프라인 서명 원본을 등록할 때 부여된다."),
+    description=(
+        "운영진이 지정 회원의 활동증명서 초안을 생성한다. 발행번호는 회장이 "
+        "오프라인 서명 원본을 등록할 때 부여된다."
+    ),
 )
 async def create_draft_certificate(
     request: DraftCertificateCreate,
@@ -373,49 +378,9 @@ async def create_draft_certificate(
 
 
 # =====================================================================
-# President term administration (admin)
-# =====================================================================
-@router.post(
-    "/president-terms",
-    response_model=Response[PresidentTermDetail],
-    summary="회장 임명 (운영진)",
-    description="새 회장을 임명한다. 기존에 열려 있는 임기가 있으면 같은 트랜잭션에서 자동 종료된다.",
-)
-async def appoint_president(
-    request: PresidentTermCreate,
-    _admin: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    term = PresidentService.appoint(
-        db, user_id=request.user_id, started_at=request.started_at
-    )
-    return Response(ok=True, data=PresidentTermDetail.model_validate(term))
-
-
-@router.get(
-    "/president-terms/current",
-    response_model=Response[list[PresidentTermDetail]],
-    summary="현직 회장 목록 조회 (운영진)",
-    description=(
-        "현재 열려 있는(ended_at IS NULL) 회장 임기를 전부 조회한다. "
-        "(임시 비활성화 상태) 동시에 여러 명이 현직일 수 있어 리스트로 반환한다."
-    ),
-)
-async def get_current_president(
-    _admin: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    terms = PresidentService.get_current_terms(db)
-    return Response(
-        ok=True,
-        data=[PresidentTermDetail.model_validate(term) for term in terms],
-    )
-
-
-# =====================================================================
 # Staff / admin -- history (registered LAST: `/{certificate_id}` is a bare
 # 1-segment variable path and must not shadow any literal-segment GET route
-# above it, e.g. `/me`, `/signature/me`, `/president-terms/current`).
+# above it, e.g. `/me`, `/signature/me`).
 # =====================================================================
 @router.get(
     "",

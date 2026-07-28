@@ -1,5 +1,3 @@
-from datetime import date
-
 from pydantic import BaseModel, Field
 
 from app.models.enums import (
@@ -63,13 +61,6 @@ class DraftCertificateCreate(BaseModel):
     options: CertificateOptions
 
 
-class PresidentTermCreate(BaseModel):
-    """회장 임명 요청 바디. 기존에 열려 있는 임기가 있으면 자동으로 종료된다."""
-
-    user_id: int = Field(description="새로 회장으로 임명할 회원 ID")
-    started_at: date = Field(description="임기 시작일", examples=["2026-01-01"])
-
-
 # === Response ===
 class CertificateEventItem(BaseModel):
     """활동증명서 처리 이력(append-only) 한 건."""
@@ -84,7 +75,9 @@ class CertificateEventItem(BaseModel):
     actor_type: CertificateActorType = Field(
         description="처리 주체 구분: 'applicant' | 'system' | 'president' | 'admin'"
     )
-    actor: UserBrief | None = Field(description="처리한 사용자. 시스템이 자동 처리한 경우 null")
+    actor: UserBrief | None = Field(
+        description="처리한 사용자. 시스템이 자동 처리한 경우 null"
+    )
     created_at: int = Field(description="처리 일시 (Unix epoch)")
 
     model_config = {"from_attributes": True}
@@ -97,7 +90,9 @@ class CertificateDetail(BaseModel):
     kind: CertificateKind = Field(description="'self'(본인 발급) | 'draft'(초안 생성)")
     status: CertificateStatus = Field(description="발급 상태")
     user: UserBrief = Field(description="발급 대상 회원")
-    requested_by: UserBrief | None = Field(description="신청자/초안 생성자. SELF 발급은 본인과 동일")
+    requested_by: UserBrief | None = Field(
+        description="신청자/초안 생성자. SELF 발급은 본인과 동일"
+    )
     options: CertificateOptions = Field(description="발급 시 선택한 옵션")
     issue_number: str | None = Field(description="발행번호. 발급 확정 전에는 null")
     issued_at: int | None = Field(description="발급 일시 (Unix epoch). 미발급 시 null")
@@ -132,7 +127,9 @@ class CertificateHistoryItem(BaseModel):
     """운영진용 발급 이력 목록 항목 (GET /certificates)."""
 
     id: int = Field(description="증명서 ID")
-    kind: CertificateKind = Field(description="구분: 'self'(본인 발급) | 'draft'(초안 생성)")
+    kind: CertificateKind = Field(
+        description="구분: 'self'(본인 발급) | 'draft'(초안 생성)"
+    )
     issued_at: int | None = Field(description="발급일시. 미발급 시 null")
     status: CertificateStatus = Field(description="발급 상태")
     user: UserBrief = Field(description="발급 대상 회원")
@@ -149,18 +146,5 @@ class SignatureDetail(BaseModel):
     url: str = Field(description="서명 이미지 URL")
     created_at: int = Field(description="최초 등록 일시 (Unix epoch)")
     updated_at: int = Field(description="마지막 교체 일시 (Unix epoch)")
-
-    model_config = {"from_attributes": True}
-
-
-class PresidentTermDetail(BaseModel):
-    """회장 임기."""
-
-    id: int = Field(description="임기 ID")
-    user: UserBrief = Field(description="회장")
-    started_at: date = Field(description="임기 시작일")
-    ended_at: date | None = Field(description="임기 종료일. 현직이면 null")
-    created_at: int = Field(description="레코드 생성 일시 (Unix epoch)")
-    updated_at: int = Field(description="마지막 수정 일시 (Unix epoch)")
 
     model_config = {"from_attributes": True}
