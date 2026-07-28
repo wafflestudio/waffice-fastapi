@@ -36,6 +36,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config.database import Base, Engine, get_db
+from app.config.migration import run_migrations
 from app.main import app
 from app.models import PresidentTerm, Qualification, User
 from app.services import PresidentService, UserService
@@ -57,10 +58,9 @@ def engine():
 
 @pytest.fixture(scope="session")
 def tables(engine):
-    """Tables are created by migrations in app lifespan. Just yield."""
-    # Migrations already ran when app was imported (via lifespan)
+    """Run migrations once for the test session."""
+    run_migrations()
     yield
-    # Cleanup is optional since container will be destroyed anyway
 
 
 @pytest.fixture(scope="function")
@@ -93,8 +93,9 @@ def client(db):
             pass
 
     app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app, headers={"X-Requested-With": "XMLHttpRequest"}) as test_client:
-        yield test_client
+    test_client = TestClient(app, headers={"X-Requested-With": "XMLHttpRequest"})
+    yield test_client
+    test_client.close()
     app.dependency_overrides.clear()
 
 
