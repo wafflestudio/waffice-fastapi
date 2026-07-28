@@ -2034,9 +2034,7 @@ class TestProjectRows:
         from app.services.certificate_render import build_context
 
         activity_project = Project(name="승인된 활동", started_at=date(2025, 1, 1))
-        membership_only_project = Project(
-            name="멤버십만 존재", started_at=date(2025, 1, 1)
-        )
+        membership_only_project = Project(name="멤버십만 존재", started_at=date(2025, 1, 1))
         db.add_all([activity_project, membership_only_project])
         db.flush()
         db.add_all(
