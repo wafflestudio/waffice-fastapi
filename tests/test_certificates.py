@@ -2,11 +2,10 @@
 운영진 초안 생성, plus the president / signature API (회장 서명 등록/변경 +
 회장 임기 관리) added by an earlier PR in this stack.
 
-Covers `app/routes/certificates.py`, `app/services/certificate.py`, and the
-`app/services/certificate_render.py` PDF pipeline end-to-end against a real
-testcontainers MySQL 8 database and (when available) a real WeasyPrint
-render. Object storage is mocked the way `tests/test_member_detail.py` mocks
-it: `monkeypatch.setattr("app.routes.certificates.OCIObjectStorageService", ...)`.
+Covers `app/routes/certificates.py`, `app/services/certificate.py`, and one
+end-to-end `app/services/certificate_render.py` smoke test against a real
+testcontainers MySQL 8 database and (when available) WeasyPrint. Other tests
+stub PDF rendering and mock object storage.
 """
 
 import base64
@@ -40,6 +39,7 @@ from app.services.certificate import (
     CertificateService,
     PresidentService,
     SignatureService,
+    render_pdf as _real_render_pdf,
 )
 
 pytestmark = pytest.mark.usefixtures("fake_storage")
@@ -51,6 +51,22 @@ VALID_PNG_BYTES = base64.b64decode(
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 PDF_MAGIC = b"%PDF-"
 VALID_PDF_BYTES = PDF_MAGIC + b"1.4 fake offline-signed certificate original"
+
+
+@pytest.fixture(autouse=True)
+def stub_pdf_render(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        "app.services.certificate.render_pdf", lambda _: VALID_PDF_BYTES
+    )
+
+
+@pytest.fixture
+def real_pdf_render(monkeypatch: pytest.MonkeyPatch):
+    try:
+        __import__("weasyprint")
+    except (ImportError, OSError) as exc:
+        pytest.skip(f"WeasyPrint unavailable: {exc}")
+    monkeypatch.setattr("app.services.certificate.render_pdf", _real_render_pdf)
 
 
 def _make_image_bytes(image_format: str) -> bytes:
@@ -233,8 +249,8 @@ class TestPreview:
         regular_token: str,
         president_token: str,
         open_president_term: PresidentTerm,
+        real_pdf_render,
     ):
-        pytest.importorskip("weasyprint")
         upload_resp = _upload_signature(client, president_token)
         assert upload_resp.status_code == 200
 
@@ -302,7 +318,6 @@ class TestSelfIssuance:
         president_token: str,
         open_president_term: PresidentTerm,
     ):
-        pytest.importorskip("weasyprint")
         upload_resp = _upload_signature(client, president_token)
         assert upload_resp.status_code == 200
 
@@ -370,7 +385,6 @@ class TestSelfIssuance:
     ):
         """Section 3 (징계) is always present in the snapshot even when every
         optional section is off -- it cannot be deselected."""
-        pytest.importorskip("weasyprint")
         assert _upload_signature(client, president_token).status_code == 200
 
         issue_resp = client.post(
@@ -405,7 +419,6 @@ class TestSelfIssuance:
         president_token: str,
         open_president_term: PresidentTerm,
     ):
-        pytest.importorskip("weasyprint")
         assert _upload_signature(client, president_token).status_code == 200
 
         from app.models import AuditLog
@@ -493,7 +506,6 @@ class TestDraftCertificates:
         admin_user: User,
         regular_user: User,
     ):
-        pytest.importorskip("weasyprint")
         response = _create_draft(client, admin_token, regular_user.id)
         assert response.status_code == 200
         detail = response.json()["data"]
@@ -518,7 +530,6 @@ class TestDraftCertificates:
     ):
         """signer=advisor is the whole point of the DRAFT path -- it must not
         require a current president/signature at all."""
-        pytest.importorskip("weasyprint")
         response = _create_draft(
             client,
             admin_token,
@@ -545,7 +556,6 @@ class TestDraftCertificates:
         admin_token: str,
         regular_user: User,
     ):
-        pytest.importorskip("weasyprint")
         response = client.post(
             "/certificates/drafts/preview",
             json={
@@ -579,7 +589,6 @@ class TestOriginalRegistration:
     def test_non_president_admin_forbidden(
         self, client: TestClient, admin_token: str, regular_user: User
     ):
-        pytest.importorskip("weasyprint")
         draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
         response = client.post(
             f"/certificates/{draft['id']}/original",
@@ -598,7 +607,6 @@ class TestOriginalRegistration:
         president_user: User,
         open_president_term: PresidentTerm,
     ):
-        pytest.importorskip("weasyprint")
         draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
         assert draft["status"] == "original_pending"
 
@@ -650,7 +658,6 @@ class TestOriginalRegistration:
         reuse it) has to consciously update this test rather than
         regressing unnoticed.
         """
-        pytest.importorskip("weasyprint")
         draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
 
         # Simulate the offline-signing gap: the member's data changes after
@@ -684,7 +691,6 @@ class TestOriginalRegistration:
         president_token: str,
         open_president_term: PresidentTerm,
     ):
-        pytest.importorskip("weasyprint")
         draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
         first = client.post(
             f"/certificates/{draft['id']}/original",
@@ -722,7 +728,6 @@ class TestOriginalRegistration:
         `client` session) through `CertificateService.register_original`
         directly, synchronized with a barrier to maximize overlap.
         """
-        pytest.importorskip("weasyprint")
         draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
         cert_id = draft["id"]
 
@@ -789,7 +794,6 @@ class TestOriginalRegistration:
         president_token: str,
         open_president_term: PresidentTerm,
     ):
-        pytest.importorskip("weasyprint")
         draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
         response = client.post(
             f"/certificates/{draft['id']}/original",
@@ -807,7 +811,6 @@ class TestOriginalRegistration:
         president_token: str,
         open_president_term: PresidentTerm,
     ):
-        pytest.importorskip("weasyprint")
         draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
         response = client.post(
             f"/certificates/{draft['id']}/original",
@@ -825,7 +828,6 @@ class TestOriginalRegistration:
         president_token: str,
         open_president_term: PresidentTerm,
     ):
-        pytest.importorskip("weasyprint")
         draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
         oversized = PDF_MAGIC + b"0" * (10 * 1024 * 1024 + 1)
         response = client.post(
@@ -1416,7 +1418,6 @@ class TestDownload:
         president_token: str,
         open_president_term: PresidentTerm,
     ):
-        pytest.importorskip("weasyprint")
         assert _upload_signature(client, president_token).status_code == 200
         cert = client.post(
             "/certificates", json=_options(), headers=_auth(regular_token)
@@ -1436,7 +1437,6 @@ class TestDownload:
         president_token: str,
         open_president_term: PresidentTerm,
     ):
-        pytest.importorskip("weasyprint")
         assert _upload_signature(client, president_token).status_code == 200
         cert = client.post(
             "/certificates", json=_options(), headers=_auth(regular_token)
@@ -1455,7 +1455,6 @@ class TestDownload:
         president_token: str,
         open_president_term: PresidentTerm,
     ):
-        pytest.importorskip("weasyprint")
         assert _upload_signature(client, president_token).status_code == 200
         cert = client.post(
             "/certificates", json=_options(), headers=_auth(regular_token)
@@ -1642,7 +1641,6 @@ class TestMyCertificates:
         regular_token: str,
         regular_user: User,
     ):
-        pytest.importorskip("weasyprint")
         ids = []
         for _ in range(3):
             draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
@@ -1677,7 +1675,6 @@ class TestMyCertificates:
         silently round it on `JSON.parse`, corrupting the cursor and causing
         the next page request to skip or duplicate rows. It must round-trip
         as an opaque numeric *string* instead."""
-        pytest.importorskip("weasyprint")
         for _ in range(2):
             _create_draft(client, admin_token, regular_user.id)
 
@@ -1729,7 +1726,6 @@ class TestMyCertificates:
         regular_user: User,
         active_user: User,
     ):
-        pytest.importorskip("weasyprint")
         _create_draft(client, admin_token, regular_user.id)
         _create_draft(client, admin_token, active_user.id)
 
@@ -1754,7 +1750,6 @@ class TestHistoryListing:
         president_token: str,
         open_president_term: PresidentTerm,
     ):
-        pytest.importorskip("weasyprint")
         assert _upload_signature(client, president_token).status_code == 200
 
         issued = client.post(
@@ -1796,7 +1791,6 @@ class TestHistoryListing:
         *older* than the ISSUED certificate, so it can only sort first
         because of `pending_priority` -- it must go RED if that column is
         ever dropped from the ORDER BY."""
-        pytest.importorskip("weasyprint")
         assert _upload_signature(client, president_token).status_code == 200
 
         older = time.time()
@@ -1836,7 +1830,6 @@ class TestHistoryListing:
         plain JSON number, a JS client could even re-serialize it in
         exponent notation, which the `cursor: int` query param would reject
         with 422. It must round-trip as an opaque numeric *string*."""
-        pytest.importorskip("weasyprint")
         for _ in range(2):
             _create_draft(client, admin_token, regular_user.id)
 
@@ -1872,7 +1865,6 @@ class TestHistoryListing:
         regular_token: str,
         regular_user: User,
     ):
-        pytest.importorskip("weasyprint")
         draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
 
         response = client.get(
@@ -1888,7 +1880,6 @@ class TestHistoryListing:
         president_token: str,
         open_president_term: PresidentTerm,
     ):
-        pytest.importorskip("weasyprint")
         draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
         original = client.post(
             f"/certificates/{draft['id']}/original",
@@ -1923,7 +1914,6 @@ class TestHistoryListing:
         version of this test only ever created drafts (all
         ORIGINAL_PENDING), so the cross-partition cursor branch
         (`priority < cursor_priority`) was never exercised."""
-        pytest.importorskip("weasyprint")
         assert _upload_signature(client, president_token).status_code == 200
 
         created_ids = set()
@@ -1966,7 +1956,6 @@ class TestHistoryListing:
         tiebreak) can silently drop or duplicate tied rows once the page
         boundary lands inside the tie. This freezes time to force the tie
         deterministically."""
-        pytest.importorskip("weasyprint")
         frozen = time.time()
         monkeypatch.setattr(time, "time", lambda: frozen)
 

@@ -36,7 +36,9 @@ from app.services.member import (
 from app.services.roster import (
     MAX_ROSTER_FILE_BYTES,
     XLSX_CONTENT_TYPE,
+    build_multi_project_member_template,
     build_project_member_template,
+    parse_multi_project_member_roster,
     parse_project_member_roster,
 )
 
@@ -170,6 +172,69 @@ async def replace_project_members(
         db, project_id=project_id, rows=rows, actor_id=admin.id
     )
     return Response(ok=True, data=project)
+
+
+@router.get(
+    "/members/bulk-all-projects/template",
+    summary="Export every project's current active member roster as an editable XLSX template",
+    description=(
+        "Not a blank form — the file is pre-filled with every project's "
+        "**current** active members (프로젝트명/프로젝트원 이름/학번/역할/포지션), "
+        "so it doubles as a live export of team status. Edit it and upload it "
+        "back to `PUT /members/bulk-all-projects` to apply changes."
+    ),
+    responses={
+        200: {"content": {XLSX_CONTENT_TYPE: {}}},
+        401: {"description": "Not authenticated"},
+        403: {"description": "Admin access required"},
+    },
+)
+async def download_multi_project_member_template(
+    _admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    members = [
+        member
+        for member in MemberService.list_all_active(db)
+        if member.user is not None and member.user.deleted_at is None
+    ]
+    content = build_multi_project_member_template(members)
+    return StreamingResponse(
+        io.BytesIO(content),
+        media_type=XLSX_CONTENT_TYPE,
+        headers={"Content-Disposition": 'attachment; filename="project-members.xlsx"'},
+    )
+
+
+@router.put(
+    "/members/bulk-all-projects",
+    response_model=Response[list[ProjectDetail]],
+    summary="Replace member rosters across multiple projects from one XLSX file, routed by project name. Admin only.",
+    responses={
+        200: {"description": "Project member rosters replaced successfully"},
+        400: {"description": "Invalid workbook or resulting member roster"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "Admin access required"},
+        413: {"description": "File exceeds 5MB"},
+    },
+)
+async def replace_project_members_by_name(
+    file: UploadFile = File(..., description="프로젝트명 포함 팀원 명단 .xlsx 파일"),
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    content = await file.read(MAX_ROSTER_FILE_BYTES + 1)
+    if len(content) > MAX_ROSTER_FILE_BYTES:
+        raise RosterFileTooLargeError()
+
+    rows, errors = parse_multi_project_member_roster(content, file.filename or "")
+    if errors:
+        raise InvalidProjectMemberFileError(errors)
+
+    projects = ProjectService.replace_members_by_project_name(
+        db, rows=rows, actor_id=admin.id
+    )
+    return Response(ok=True, data=projects)
 
 
 @router.post(
@@ -315,6 +380,7 @@ async def update_project(
         401: {"description": "Not authenticated"},
         403: {"description": "Admin access required"},
         404: {"description": "Project not found"},
+        409: {"description": "Project has pending approval requests"},
     },
 )
 async def delete_project(
