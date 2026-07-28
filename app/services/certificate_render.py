@@ -92,8 +92,8 @@ def _build_qualification_rows(db, user) -> list[dict[str, str]]:
 
     합성 첫 행(회원 자격 취득, users.created_at) 다음에 `audit_logs`에서
     action=QUALIFICATION_CHANGED인 행들을 기준일(created_at) 오름차순으로
-    이어붙인다. payload는 {"from": ..., "to": ...} 형태이며 사유 필드가
-    없으므로 사유는 항상 "-"로 채운다.
+    이어붙인다. payload의 reason을 사유로 사용하되, 사유 저장 기능 도입 전
+    생성된 이력처럼 reason이 없거나 빈 값이면 "-"로 채운다.
     """
     from app.models import AuditLog
     from app.models.enums import AuditAction
@@ -119,11 +119,13 @@ def _build_qualification_rows(db, user) -> list[dict[str, str]]:
         payload = log.payload or {}
         from_label = _qualification_label(payload.get("from"))
         to_label = _qualification_label(payload.get("to"))
+        raw_reason = payload.get("reason")
+        reason = raw_reason.strip() if isinstance(raw_reason, str) else ""
         rows.append(
             {
                 "date": _format_epoch(log.created_at),
                 "content": f"{from_label} → {to_label}",
-                "reason": "-",
+                "reason": reason or "-",
             }
         )
     return rows

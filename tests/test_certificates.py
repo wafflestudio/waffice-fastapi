@@ -396,7 +396,7 @@ class TestSelfIssuance:
         # Only the always-on sections (기본 인적 사항, 징계) are present.
         assert section_types == ["personal", "discipline"]
 
-    def test_qualification_history_section_includes_synthetic_first_row(
+    def test_qualification_history_section_includes_reasons_with_legacy_fallback(
         self,
         client: TestClient,
         db: Session,
@@ -414,9 +414,19 @@ class TestSelfIssuance:
             user_id=regular_user.id,
             actor_id=None,
             action=AuditAction.QUALIFICATION_CHANGED,
-            payload={"from": "associate", "to": "regular"},
+            payload={
+                "from": "associate",
+                "to": "regular",
+                "reason": "정회원 승급 요건 충족",
+            },
         )
-        db.add(log)
+        legacy_log = AuditLog(
+            user_id=regular_user.id,
+            actor_id=None,
+            action=AuditAction.QUALIFICATION_CHANGED,
+            payload={"from": "regular", "to": "active"},
+        )
+        db.add_all([log, legacy_log])
         db.commit()
 
         issue_resp = client.post(
@@ -433,7 +443,11 @@ class TestSelfIssuance:
         )
         rows = qualification_section["rows"]
         assert rows[0]["content"] == "회원 자격 취득"
+        assert rows[0]["reason"] == "-"
         assert rows[1]["content"] == "준회원 → 정회원"
+        assert rows[1]["reason"] == "정회원 승급 요건 충족"
+        assert rows[2]["content"] == "정회원 → 활동회원"
+        assert rows[2]["reason"] == "-"
 
 
 class TestDraftCertificates:
