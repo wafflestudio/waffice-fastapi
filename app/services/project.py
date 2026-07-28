@@ -379,11 +379,13 @@ class ProjectService:
                 seen_user_ids.add(user.id)
                 resolved.append((row, user))
 
-            if resolved and not any(row.is_leader for row, _ in resolved):
+            if resolved and not any(
+                row.role == MemberRole.LEADER for row, _ in resolved
+            ):
                 errors.append(
                     _member_file_error(
                         group_rows[0].row_number,
-                        "팀장 여부",
+                        "역할",
                         "no_leader",
                         f"{project_name} 프로젝트에는 팀장이 한 명 이상 있어야 합니다.",
                     )
@@ -420,11 +422,7 @@ class ProjectService:
                             db,
                             project_id=project_id,
                             user_id=user.id,
-                            role=(
-                                MemberRole.LEADER
-                                if row.is_leader
-                                else MemberRole.MEMBER
-                            ),
+                            role=row.role,
                             position=row.position,
                             actor_id=actor_id,
                         )
@@ -445,22 +443,17 @@ class ProjectService:
                     for user_id, member in current_by_user_id.items()
                     if user_id in target_by_user_id
                     and (
-                        member.role
-                        != (
-                            MemberRole.LEADER
-                            if target_by_user_id[user_id].is_leader
-                            else MemberRole.MEMBER
-                        )
+                        member.role != target_by_user_id[user_id].role
                         or member.position != target_by_user_id[user_id].position
                     )
                 ]
-                changes.sort(key=lambda item: not item[1].is_leader)
+                changes.sort(key=lambda item: item[1].role != MemberRole.LEADER)
                 for member, row in changes:
                     MemberService.change(
                         db,
                         member=member,
                         actor_id=actor_id,
-                        role=MemberRole.LEADER if row.is_leader else MemberRole.MEMBER,
+                        role=row.role,
                         position=row.position,
                     )
 

@@ -9,7 +9,7 @@ from app.models import ActivityStatus, ProjectMember, User, UserActivity
 from app.services import MemberService
 
 XLSX_CT = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-HEADERS = ("프로젝트명", "프로젝트원 이름", "학번", "팀장 여부", "포지션")
+HEADERS = ("프로젝트명", "프로젝트원 이름", "학번", "역할", "포지션")
 
 
 def _auth(token: str) -> dict[str, str]:
@@ -53,7 +53,7 @@ def _upload(client, token, rows, filename="members.xlsx"):
 
 def test_requires_admin(client: TestClient, regular_token: str, admin_user: User):
     response = _upload(
-        client, regular_token, [("Anything", admin_user.name, "0000", "O", "")]
+        client, regular_token, [("Anything", admin_user.name, "0000", "팀장", "")]
     )
     assert response.status_code == 403
 
@@ -71,8 +71,8 @@ def test_rejects_non_xlsx_file(client: TestClient, admin_token: str):
 def test_missing_header_reports_column_name(client: TestClient, admin_token: str):
     # Drop the 학번 header to trigger a missing_header error.
     content = _xlsx(
-        [("Project", "Name", "O", "")],
-        headers=("프로젝트명", "프로젝트원 이름", "팀장 여부", "포지션"),
+        [("Project", "Name", "팀장", "")],
+        headers=("프로젝트명", "프로젝트원 이름", "역할", "포지션"),
     )
     response = client.put(
         "/projects/members/bulk-all-projects",
@@ -87,6 +87,18 @@ def test_missing_header_reports_column_name(client: TestClient, admin_token: str
     )
 
 
+def test_invalid_role_value(client: TestClient, admin_token: str, admin_user: User):
+    response = _upload(
+        client,
+        admin_token,
+        [("Project", admin_user.name, "0000", "관리자", "")],
+    )
+    assert response.status_code == 400
+    error = response.json()["data"]["errors"][0]
+    assert error["code"] == "invalid_role"
+    assert error["message"] == "역할은 팀장 또는 팀원이어야 합니다."
+
+
 def test_project_not_found(
     client: TestClient, admin_token: str, admin_user: User, db: Session
 ):
@@ -95,7 +107,7 @@ def test_project_not_found(
     response = _upload(
         client,
         admin_token,
-        [("존재하지않는프로젝트", admin_user.name, admin_user.student_id, "O", "")],
+        [("존재하지않는프로젝트", admin_user.name, admin_user.student_id, "팀장", "")],
     )
     assert response.status_code == 400
     error = response.json()["data"]["errors"][0]
@@ -128,10 +140,10 @@ def test_student_id_must_belong_to_active_qualification(
                 "Qual Project",
                 admin_user.name,
                 admin_user.student_id,
-                "O",
+                "팀장",
                 "",
             ),
-            ("Qual Project", regular_user.name, regular_user.student_id, "X", ""),
+            ("Qual Project", regular_user.name, regular_user.student_id, "팀원", ""),
         ],
     )
     assert response.status_code == 400
@@ -162,7 +174,7 @@ def test_name_mismatch(
     response = _upload(
         client,
         admin_token,
-        [("Mismatch Project", "다른이름", admin_user.student_id, "O", "")],
+        [("Mismatch Project", "다른이름", admin_user.student_id, "팀장", "")],
     )
     assert response.status_code == 400
     error = response.json()["data"]["errors"][0]
@@ -192,7 +204,7 @@ def test_ambiguous_student_id(
     response = _upload(
         client,
         admin_token,
-        [("Ambiguous Project", admin_user.name, "2030-3333", "O", "")],
+        [("Ambiguous Project", admin_user.name, "2030-3333", "팀장", "")],
     )
     assert response.status_code == 400
     assert response.json()["data"]["errors"][0]["code"] == "ambiguous_student_id"
@@ -213,8 +225,8 @@ def test_duplicate_user_within_same_project(
         client,
         admin_token,
         [
-            ("Dup Project", admin_user.name, admin_user.student_id, "O", ""),
-            ("Dup Project", admin_user.name, admin_user.student_id, "X", "Extra"),
+            ("Dup Project", admin_user.name, admin_user.student_id, "팀장", ""),
+            ("Dup Project", admin_user.name, admin_user.student_id, "팀원", "Extra"),
         ],
     )
     assert response.status_code == 400
@@ -235,7 +247,7 @@ def test_no_leader_in_group(
     response = _upload(
         client,
         admin_token,
-        [("No Leader Project", admin_user.name, admin_user.student_id, "X", "")],
+        [("No Leader Project", admin_user.name, admin_user.student_id, "팀원", "")],
     )
     assert response.status_code == 400
     assert response.json()["data"]["errors"][0]["code"] == "no_leader"
@@ -278,12 +290,12 @@ def test_diff_logic_creates_updates_and_closes_activities(
         client,
         admin_token,
         [
-            ("Diff Project", admin_user.name, admin_user.student_id, "O", "PM"),
+            ("Diff Project", admin_user.name, admin_user.student_id, "팀장", "PM"),
             (
                 "Diff Project",
                 active_user.name,
                 active_user.student_id,
-                "X",
+                "팀원",
                 "Backend",
             ),
         ],
@@ -356,10 +368,10 @@ def test_atomic_rollback_across_projects(
         admin_token,
         [
             # Valid change to Project A: add active_user as a member.
-            ("Project A", admin_user.name, admin_user.student_id, "O", ""),
-            ("Project A", active_user.name, active_user.student_id, "X", "Backend"),
+            ("Project A", admin_user.name, admin_user.student_id, "팀장", ""),
+            ("Project A", active_user.name, active_user.student_id, "팀원", "Backend"),
             # Invalid: Project B ends up with no leader.
-            ("Project B", active_user.name, active_user.student_id, "X", ""),
+            ("Project B", active_user.name, active_user.student_id, "팀원", ""),
         ],
     )
     assert response.status_code == 400
@@ -393,7 +405,7 @@ def test_download_template(
         "Template Project",
         admin_user.name,
         admin_user.student_id,
-        "O",
+        "팀장",
         "PM",
     ) in rows[1:]
     workbook.close()

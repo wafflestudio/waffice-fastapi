@@ -176,7 +176,13 @@ async def replace_project_members(
 
 @router.get(
     "/members/bulk-all-projects/template",
-    summary="Download the multi-project member XLSX template",
+    summary="Export every project's current active member roster as an editable XLSX template",
+    description=(
+        "Not a blank form — the file is pre-filled with every project's "
+        "**current** active members (프로젝트명/프로젝트원 이름/학번/역할/포지션), "
+        "so it doubles as a live export of team status. Edit it and upload it "
+        "back to `PUT /members/bulk-all-projects` to apply changes."
+    ),
     responses={
         200: {"content": {XLSX_CONTENT_TYPE: {}}},
         401: {"description": "Not authenticated"},

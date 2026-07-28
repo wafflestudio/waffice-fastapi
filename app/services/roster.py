@@ -36,11 +36,9 @@ MULTI_PROJECT_MEMBER_HEADERS = (
     "프로젝트명",
     "프로젝트원 이름",
     "학번",
-    "팀장 여부",
+    "역할",
     "포지션",
 )
-_LEADER_FLAG_TRUE = {"o"}
-_LEADER_FLAG_FALSE = {"x", ""}
 
 
 class ProjectMemberRosterRow(NamedTuple):
@@ -57,17 +55,8 @@ class MultiProjectMemberRosterRow(NamedTuple):
     project_name: str
     name: str
     student_id: str
-    is_leader: bool
+    role: MemberRole
     position: str | None
-
-
-def _parse_leader_flag(value: str) -> bool | None:
-    key = value.strip().lower()
-    if key in _LEADER_FLAG_TRUE:
-        return True
-    if key in _LEADER_FLAG_FALSE:
-        return False
-    return None
 
 
 def _norm_header(value: object) -> str:
@@ -354,7 +343,7 @@ def parse_multi_project_member_roster(
 ) -> tuple[list[MultiProjectMemberRosterRow], list[dict]]:
     """
     Parse the fixed Korean multi-project member format
-    (프로젝트명/프로젝트원 이름/학번/팀장 여부/포지션), used to bulk replace
+    (프로젝트명/프로젝트원 이름/학번/역할/포지션), used to bulk replace
     member rosters across several projects at once, routed by project name.
 
     Unlike parse_project_member_roster, this format is .xlsx only.
@@ -417,14 +406,14 @@ def parse_multi_project_member_roster(
                 _project_member_error(row_number, "학번", "required", "학번을 입력해주세요.")
             )
 
-        is_leader = _parse_leader_flag(values["팀장 여부"])
-        if is_leader is None:
+        role = _PROJECT_MEMBER_ROLES.get(values["역할"])
+        if role is None:
             row_errors.append(
                 _project_member_error(
                     row_number,
-                    "팀장 여부",
-                    "invalid_leader_flag",
-                    "팀장 여부는 O 또는 X여야 합니다.",
+                    "역할",
+                    "invalid_role",
+                    "역할은 팀장 또는 팀원이어야 합니다.",
                 )
             )
 
@@ -437,7 +426,7 @@ def parse_multi_project_member_roster(
                 values["프로젝트명"],
                 values["프로젝트원 이름"],
                 values["학번"],
-                is_leader,
+                role,
                 values["포지션"] or None,
             )
         )
@@ -472,7 +461,7 @@ def build_multi_project_member_template(members: Sequence[object]) -> bytes:
                 member.project.name,
                 member.user.name,
                 member.user.student_id or "",
-                "O" if member.role == MemberRole.LEADER else "X",
+                "팀장" if member.role == MemberRole.LEADER else "팀원",
                 member.position or "",
             )
         )
