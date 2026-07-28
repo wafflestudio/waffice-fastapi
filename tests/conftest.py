@@ -73,11 +73,11 @@ def db(engine, tables) -> Session:
 
     session.close()
 
-    # Truncate all tables after each test for isolation
+    # Delete all rows after each test for isolation. TRUNCATE is slow DDL in MySQL.
     with engine.connect() as conn:
         conn.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
         for table in reversed(Base.metadata.sorted_tables):
-            conn.execute(text(f"TRUNCATE TABLE {table.name}"))
+            conn.execute(table.delete())
         conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
         conn.commit()
 

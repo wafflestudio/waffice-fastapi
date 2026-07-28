@@ -91,6 +91,19 @@ class MemberService:
         )
 
     @staticmethod
+    def list_all_active(db: Session) -> list[ProjectMember]:
+        """List active memberships across every non-deleted project."""
+        from app.models import Project
+
+        return (
+            db.query(ProjectMember)
+            .join(Project, ProjectMember.project_id == Project.id)
+            .options(joinedload(ProjectMember.project), joinedload(ProjectMember.user))
+            .filter(ProjectMember.left_at.is_(None), Project.deleted_at.is_(None))
+            .all()
+        )
+
+    @staticmethod
     def count_leaders(db: Session, project_id: int) -> int:
         """Count active leaders in a project"""
         return (

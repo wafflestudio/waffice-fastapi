@@ -32,11 +32,28 @@ _ZERO_WIDTH = "\u200b\u200c\u200d\u2060\ufeff\u00ad"
 PROJECT_MEMBER_HEADERS = ("이름", "이메일", "학번", "역할", "포지션")
 _PROJECT_MEMBER_ROLES = {"팀장": MemberRole.LEADER, "팀원": MemberRole.MEMBER}
 
+MULTI_PROJECT_MEMBER_HEADERS = (
+    "프로젝트명",
+    "프로젝트원 이름",
+    "학번",
+    "역할",
+    "포지션",
+)
+
 
 class ProjectMemberRosterRow(NamedTuple):
     row_number: int
     name: str
     email: str
+    student_id: str
+    role: MemberRole
+    position: str | None
+
+
+class MultiProjectMemberRosterRow(NamedTuple):
+    row_number: int
+    project_name: str
+    name: str
     student_id: str
     role: MemberRole
     position: str | None
@@ -319,6 +336,139 @@ def parse_project_member_roster(
             _project_member_error(2, "file", "empty_roster", "팀원 명단이 비어 있습니다.")
         )
     return parsed, errors
+
+
+def parse_multi_project_member_roster(
+    content: bytes, filename: str
+) -> tuple[list[MultiProjectMemberRosterRow], list[dict]]:
+    """
+    Parse the fixed Korean multi-project member format
+    (프로젝트명/프로젝트원 이름/학번/역할/포지션), used to bulk replace
+    member rosters across several projects at once, routed by project name.
+
+    Unlike parse_project_member_roster, this format is .xlsx only.
+    """
+    if not (filename or "").lower().endswith(".xlsx"):
+        return [], [
+            _project_member_error(0, "file", "invalid_file", ".xlsx 파일을 첨부해주세요.")
+        ]
+
+    try:
+        rows = _xlsx_rows(content)
+        header = next(rows)
+    except (InvalidRosterFileError, StopIteration):
+        return [], [
+            _project_member_error(0, "file", "invalid_file", "파일 양식이 올바르지 않습니다.")
+        ]
+
+    indexes = {_norm_header(cell): index for index, cell in enumerate(header or ())}
+    errors = [
+        _project_member_error(
+            1, header_name, "missing_header", f"{header_name} 열을 찾을 수 없습니다."
+        )
+        for header_name in MULTI_PROJECT_MEMBER_HEADERS
+        if _norm_header(header_name) not in indexes
+    ]
+    if errors:
+        return [], errors
+
+    parsed: list[MultiProjectMemberRosterRow] = []
+    for row_number, row in enumerate(rows, start=2):
+        values = {
+            header_name: _normalize(
+                _cell_to_str(row[indexes[_norm_header(header_name)]])
+                if indexes[_norm_header(header_name)] < len(row)
+                else ""
+            )
+            for header_name in MULTI_PROJECT_MEMBER_HEADERS
+        }
+        if not any(values.values()):
+            continue
+
+        row_errors: list[dict] = []
+        if not values["프로젝트명"]:
+            row_errors.append(
+                _project_member_error(row_number, "프로젝트명", "required", "프로젝트명을 입력해주세요.")
+            )
+
+        if not values["프로젝트원 이름"]:
+            row_errors.append(
+                _project_member_error(
+                    row_number,
+                    "프로젝트원 이름",
+                    "required",
+                    "프로젝트원 이름을 입력해주세요.",
+                )
+            )
+
+        if not values["학번"]:
+            row_errors.append(
+                _project_member_error(row_number, "학번", "required", "학번을 입력해주세요.")
+            )
+
+        role = _PROJECT_MEMBER_ROLES.get(values["역할"])
+        if role is None:
+            row_errors.append(
+                _project_member_error(
+                    row_number,
+                    "역할",
+                    "invalid_role",
+                    "역할은 팀장 또는 팀원이어야 합니다.",
+                )
+            )
+
+        if row_errors:
+            errors.extend(row_errors)
+            continue
+        parsed.append(
+            MultiProjectMemberRosterRow(
+                row_number,
+                values["프로젝트명"],
+                values["프로젝트원 이름"],
+                values["학번"],
+                role,
+                values["포지션"] or None,
+            )
+        )
+
+    if not parsed and not errors:
+        errors.append(
+            _project_member_error(2, "file", "empty_roster", "팀원 명단이 비어 있습니다.")
+        )
+    return parsed, errors
+
+
+def build_multi_project_member_template(members: Sequence[object]) -> bytes:
+    """
+    Build the editable multi-project workbook from active memberships across
+    every project, keyed by project name for the bulk-by-name replace endpoint.
+    """
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "팀원"
+    sheet.append(MULTI_PROJECT_MEMBER_HEADERS)
+    for member in sorted(
+        members,
+        key=lambda item: (
+            item.project.name,
+            item.role != MemberRole.LEADER,
+            item.user.name,
+            item.user_id,
+        ),
+    ):
+        sheet.append(
+            (
+                member.project.name,
+                member.user.name,
+                member.user.student_id or "",
+                "팀장" if member.role == MemberRole.LEADER else "팀원",
+                member.position or "",
+            )
+        )
+    output = io.BytesIO()
+    workbook.save(output)
+    workbook.close()
+    return output.getvalue()
 
 
 def build_project_member_template(members: Sequence[object]) -> bytes:
