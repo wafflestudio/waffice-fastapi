@@ -21,10 +21,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.exceptions import (
-    CertificateAlreadyIssuedError,
-    SignatureUploadConflictError,
-)
+from app.exceptions import CertificateAlreadyIssuedError, SignatureUploadConflictError
 from app.models import (
     Certificate,
     CertificateEvent,
