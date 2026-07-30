@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.config.cookies import ACCESS_TOKEN_COOKIE_NAME, get_cookie_settings
 from app.config.database import get_db
 from app.config.secrets import (
+    BOOTSTRAP_ADMIN_EMAIL,
     ENV,
     FRONTEND_ORIGIN,
     GOOGLE_CLIENT_ID,
@@ -117,6 +118,26 @@ def decode_auth_token(auth_token: str) -> dict:
     except JWTError as e:
         logger.warning(f"Auth token decode failed: {e}")
         raise InvalidAuthTokenError()
+
+
+def grant_bootstrap_admin(db: Session, user: User, verified_email: str) -> User:
+    """Grant the first admin account after Google has verified its email."""
+    if not BOOTSTRAP_ADMIN_EMAIL or verified_email.casefold() != BOOTSTRAP_ADMIN_EMAIL:
+        return user
+
+    admin_exists = (
+        db.query(User.id)
+        .filter(
+            User.deleted_at.is_(None),
+            User.is_admin.is_(True) | User.is_president.is_(True),
+        )
+        .first()
+    )
+    if not admin_exists:
+        return UserService.update(
+            db, user, is_admin=True, qualification=Qualification.ACTIVE
+        )
+    return user
 
 
 def get_allowed_origins() -> set[str]:
@@ -439,6 +460,8 @@ async def signin(
     if not user.google_id:
         UserService.update(db, user, google_id=google_id)
 
+    user = grant_bootstrap_admin(db, user, email)
+
     # Generate JWT
     access_token = create_access_token(user.id, user.email, user.google_id)
 
@@ -544,6 +567,8 @@ async def signup(
             )
         else:
             user = UserService.create(db, **signup_data)
+
+    user = grant_bootstrap_admin(db, user, email)
 
     # Generate JWT
     access_token = create_access_token(user.id, user.email, user.google_id)

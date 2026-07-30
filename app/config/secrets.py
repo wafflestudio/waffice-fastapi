@@ -132,3 +132,6 @@ FRONTEND_ORIGIN = secrets.get("FRONTEND_ORIGIN", "http://localhost:3000")
 APP_SECRET_KEY = secrets.get("APP_SECRET_KEY", "insecure-dev-only-key")
 JWT_SECRET_KEY = secrets.get("JWT_SECRET_KEY") or APP_SECRET_KEY
 JWT_EXPIRE_HOURS = int(secrets.get("JWT_EXPIRE_HOURS", "24"))
+BOOTSTRAP_ADMIN_EMAIL = (
+    os.getenv("BOOTSTRAP_ADMIN_EMAIL", "master@wafflestudio.com").strip().casefold()
+)
