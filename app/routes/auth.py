@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.config.cookies import ACCESS_TOKEN_COOKIE_NAME, get_cookie_settings
 from app.config.database import get_db
 from app.config.secrets import (
+    BOOTSTRAP_ADMIN_EMAIL,
     ENV,
     FRONTEND_ORIGIN,
     GOOGLE_CLIENT_ID,
@@ -25,7 +26,7 @@ from app.exceptions import (
     StudentIdAlreadyInUseError,
     UserNotRegisteredError,
 )
-from app.models import MemberRole, Qualification, User
+from app.models import AuditAction, MemberRole, Qualification, User
 from app.schemas import (
     AuthResult,
     AuthStatus,
@@ -35,7 +36,7 @@ from app.schemas import (
     SigninRequest,
     SignupRequest,
 )
-from app.services import MemberService, ProjectService, UserService
+from app.services import AuditLogService, MemberService, ProjectService, UserService
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +118,38 @@ def decode_auth_token(auth_token: str) -> dict:
     except JWTError as e:
         logger.warning(f"Auth token decode failed: {e}")
         raise InvalidAuthTokenError()
+
+
+def grant_bootstrap_superadmin(db: Session, user: User, verified_email: str) -> User:
+    """Grant the configured break-glass account after Google verifies its email."""
+    if not BOOTSTRAP_ADMIN_EMAIL or verified_email.casefold() != BOOTSTRAP_ADMIN_EMAIL:
+        return user
+
+    changes = {
+        field: {"from": getattr(user, field), "to": value}
+        for field, value in (
+            ("is_superadmin", True),
+            ("is_admin", True),
+            ("qualification", Qualification.ACTIVE),
+        )
+        if getattr(user, field) != value
+    }
+    if not changes:
+        return user
+
+    user.is_superadmin = True
+    user.is_admin = True
+    user.qualification = Qualification.ACTIVE
+    AuditLogService.log(
+        db,
+        user_id=user.id,
+        action=AuditAction.ROLE_CHANGED,
+        payload={"source": "bootstrap_verified_email", **changes},
+    )
+    db.commit()
+    db.refresh(user)
+    logger.warning("Granted bootstrap superadmin privileges to user_id=%s", user.id)
+    return user
 
 
 def get_allowed_origins() -> set[str]:
@@ -439,6 +472,8 @@ async def signin(
     if not user.google_id:
         UserService.update(db, user, google_id=google_id)
 
+    user = grant_bootstrap_superadmin(db, user, email)
+
     # Generate JWT
     access_token = create_access_token(user.id, user.email, user.google_id)
 
@@ -544,6 +579,8 @@ async def signup(
             )
         else:
             user = UserService.create(db, **signup_data)
+
+    user = grant_bootstrap_superadmin(db, user, email)
 
     # Generate JWT
     access_token = create_access_token(user.id, user.email, user.google_id)

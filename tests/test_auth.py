@@ -9,6 +9,8 @@ from jose import jwt
 from app.deps.auth import JWT_ALGORITHM
 from app.models import (
     ActivityStatus,
+    AuditAction,
+    AuditLog,
     MemberRole,
     Project,
     ProjectMember,
@@ -134,6 +136,39 @@ class TestSigninEndpoint:
         data = response.json()
         assert data["data"]["status"] == "pending"
 
+    def test_signin_bootstraps_superadmin_once(self, client, db, pending_user):
+        pending_user.email = "master@wafflestudio.com"
+        db.commit()
+        auth_token = create_auth_token(
+            pending_user.google_id, pending_user.email, is_new=False
+        )
+
+        response = client.post("/auth/signin", json={"auth_token": auth_token})
+
+        assert response.status_code == 200
+        assert response.json()["data"]["status"] == "active"
+        db.refresh(pending_user)
+        assert pending_user.is_superadmin is True
+        assert pending_user.is_admin is True
+        assert pending_user.qualification == Qualification.ACTIVE
+        assert (
+            db.query(AuditLog)
+            .filter(
+                AuditLog.user_id == pending_user.id,
+                AuditLog.action == AuditAction.ROLE_CHANGED,
+            )
+            .count()
+            == 1
+        )
+
+        assert (
+            client.post("/auth/signin", json={"auth_token": auth_token}).status_code
+            == 200
+        )
+        assert (
+            db.query(AuditLog).filter(AuditLog.user_id == pending_user.id).count() == 1
+        )
+
     def test_signin_new_user_token_fails(self, client, db):
         """Signin with auth token for new user should fail."""
         auth_token = create_auth_token("new_google_id", "new@example.com", is_new=True)
@@ -217,6 +252,28 @@ class TestSignupEndpoint:
         assert data["data"]["user"]["sms_notifications_agreed"] is False
         # Token is set via HttpOnly cookie, not in response body
         assert "waffice_access_token" in response.cookies
+        assert (
+            UserService.get_by_email(db, "newuser@example.com").is_superadmin is False
+        )
+
+    def test_signup_bootstraps_superadmin_when_admin_exists(
+        self, client, db, admin_user
+    ):
+        auth_token = create_auth_token(
+            "master_google_id", "master@wafflestudio.com", is_new=True
+        )
+
+        response = client.post(
+            "/auth/signup",
+            json=self.signup_payload(auth_token, student_id="2026-99999"),
+        )
+
+        assert response.status_code == 200
+        assert response.json()["data"]["status"] == "active"
+        user = UserService.get_by_email(db, "master@wafflestudio.com")
+        assert user.is_superadmin is True
+        assert user.is_admin is True
+        assert user.qualification == Qualification.ACTIVE
 
     @pytest.mark.parametrize("field", ["privacy_policy_agreed", "terms_agreed"])
     def test_signup_requires_mandatory_agreements(self, client, field):
