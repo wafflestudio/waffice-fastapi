@@ -234,9 +234,11 @@ class MemberService:
         themselves (e.g. the dev-login bootstrap shortcut) -- audit logging
         below still runs either way, so history stays consistent.
         """
+        was_leader = member.role == MemberRole.LEADER
+
         if enforce_guards:
             # Check if last leader FIRST (more critical business rule)
-            if member.role == MemberRole.LEADER:
+            if was_leader:
                 leader_count = MemberService.count_leaders(db, member.project_id)
                 if leader_count <= 1:
                     raise LastLeaderError("Cannot remove the last leader from project")
