@@ -1,6 +1,7 @@
 """Tests for the certificate of activities (활동증명서) API: rendering/preview +
-운영진 초안 생성, plus the president / signature API (회장 서명 등록/변경 +
-회장 임기 관리) added by an earlier PR in this stack.
+운영진 초안 생성, plus the president signature API (회장 서명 등록/변경) added by
+an earlier PR in this stack. 회장(is_president) 임명은 이제 운영팀 프로젝트
+멤버십으로 관리되며 (app/routes/projects.py), 이 파일 범위 밖이다.
 
 Covers `app/routes/certificates.py`, `app/services/certificate.py`, and one
 end-to-end `app/services/certificate_render.py` smoke test against a real
@@ -18,26 +19,14 @@ from io import BytesIO
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.exceptions import (
-    CertificateAlreadyIssuedError,
-    PresidentAppointmentConflictError,
-    SignatureUploadConflictError,
-)
-from app.models import (
-    Certificate,
-    CertificateEvent,
-    CertificateSignature,
-    PresidentTerm,
-    User,
-)
+from app.exceptions import CertificateAlreadyIssuedError, SignatureUploadConflictError
+from app.models import Certificate, CertificateEvent, CertificateSignature, User
 from app.models.enums import AuditAction, CertificateKind, CertificateStatus
 from app.routes import certificates as certificates_route
 from app.services.certificate import (
     CertificateService,
-    PresidentService,
     SignatureService,
     render_pdf as _real_render_pdf,
 )
@@ -192,7 +181,7 @@ class TestPreview:
         self,
         client: TestClient,
         regular_token: str,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
     ):
         """President exists but never registered a signature -> PRESIDENT_SIGNATURE_NOT_FOUND."""
         response = client.post(
@@ -220,7 +209,7 @@ class TestPreview:
         client: TestClient,
         regular_token: str,
         president_token: str,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
     ):
         """A signature upload can pass the upload-time magic-byte check
         (`_is_png`) while still being a truncated/corrupted image body --
@@ -248,7 +237,7 @@ class TestPreview:
         db: Session,
         regular_token: str,
         president_token: str,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
         real_pdf_render,
     ):
         upload_resp = _upload_signature(client, president_token)
@@ -288,7 +277,7 @@ class TestSelfIssuance:
         self,
         client: TestClient,
         regular_token: str,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
     ):
         """President exists but never registered a signature -> PRESIDENT_SIGNATURE_NOT_FOUND."""
         response = client.post(
@@ -316,7 +305,7 @@ class TestSelfIssuance:
         regular_token: str,
         regular_user: User,
         president_token: str,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
     ):
         upload_resp = _upload_signature(client, president_token)
         assert upload_resp.status_code == 200
@@ -381,7 +370,7 @@ class TestSelfIssuance:
         db: Session,
         regular_token: str,
         president_token: str,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
     ):
         """Section 3 (징계) is always present in the snapshot even when every
         optional section is off -- it cannot be deselected."""
@@ -417,7 +406,7 @@ class TestSelfIssuance:
         regular_token: str,
         regular_user: User,
         president_token: str,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
     ):
         assert _upload_signature(client, president_token).status_code == 200
 
@@ -619,7 +608,7 @@ class TestOriginalRegistration:
         regular_user: User,
         president_token: str,
         president_user: User,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
     ):
         draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
         assert draft["status"] == "original_pending"
@@ -653,7 +642,7 @@ class TestOriginalRegistration:
         admin_token: str,
         regular_user: User,
         president_token: str,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
     ):
         """Characterization test for a known limitation flagged in
         `CertificateService.register_original`'s docstring (DIVERGENCE --
@@ -703,7 +692,7 @@ class TestOriginalRegistration:
         admin_token: str,
         regular_user: User,
         president_token: str,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
     ):
         draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
         first = client.post(
@@ -728,7 +717,7 @@ class TestOriginalRegistration:
         admin_token: str,
         regular_user: User,
         president_user: User,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
         fake_storage: dict,
     ):
         """Two near-simultaneous `/original` requests for the same
@@ -806,7 +795,7 @@ class TestOriginalRegistration:
         admin_token: str,
         regular_user: User,
         president_token: str,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
     ):
         draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
         response = client.post(
@@ -823,7 +812,7 @@ class TestOriginalRegistration:
         admin_token: str,
         regular_user: User,
         president_token: str,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
     ):
         draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
         response = client.post(
@@ -840,7 +829,7 @@ class TestOriginalRegistration:
         admin_token: str,
         regular_user: User,
         president_token: str,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
     ):
         draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
         oversized = PDF_MAGIC + b"0" * (10 * 1024 * 1024 + 1)
@@ -866,7 +855,7 @@ class TestSignatureUpload:
         self,
         client: TestClient,
         president_token: str,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
     ):
         response = client.get(
             "/certificates/signature/me", headers=_auth(president_token)
@@ -954,7 +943,7 @@ class TestSignatureUpload:
         db: Session,
         president_token: str,
         president_user: User,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
         fake_storage: dict,
         content_type: str,
         body: bytes,
@@ -994,7 +983,7 @@ class TestSignatureUpload:
         db: Session,
         president_token: str,
         president_user: User,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
         fake_storage: dict,
     ):
         first = _upload_signature(client, president_token)
@@ -1121,249 +1110,6 @@ class TestSignatureUpload:
             verify_session.close()
 
 
-class TestPresidentTermAdministration:
-    """POST/GET /certificates/president-terms (admin only)."""
-
-    @pytest.mark.skip(
-        reason=(
-            "Temporarily disabled: 'only one current president' + automatic "
-            "predecessor demotion is commented out in PresidentService.appoint "
-            "to support overlapping handover periods and backdated corrections. "
-            "Re-enable once that's redesigned."
-        )
-    )
-    def test_appoint_closes_previous_open_term(
-        self,
-        client: TestClient,
-        db: Session,
-        admin_token: str,
-        regular_user: User,
-        active_user: User,
-    ):
-        first = client.post(
-            "/certificates/president-terms",
-            json={"user_id": regular_user.id, "started_at": "2025-01-01"},
-            headers=_auth(admin_token),
-        )
-        assert first.status_code == 200
-        first_term_id = first.json()["data"]["id"]
-
-        second = client.post(
-            "/certificates/president-terms",
-            json={"user_id": active_user.id, "started_at": "2026-01-01"},
-            headers=_auth(admin_token),
-        )
-        assert second.status_code == 200
-        assert second.json()["data"]["ended_at"] is None
-        assert second.json()["data"]["user"]["id"] == active_user.id
-
-        db.expire_all()
-        old_term = db.get(PresidentTerm, first_term_id)
-        assert old_term.ended_at == date(2026, 1, 1)
-
-        # DB invariant: exactly one open term.
-        open_count = (
-            db.query(PresidentTerm).filter(PresidentTerm.ended_at.is_(None)).count()
-        )
-        assert open_count == 1
-
-    def test_get_current_president(
-        self,
-        client: TestClient,
-        admin_token: str,
-        president_user: User,
-        open_president_term: PresidentTerm,
-    ):
-        response = client.get(
-            "/certificates/president-terms/current", headers=_auth(admin_token)
-        )
-        assert response.status_code == 200
-        data = response.json()["data"]
-        assert len(data) == 1
-        assert data[0]["user"]["id"] == president_user.id
-
-    def test_get_current_president_when_none_appointed(
-        self, client: TestClient, admin_token: str
-    ):
-        response = client.get(
-            "/certificates/president-terms/current", headers=_auth(admin_token)
-        )
-        assert response.status_code == 200
-        assert response.json()["data"] == []
-
-    def test_get_current_president_lists_multiple_concurrent_presidents(
-        self,
-        client: TestClient,
-        admin_token: str,
-        regular_user: User,
-        active_user: User,
-    ):
-        """(Temporary state) With the single-current-president constraint
-        disabled, appointing a second president doesn't demote the first --
-        both must show up in the list."""
-        for user, started_at in (
-            (regular_user, "2025-01-01"),
-            (active_user, "2026-01-01"),
-        ):
-            response = client.post(
-                "/certificates/president-terms",
-                json={"user_id": user.id, "started_at": started_at},
-                headers=_auth(admin_token),
-            )
-            assert response.status_code == 200
-
-        response = client.get(
-            "/certificates/president-terms/current", headers=_auth(admin_token)
-        )
-        assert response.status_code == 200
-        user_ids = {item["user"]["id"] for item in response.json()["data"]}
-        assert user_ids == {regular_user.id, active_user.id}
-
-    def test_non_admin_cannot_appoint_president(
-        self, client: TestClient, regular_token: str, active_user: User
-    ):
-        response = client.post(
-            "/certificates/president-terms",
-            json={"user_id": active_user.id, "started_at": "2026-01-01"},
-            headers=_auth(regular_token),
-        )
-        assert response.status_code == 403
-
-    @pytest.mark.skip(
-        reason=(
-            "Temporarily disabled: uq_president_current was dropped "
-            "(migration 8af105d95228) to allow overlapping open terms. "
-            "Re-enable once the single-current-president constraint is "
-            "redesigned and reinstated."
-        )
-    )
-    def test_db_rejects_a_second_open_term_inserted_directly(
-        self, db: Session, regular_user: User, active_user: User
-    ):
-        """Bypasses the service layer to prove the `uq_president_current`
-        MySQL 8 generated-column unique index is the real backstop, not just
-        `PresidentService.appoint`'s application-level close-then-open."""
-        db.add(PresidentTerm(user_id=regular_user.id, started_at=date(2025, 1, 1)))
-        db.commit()
-
-        db.add(PresidentTerm(user_id=active_user.id, started_at=date(2025, 6, 1)))
-        with pytest.raises(IntegrityError):
-            db.commit()
-        db.rollback()
-
-    @pytest.mark.skip(
-        reason=(
-            "Temporarily disabled: uq_president_current was dropped, so both "
-            "concurrent appointments now succeed instead of one winning and "
-            "one conflicting. Re-enable once the constraint is redesigned "
-            "and reinstated."
-        )
-    )
-    def test_appoint_concurrent_conflict_returns_clean_error_not_500(
-        self, engine, regular_user: User, active_user: User
-    ):
-        """Two admins appointing different presidents at nearly the same
-        instant both pass `PresidentService.appoint`'s in-transaction
-        "close current, then open new" guard from their own snapshot. The DB
-        `uq_president_current` unique constraint correctly prevents two open
-        terms from ever being committed (atomicity holds), but without
-        exception handling around `db.commit()`, the losing transaction's
-        `IntegrityError` propagates unhandled -- and `app/main.py` only
-        registers a handler for `AppError`, so it would surface as an
-        unstructured 500 instead of a clean domain error.
-        """
-        session_factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
-        barrier = threading.Barrier(2)
-        results: list[tuple[str, int]] = []
-        results_lock = threading.Lock()
-
-        def worker(user_id: int) -> None:
-            session = session_factory()
-            try:
-                barrier.wait()
-                try:
-                    term = PresidentService.appoint(
-                        session, user_id=user_id, started_at=date(2026, 1, 1)
-                    )
-                    outcome = ("ok", term.user_id)
-                except PresidentAppointmentConflictError:
-                    outcome = ("conflict", user_id)
-                with results_lock:
-                    results.append(outcome)
-            finally:
-                session.close()
-
-        t1 = threading.Thread(target=worker, args=(regular_user.id,))
-        t2 = threading.Thread(target=worker, args=(active_user.id,))
-        t1.start()
-        t2.start()
-        t1.join(timeout=30)
-        t2.join(timeout=30)
-
-        assert len(results) == 2
-        oks = [r for r in results if r[0] == "ok"]
-        conflicts = [r for r in results if r[0] == "conflict"]
-        assert len(oks) == 1, f"expected exactly one winner, got {results!r}"
-        assert len(conflicts) == 1
-
-        verify_session = session_factory()
-        try:
-            open_count = (
-                verify_session.query(PresidentTerm)
-                .filter(PresidentTerm.ended_at.is_(None))
-                .count()
-            )
-            assert open_count == 1
-        finally:
-            verify_session.close()
-
-    @pytest.mark.skip(
-        reason=(
-            "Temporarily disabled: the 'started_at before current term' "
-            "rejection is commented out in PresidentService.appoint to "
-            "allow backdated corrections. Re-enable once that's redesigned."
-        )
-    )
-    def test_appoint_rejects_started_at_before_current_term(
-        self,
-        client: TestClient,
-        admin_token: str,
-        regular_user: User,
-        active_user: User,
-    ):
-        first = client.post(
-            "/certificates/president-terms",
-            json={"user_id": regular_user.id, "started_at": "2026-01-01"},
-            headers=_auth(admin_token),
-        )
-        assert first.status_code == 200
-
-        second = client.post(
-            "/certificates/president-terms",
-            json={"user_id": active_user.id, "started_at": "2025-01-01"},
-            headers=_auth(admin_token),
-        )
-        assert second.status_code == 400
-        assert second.json()["error"] == "INVALID_PRESIDENT_TERM"
-
-    def test_appoint_rejects_started_at_in_the_future(
-        self, client: TestClient, admin_token: str, regular_user: User
-    ):
-        """Appointment takes effect immediately -- `require_president` checks
-        `User.is_president`, which `appoint()` flips right away regardless of
-        `started_at`. A future-dated `started_at` must be rejected, or the
-        newly-appointed user would get president-only access (and the
-        outgoing president would lose it) long before the intended date."""
-        future = date.today() + timedelta(days=1)
-        response = client.post(
-            "/certificates/president-terms",
-            json={"user_id": regular_user.id, "started_at": str(future)},
-            headers=_auth(admin_token),
-        )
-        assert response.status_code == 400
-        assert response.json()["error"] == "INVALID_PRESIDENT_TERM"
-
-
 class TestSignatureDataUriMime:
     """`_signature_data_uri` (app/services/certificate.py) re-encodes every stored
     signature into a red-ink, transparent-background PNG (via
@@ -1399,7 +1145,7 @@ class TestSignatureDataUriMime:
         client: TestClient,
         db: Session,
         president_token: str,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
     ):
         upload = _upload_signature(
             client, president_token, body=VALID_JPEG_BYTES, content_type="image/jpeg"
@@ -1415,7 +1161,7 @@ class TestSignatureDataUriMime:
         client: TestClient,
         db: Session,
         president_token: str,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
     ):
         upload = _upload_signature(client, president_token)  # default: real PNG
         assert upload.status_code == 200
@@ -1430,7 +1176,7 @@ class TestDownload:
         client: TestClient,
         regular_token: str,
         president_token: str,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
     ):
         assert _upload_signature(client, president_token).status_code == 200
         cert = client.post(
@@ -1449,7 +1195,7 @@ class TestDownload:
         regular_token: str,
         active_token: str,
         president_token: str,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
     ):
         assert _upload_signature(client, president_token).status_code == 200
         cert = client.post(
@@ -1467,7 +1213,7 @@ class TestDownload:
         regular_token: str,
         admin_token: str,
         president_token: str,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
     ):
         assert _upload_signature(client, president_token).status_code == 200
         cert = client.post(
@@ -1762,7 +1508,7 @@ class TestHistoryListing:
         regular_user: User,
         active_user: User,
         president_token: str,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
     ):
         assert _upload_signature(client, president_token).status_code == 200
 
@@ -1792,7 +1538,7 @@ class TestHistoryListing:
         regular_user: User,
         active_user: User,
         president_token: str,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
         monkeypatch: pytest.MonkeyPatch,
     ):
         """`test_pending_rows_come_before_issued_rows` above creates the
@@ -1892,7 +1638,7 @@ class TestHistoryListing:
         admin_token: str,
         regular_user: User,
         president_token: str,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
     ):
         draft = _create_draft(client, admin_token, regular_user.id).json()["data"]
         original = client.post(
@@ -1919,7 +1665,7 @@ class TestHistoryListing:
         regular_token: str,
         active_user: User,
         president_token: str,
-        open_president_term: PresidentTerm,
+        open_president_term: User,
     ):
         """Exercises *both* partitions of the (priority, created_at, id)
         keyset -- ORIGINAL_PENDING drafts (priority=1) and an ISSUED
