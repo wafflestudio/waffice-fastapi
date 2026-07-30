@@ -388,29 +388,6 @@ class TestAuditLog:
         qual_log = next(log for log in logs if log["action"] == "qualification_changed")
         assert qual_log["payload"]["reason"] is None
 
-    def test_role_change_creates_audit_log(
-        self,
-        client: TestClient,
-        admin_token: str,
-        regular_user: User,
-    ):
-        """Role change creates a role_changed audit log entry."""
-        client.patch(
-            f"/users/{regular_user.id}",
-            json={"is_admin": True},
-            headers={"Authorization": f"Bearer {admin_token}"},
-        )
-
-        response = client.get(
-            f"/users/{regular_user.id}/audit-log",
-            headers={"Authorization": f"Bearer {admin_token}"},
-        )
-        logs = response.json()["data"]
-        assert any(log["action"] == "role_changed" for log in logs)
-        role_log = next(log for log in logs if log["action"] == "role_changed")
-        assert role_log["payload"]["is_admin"]["from"] is False
-        assert role_log["payload"]["is_admin"]["to"] is True
-
 
 class TestProfileUpdate:
     """Tests for profile update with new fields."""

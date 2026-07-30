@@ -172,11 +172,6 @@ class UserUpdateRequest(ProfileUpdateRequest):
             "ACTIVE: fully active member with all privileges"
         ),
     )
-    is_leader: bool | None = Field(default=None, description="Grant leader privileges")
-    is_admin: bool | None = Field(default=None, description="Grant admin privileges")
-    is_president: bool | None = Field(
-        default=None, description="Grant president privileges"
-    )
     generation: str | None = Field(
         default=None,
         description="Generation/cohort identifier",

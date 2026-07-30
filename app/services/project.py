@@ -51,6 +51,73 @@ class ProjectService:
         )
 
     @staticmethod
+    def get_admin_team_project(db: Session) -> Project | None:
+        """The single "운영팀" (admin team) project, if it's been set up.
+
+        Its active members drive User.is_admin and its leader(s) drive
+        User.is_president -- see sync_admin_team_roles, the only writer of
+        those two columns. is_admin_team is never set via any API, only
+        by the bootstrap migration, so at most one row should ever match.
+        """
+        return (
+            db.query(Project)
+            .filter(Project.is_admin_team.is_(True), Project.deleted_at.is_(None))
+            .first()
+        )
+
+    @staticmethod
+    def sync_admin_team_roles(db: Session) -> None:
+        """Recompute is_admin/is_president for every user from 운영팀 project
+        membership. Call this after any add/change/remove of that project's
+        members, before the caller's own db.commit().
+
+        - is_admin: True for active 운영팀 members, False for everyone else
+          -- except is_superadmin=True users, who are excluded from the
+          "reset to False" pass and so always keep is_admin=True.
+        - is_president: True for active 운영팀 leaders (MemberRole.LEADER),
+          False for everyone else. Multiple concurrent leaders (and thus
+          presidents) are allowed, e.g. during a handover.
+
+        Only flushes -- does not commit -- so it composes safely inside a
+        larger transaction (single-member routes, or the bulk-replace
+        endpoints' one-commit-at-the-end flow).
+        """
+        admin_team = ProjectService.get_admin_team_project(db)
+        if admin_team is None:
+            return
+
+        active_members = MemberService.list_active(db, admin_team.id)
+        member_ids = {member.user_id for member in active_members}
+        leader_ids = {
+            member.user_id
+            for member in active_members
+            if member.role == MemberRole.LEADER
+        }
+
+        admin_query = db.query(User).filter(User.is_superadmin.is_(False))
+        if member_ids:
+            admin_query.filter(User.id.in_(member_ids)).update(
+                {"is_admin": True}, synchronize_session=False
+            )
+            admin_query.filter(User.id.notin_(member_ids)).update(
+                {"is_admin": False}, synchronize_session=False
+            )
+        else:
+            admin_query.update({"is_admin": False}, synchronize_session=False)
+
+        if leader_ids:
+            db.query(User).filter(User.id.in_(leader_ids)).update(
+                {"is_president": True}, synchronize_session=False
+            )
+            db.query(User).filter(User.id.notin_(leader_ids)).update(
+                {"is_president": False}, synchronize_session=False
+            )
+        else:
+            db.query(User).update({"is_president": False}, synchronize_session=False)
+
+        db.flush()
+
+    @staticmethod
     def list(
         db: Session,
         *,
@@ -233,6 +300,10 @@ class ProjectService:
             removed.sort(key=lambda member: member.role == MemberRole.LEADER)
             for member in removed:
                 MemberService.remove(db, member=member, actor_id=actor_id)
+
+            admin_team = ProjectService.get_admin_team_project(db)
+            if admin_team is not None and admin_team.id == project_id:
+                ProjectService.sync_admin_team_roles(db)
             db.commit()
         except ServiceLastLeaderError:
             db.rollback()
@@ -482,6 +553,10 @@ class ProjectService:
                         activity.end_date = now
                         activity.status = ActivityStatus.INACTIVE
                     db.flush()
+
+            admin_team = ProjectService.get_admin_team_project(db)
+            if admin_team is not None and admin_team.id in groups:
+                ProjectService.sync_admin_team_roles(db)
             db.commit()
         except ServiceLastLeaderError:
             db.rollback()
