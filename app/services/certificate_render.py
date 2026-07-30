@@ -37,11 +37,6 @@ _QUALIFICATION_LABELS = {
     "active": "활동회원",
 }
 
-_MEMBER_ROLE_LABELS = {
-    "leader": "팀장",
-    "member": "팀원",
-}
-
 _DISCIPLINE_SECTION_TITLE = "징계 의결의 주문, 이유, 의결일 및 징계 개시일"
 _QUALIFICATION_SECTION_TITLE = "회원 자격 취득, 변동 및 상실의 각 기준일 및 사유"
 _PROJECT_SECTION_TITLE = "구성원으로서 활동한 소속 프로젝트의 명칭, 기간 및 역할"
@@ -80,11 +75,6 @@ def _verify_base_url() -> str:
 def _qualification_label(raw: Any) -> str:
     value = _enum_value(raw)
     return _QUALIFICATION_LABELS.get(value, value or "-")
-
-
-def _member_role_label(raw: Any) -> str:
-    value = _enum_value(raw)
-    return _MEMBER_ROLE_LABELS.get(value, value or "-")
 
 
 def _build_qualification_rows(db, user) -> list[dict[str, str]]:
@@ -133,28 +123,30 @@ def _build_qualification_rows(db, user) -> list[dict[str, str]]:
 
 def _build_project_rows(db, user) -> list[dict[str, str]]:
     """섹션 4: 구성원으로서 활동한 소속 프로젝트의 명칭, 기간 및 역할."""
-    from app.models import Project, ProjectMember
+    from sqlalchemy.orm import joinedload
 
-    memberships = (
-        db.query(ProjectMember)
-        .join(Project, ProjectMember.project_id == Project.id)
-        .filter(ProjectMember.user_id == user.id)
-        .order_by(ProjectMember.id.asc())
+    from app.models import UserActivity
+
+    activities = (
+        db.query(UserActivity)
+        .options(joinedload(UserActivity.project))
+        .filter(UserActivity.user_id == user.id)
+        .order_by(UserActivity.start_date.asc(), UserActivity.id.asc())
         .all()
     )
 
     rows: list[dict[str, str]] = []
-    for membership in memberships:
-        project = membership.project
-        start = membership.joined_at or (project.started_at if project else None)
-        end = membership.left_at or (project.ended_at if project else None)
-        period = f"{_format_date(start) or '-'} ~ {_format_date(end) if end else '현재'}"
-        role = membership.position or _member_role_label(membership.role)
+    for activity in activities:
+        project = activity.project
+        period = (
+            f"{_format_epoch(activity.start_date) or '-'} ~ "
+            f"{_format_epoch(activity.end_date) if activity.end_date is not None else '현재'}"
+        )
         rows.append(
             {
                 "name": project.name if project else "-",
                 "period": period,
-                "role": role,
+                "role": activity.position,
             }
         )
     return rows

@@ -57,14 +57,14 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     is_leader = Column(Boolean, nullable=False, default=False)
     # is_admin / is_president are derived from membership in the single
     # "운영팀" (admin team) project -- see
-    # ProjectService.sync_operations_roles, the sole writer of both columns.
+    # ProjectService.sync_admin_team_roles, the sole writer of both columns.
     # Active members of that project get is_admin=True; its leader(s) get
     # is_president=True. Multiple concurrent leaders (and thus presidents) are
     # allowed, e.g. during a handover.
     is_admin = Column(Boolean, nullable=False, default=False)
     is_president = Column(Boolean, nullable=False, default=False)
-    # Break-glass account: always kept is_admin=True regardless of operations
-    # team membership (sync_operations_roles excludes is_superadmin users from
+    # Break-glass account: always kept is_admin=True regardless of admin
+    # team membership (sync_admin_team_roles excludes is_superadmin users from
     # the "reset to False" pass). Never set via any API.
     is_superadmin = Column(Boolean, nullable=False, default=False)
 

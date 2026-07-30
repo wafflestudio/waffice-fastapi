@@ -468,9 +468,11 @@ async def update_user(
 
     is_admin/is_leader/is_president are not settable here -- is_admin/
     is_president are derived from 운영팀 (admin team) project membership
-    (see ProjectService.sync_operations_roles); is_leader is unused. Changes
-    to qualification are logged in the user's history for audit purposes.
-    Only provided fields will be updated.
+    (see ProjectService.sync_admin_team_roles), and is_leader is derived
+    from active project leaderships in general (see
+    MemberService.sync_leader_flag) -- neither is used for authorization,
+    just informational. Changes to qualification are logged in the user's
+    history for audit purposes. Only provided fields will be updated.
     """
     user = UserService.get(db, user_id)
     if not user:
