@@ -312,6 +312,8 @@ def test_member_patch_distinguishes_omitted_and_null_position(
         if item["user"]["id"] == regular_user.id
     )
     assert member["position"] == "Backend"
+    db.refresh(regular_user)
+    assert regular_user.is_leader is True
 
     clear_position = client.patch(
         f"/projects/{project_id}/members/{regular_user.id}",
@@ -335,3 +337,69 @@ def test_member_patch_distinguishes_omitted_and_null_position(
         .count()
         == 1
     )
+
+
+def test_global_leader_flag_tracks_active_project_leaderships(
+    client: TestClient,
+    db: Session,
+    admin_token: str,
+    admin_user: User,
+    regular_user: User,
+):
+    first_project_id = _create_project(
+        client,
+        admin_token,
+        "First Leader Project",
+        [
+            {"user_id": admin_user.id, "role": "leader"},
+            {"user_id": regular_user.id, "role": "leader"},
+        ],
+    )
+    second_project_id = _create_project(
+        client,
+        admin_token,
+        "Second Leader Project",
+        [
+            {"user_id": admin_user.id, "role": "leader"},
+            {"user_id": regular_user.id, "role": "leader"},
+        ],
+    )
+    db.refresh(regular_user)
+    assert regular_user.is_leader is True
+
+    demote = client.patch(
+        f"/projects/{first_project_id}/members/{regular_user.id}",
+        json={"role": "member"},
+        headers=_auth(admin_token),
+    )
+    assert demote.status_code == 200
+    db.refresh(regular_user)
+    assert regular_user.is_leader is True
+
+    remove = client.delete(
+        f"/projects/{second_project_id}/members/{regular_user.id}",
+        headers=_auth(admin_token),
+    )
+    assert remove.status_code == 200
+    db.refresh(regular_user)
+    assert regular_user.is_leader is False
+
+    deleted_project_id = _create_project(
+        client,
+        admin_token,
+        "Deleted Leader Project",
+        [
+            {"user_id": admin_user.id, "role": "leader"},
+            {"user_id": regular_user.id, "role": "leader"},
+        ],
+    )
+    db.refresh(regular_user)
+    assert regular_user.is_leader is True
+
+    delete_project = client.delete(
+        f"/projects/{deleted_project_id}",
+        headers=_auth(admin_token),
+    )
+    assert delete_project.status_code == 200
+    db.refresh(regular_user)
+    assert regular_user.is_leader is False

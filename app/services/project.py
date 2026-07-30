@@ -647,7 +647,15 @@ class ProjectService:
         if pending_request_exists:
             raise ProjectHasPendingRequestsError()
 
+        leader_user_ids = {
+            member.user_id
+            for member in MemberService.list_active(db, locked_project.id)
+            if member.role == MemberRole.LEADER
+        }
         locked_project.deleted_at = int(time.time())
+        db.flush()
+        for user_id in leader_user_ids:
+            MemberService.sync_leader_flag(db, user_id)
         db.commit()
 
 
