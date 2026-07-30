@@ -22,8 +22,6 @@ from app.schemas.certificate import (
     CertificateOptions,
     CertificateSummary,
     DraftCertificateCreate,
-    PresidentTermCreate,
-    PresidentTermDetail,
     SignatureDetail,
 )
 from app.schemas.common import CursorPage, Response, Website
@@ -101,8 +99,6 @@ __all__ = [
     "MemberDetail",
     "MemberInput",
     "MemberUpdateRequest",
-    "PresidentTermCreate",
-    "PresidentTermDetail",
     "ProfileUpdateRequest",
     "ProjectBrief",
     "ProjectCreateRequest",

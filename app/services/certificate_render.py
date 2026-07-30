@@ -37,11 +37,6 @@ _QUALIFICATION_LABELS = {
     "active": "활동회원",
 }
 
-_MEMBER_ROLE_LABELS = {
-    "leader": "팀장",
-    "member": "팀원",
-}
-
 _DISCIPLINE_SECTION_TITLE = "징계 의결의 주문, 이유, 의결일 및 징계 개시일"
 _QUALIFICATION_SECTION_TITLE = "회원 자격 취득, 변동 및 상실의 각 기준일 및 사유"
 _PROJECT_SECTION_TITLE = "구성원으로서 활동한 소속 프로젝트의 명칭, 기간 및 역할"
@@ -80,11 +75,6 @@ def _verify_base_url() -> str:
 def _qualification_label(raw: Any) -> str:
     value = _enum_value(raw)
     return _QUALIFICATION_LABELS.get(value, value or "-")
-
-
-def _member_role_label(raw: Any) -> str:
-    value = _enum_value(raw)
-    return _MEMBER_ROLE_LABELS.get(value, value or "-")
 
 
 def _build_qualification_rows(db, user) -> list[dict[str, str]]:
@@ -133,28 +123,30 @@ def _build_qualification_rows(db, user) -> list[dict[str, str]]:
 
 def _build_project_rows(db, user) -> list[dict[str, str]]:
     """섹션 4: 구성원으로서 활동한 소속 프로젝트의 명칭, 기간 및 역할."""
-    from app.models import Project, ProjectMember
+    from sqlalchemy.orm import joinedload
 
-    memberships = (
-        db.query(ProjectMember)
-        .join(Project, ProjectMember.project_id == Project.id)
-        .filter(ProjectMember.user_id == user.id)
-        .order_by(ProjectMember.id.asc())
+    from app.models import UserActivity
+
+    activities = (
+        db.query(UserActivity)
+        .options(joinedload(UserActivity.project))
+        .filter(UserActivity.user_id == user.id)
+        .order_by(UserActivity.start_date.asc(), UserActivity.id.asc())
         .all()
     )
 
     rows: list[dict[str, str]] = []
-    for membership in memberships:
-        project = membership.project
-        start = membership.joined_at or (project.started_at if project else None)
-        end = membership.left_at or (project.ended_at if project else None)
-        period = f"{_format_date(start) or '-'} ~ {_format_date(end) if end else '현재'}"
-        role = membership.position or _member_role_label(membership.role)
+    for activity in activities:
+        project = activity.project
+        period = (
+            f"{_format_epoch(activity.start_date) or '-'} ~ "
+            f"{_format_epoch(activity.end_date) if activity.end_date is not None else '현재'}"
+        )
         rows.append(
             {
                 "name": project.name if project else "-",
                 "period": period,
-                "role": role,
+                "role": activity.position,
             }
         )
     return rows
@@ -163,29 +155,71 @@ def _build_project_rows(db, user) -> list[dict[str, str]]:
 def _build_executive_rows(db, user) -> list[dict[str, str]]:
     """섹션 5: 임원 또는 집행부원으로서 활동한 기간 및 역할.
 
-    유일한 데이터 소스는 `president_terms`(회장 임기)뿐이다. 이 모델은 다른
-    레인에서 병렬 작성되므로, 아직 존재하지 않을 때도 이 모듈이 임포트/실행
-    가능하도록 지연 임포트한다.
+    회장(is_president) 이력은 이제 운영팀 프로젝트 리더십에서 파생되므로
+    (`ProjectService.sync_admin_team_roles`), 별도 이력 테이블 없이 운영팀
+    프로젝트의 audit log(PROJECT_JOINED/PROJECT_ROLE_CHANGED/PROJECT_LEFT)를
+    시간순으로 재생해 이 유저가 팀장(=회장)이었던 기간(들)을 복원한다.
+    `ProjectMember.joined_at`/`left_at`만으로는 부족하다 -- 팀장에서 팀원으로
+    강등되어도(=회장 임기 종료) 그 행의 left_at은 그대로 null이기 때문이다.
     """
-    try:
-        from app.models.president import PresidentTerm
-    except ImportError:
+    from app.models import AuditLog, Project
+    from app.models.enums import AuditAction
+
+    admin_team = db.query(Project).filter(Project.is_admin_team.is_(True)).first()
+    if admin_team is None:
         return []
 
-    terms = (
-        db.query(PresidentTerm)
-        .filter(PresidentTerm.user_id == user.id)
-        .order_by(PresidentTerm.started_at.asc(), PresidentTerm.id.asc())
+    events = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.user_id == user.id,
+            AuditLog.action.in_(
+                [
+                    AuditAction.PROJECT_JOINED,
+                    AuditAction.PROJECT_ROLE_CHANGED,
+                    AuditAction.PROJECT_LEFT,
+                ]
+            ),
+        )
+        .order_by(AuditLog.created_at.asc(), AuditLog.id.asc())
         .all()
     )
 
     rows: list[dict[str, str]] = []
-    for term in terms:
-        period = (
-            f"{_format_date(term.started_at) or '-'} ~ "
-            f"{_format_date(term.ended_at) if term.ended_at else '현재'}"
-        )
-        rows.append({"period": period, "role": "회장"})
+    period_start: int | None = None
+    for event in events:
+        payload = event.payload or {}
+        if payload.get("project_id") != admin_team.id:
+            continue
+
+        if event.action == AuditAction.PROJECT_JOINED:
+            if payload.get("role") == "leader":
+                period_start = event.created_at
+        elif event.action == AuditAction.PROJECT_ROLE_CHANGED:
+            was_leader = payload.get("from_role") == "leader"
+            now_leader = payload.get("to_role") == "leader"
+            if now_leader and not was_leader:
+                period_start = event.created_at
+            elif was_leader and not now_leader and period_start is not None:
+                rows.append(
+                    {
+                        "period": f"{_format_epoch(period_start)} ~ {_format_epoch(event.created_at)}",
+                        "role": "회장",
+                    }
+                )
+                period_start = None
+        elif event.action == AuditAction.PROJECT_LEFT:
+            if period_start is not None:
+                rows.append(
+                    {
+                        "period": f"{_format_epoch(period_start)} ~ {_format_epoch(event.created_at)}",
+                        "role": "회장",
+                    }
+                )
+                period_start = None
+
+    if period_start is not None:
+        rows.append({"period": f"{_format_epoch(period_start)} ~ 현재", "role": "회장"})
     return rows
 
 

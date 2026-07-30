@@ -3,15 +3,12 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     Column,
-    Computed,
     Enum,
     Index,
     Integer,
     String,
     Text,
-    UniqueConstraint,
 )
-from sqlalchemy.dialects.mysql import TINYINT
 from sqlalchemy.orm import relationship
 
 from app.config.database import Base
@@ -55,21 +52,21 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     terms_agreed = Column(Boolean, nullable=False, default=False)
     email_notifications_agreed = Column(Boolean, nullable=False, default=False)
     sms_notifications_agreed = Column(Boolean, nullable=False, default=False)
+    # Dead flag: set at dev-login and returned in profile responses, but no
+    # authorization path reads it. Kept for API compatibility (display only).
     is_leader = Column(Boolean, nullable=False, default=False)
+    # is_admin / is_president are derived from membership in the single
+    # "운영팀" (admin team) project -- see
+    # ProjectService.sync_admin_team_roles, the sole writer of both columns.
+    # Active members of that project get is_admin=True; its leader(s) get
+    # is_president=True. Multiple concurrent leaders (and thus presidents) are
+    # allowed, e.g. during a handover.
     is_admin = Column(Boolean, nullable=False, default=False)
     is_president = Column(Boolean, nullable=False, default=False)
-    # `is_president`가 "현직 회장"의 진실 공급원이다 (`president_terms`는
-    # 이 값이 바뀔 때마다 `PresidentService.appoint`/`step_down`이 남기는
-    # 순수 이력 로그일 뿐, 더 이상 현직 판단에 쓰이지 않는다). 동시에 두 명
-    # 이상이 회장일 수 없다는 불변식을, `PresidentTerm.is_current`가 쓰던
-    # 것과 같은 생성 컬럼 + UNIQUE 인덱스 트릭으로 이 테이블에 직접 강제한다:
-    # is_president가 false/NULL이면 이 컬럼도 NULL이라 유니크 인덱스가
-    # 여러 명을 허용하지만, true인 사람은 최대 한 명만 허용된다.
-    is_president_marker = Column(
-        TINYINT,
-        Computed("IF(is_president, 1, NULL)", persisted=False),
-        nullable=True,
-    )
+    # Break-glass account: always kept is_admin=True regardless of admin
+    # team membership (sync_admin_team_roles excludes is_superadmin users from
+    # the "reset to False" pass). Never set via any API.
+    is_superadmin = Column(Boolean, nullable=False, default=False)
 
     @property
     def has_admin_access(self) -> bool:
@@ -142,8 +139,4 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
         Index("idx_users_is_temporary", "is_temporary"),
         # Roster import matches existing members by student_id.
         Index("idx_users_student_id", "student_id"),
-        # (임시 비활성화 -- 재설계 전까지) "현직 회장은 동시에 한 명뿐" 제약.
-        # 인수인계 기간 중 임기가 겹치는 경우나 잘못된 임명을 정정하는 경우를
-        # 지원하기 위해 잠정적으로 풀어둔다. 재설계 시 다시 켤 수 있다.
-        # UniqueConstraint("is_president_marker", name="uq_users_current_president"),
     )

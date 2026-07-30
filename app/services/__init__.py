@@ -1,10 +1,6 @@
 from app.services.activity import ActivityService
 from app.services.audit_log import AuditLogService
-from app.services.certificate import (
-    CertificateService,
-    PresidentService,
-    SignatureService,
-)
+from app.services.certificate import CertificateService, SignatureService
 from app.services.email import EmailService
 from app.services.member import CannotRemoveSelfError, LastLeaderError, MemberService
 from app.services.object_storage import OCIObjectStorageService
@@ -23,7 +19,6 @@ __all__ = [
     "LastLeaderError",
     "CannotRemoveSelfError",
     "SignatureService",
-    "PresidentService",
     "CertificateService",
     "EmailService",
 ]
