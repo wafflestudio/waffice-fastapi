@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session, joinedload
 from app.exceptions import (
     ForbiddenError,
     InvalidApprovalRequestError,
+    InvalidCursorError,
+    NoEligibleReviewerError,
     NotFoundError,
     RequestAlreadyProcessedError,
 )
@@ -15,7 +17,9 @@ from app.models import (
     ApprovalRequest,
     ApprovalStatus,
     MemberRole,
+    Project,
     ProjectMember,
+    Qualification,
     RequestReviewer,
     User,
     UserActivity,
@@ -28,11 +32,32 @@ from app.schemas.request import (
     RequestKindFilter,
     RequestScope,
     RequestStatusFilter,
+    ReviewTarget,
 )
 from app.services.activity import ActivityService
 from app.services.member import MemberService
 from app.services.project import ProjectService
 from app.services.user import UserService
+
+_REQUEST_CURSOR_ID_OFFSET = 10**10
+
+
+def _encode_cursor(created_at: int, request_id: int) -> str:
+    return str(created_at * _REQUEST_CURSOR_ID_OFFSET + request_id)
+
+
+def _decode_cursor(cursor: str) -> tuple[int, int]:
+    try:
+        value = int(cursor)
+    except (TypeError, ValueError):
+        raise InvalidCursorError() from None
+    if value < 0:
+        raise InvalidCursorError()
+
+    # Backward compatibility for the previous timestamp-only cursor.
+    if value < _REQUEST_CURSOR_ID_OFFSET:
+        return value, 0
+    return divmod(value, _REQUEST_CURSOR_ID_OFFSET)
 
 
 def _detail_query(db: Session):
@@ -45,11 +70,18 @@ def _detail_query(db: Session):
 
 
 def _received_condition(db: Session, actor: User):
-    leader_projects = db.query(ProjectMember.project_id).filter(
-        and_(
-            ProjectMember.user_id == actor.id,
-            ProjectMember.role == MemberRole.LEADER,
-            ProjectMember.left_at.is_(None),
+    review_target = ApprovalRequest.body["review_target"].as_string()
+    target_user_id = ApprovalRequest.body["target_user_id"].as_integer()
+    leader_projects = (
+        db.query(ProjectMember.project_id)
+        .join(Project, Project.id == ProjectMember.project_id)
+        .filter(
+            and_(
+                ProjectMember.user_id == actor.id,
+                ProjectMember.role == MemberRole.LEADER,
+                ProjectMember.left_at.is_(None),
+                Project.deleted_at.is_(None),
+            )
         )
     )
     explicit_reviewer = (
@@ -63,7 +95,22 @@ def _received_condition(db: Session, actor: User):
         )
         .exists()
     )
-    return or_(ApprovalRequest.project_id.in_(leader_projects), explicit_reviewer)
+    leader_target = and_(
+        or_(
+            review_target == ReviewTarget.PROJECT_LEADER.value,
+            review_target.is_(None),
+        ),
+        ApprovalRequest.project_id.in_(leader_projects),
+    )
+    target_conditions = [leader_target, explicit_reviewer]
+    if actor.has_admin_access:
+        target_conditions.append(review_target == ReviewTarget.OPERATIONS.value)
+
+    return and_(
+        ApprovalRequest.requester_id != actor.id,
+        target_user_id != actor.id,
+        or_(*target_conditions),
+    )
 
 
 def _ensure_user_exists(db: Session, user_id: int) -> None:
@@ -89,23 +136,22 @@ def _get_user_activity(
     return activity
 
 
-def _can_view_or_review(
+def _get_review_target(approval_request: ApprovalRequest) -> ReviewTarget:
+    value = approval_request.body.get(
+        "review_target", ReviewTarget.PROJECT_LEADER.value
+    )
+    try:
+        return ReviewTarget(value)
+    except ValueError:
+        raise InvalidApprovalRequestError("Invalid review target") from None
+
+
+def _is_explicit_reviewer(
     db: Session,
     *,
     approval_request: ApprovalRequest,
     actor: User,
-    include_requester: bool = True,
 ) -> bool:
-    if actor.has_admin_access:
-        return True
-    if include_requester and approval_request.requester_id == actor.id:
-        return True
-    if approval_request.project_id is not None and MemberService.is_leader(
-        db, approval_request.project_id, actor.id
-    ):
-        return True
-    if actor.id == approval_request.requester_id:
-        return False
     return (
         db.query(RequestReviewer)
         .filter(
@@ -118,6 +164,146 @@ def _can_view_or_review(
         .first()
         is not None
     )
+
+
+def _can_review(
+    db: Session,
+    *,
+    approval_request: ApprovalRequest,
+    actor: User,
+) -> bool:
+    target_user_id = approval_request.body["target_user_id"]
+    if actor.id in (approval_request.requester_id, target_user_id):
+        return False
+    if actor.has_admin_access:
+        return True
+    if _is_explicit_reviewer(
+        db,
+        approval_request=approval_request,
+        actor=actor,
+    ):
+        return True
+    return (
+        _get_review_target(approval_request) == ReviewTarget.PROJECT_LEADER
+        and approval_request.project_id is not None
+        and MemberService.is_leader(db, approval_request.project_id, actor.id)
+    )
+
+
+def _can_view(
+    db: Session,
+    *,
+    approval_request: ApprovalRequest,
+    actor: User,
+) -> bool:
+    if actor.has_admin_access or approval_request.requester_id == actor.id:
+        return True
+    if _is_explicit_reviewer(
+        db,
+        approval_request=approval_request,
+        actor=actor,
+    ):
+        return True
+    return (
+        _get_review_target(approval_request) == ReviewTarget.PROJECT_LEADER
+        and approval_request.project_id is not None
+        and MemberService.is_leader(db, approval_request.project_id, actor.id)
+    )
+
+
+def _lock_request(db: Session, approval_request: ApprovalRequest) -> ApprovalRequest:
+    locked = (
+        db.query(ApprovalRequest)
+        .filter(
+            and_(
+                ApprovalRequest.id == approval_request.id,
+                ApprovalRequest.deleted_at.is_(None),
+            )
+        )
+        .populate_existing()
+        .with_for_update()
+        .first()
+    )
+    if locked is None:
+        raise NotFoundError("Request not found")
+    return locked
+
+
+def _lock_project(db: Session, project_id: int) -> Project:
+    project = (
+        db.query(Project)
+        .filter(and_(Project.id == project_id, Project.deleted_at.is_(None)))
+        .populate_existing()
+        .with_for_update()
+        .first()
+    )
+    if project is None:
+        raise NotFoundError("Project not found")
+    return project
+
+
+def _eligible_users_query(db: Session, excluded_user_ids: set[int]):
+    query = db.query(User.id).filter(
+        and_(
+            User.deleted_at.is_(None),
+            User.qualification.in_((Qualification.REGULAR, Qualification.ACTIVE)),
+        )
+    )
+    if excluded_user_ids:
+        query = query.filter(User.id.notin_(excluded_user_ids))
+    return query
+
+
+def _ensure_has_eligible_reviewer(
+    db: Session, approval_request: ApprovalRequest
+) -> None:
+    excluded_user_ids = {
+        approval_request.requester_id,
+        approval_request.body["target_user_id"],
+    }
+    eligible_users = _eligible_users_query(db, excluded_user_ids).subquery()
+
+    explicit_reviewer_exists = (
+        db.query(RequestReviewer.id)
+        .join(eligible_users, eligible_users.c.id == RequestReviewer.user_id)
+        .filter(
+            and_(
+                RequestReviewer.approval_request_id == approval_request.id,
+                RequestReviewer.deleted_at.is_(None),
+            )
+        )
+        .first()
+        is not None
+    )
+    if explicit_reviewer_exists:
+        return
+
+    review_target = _get_review_target(approval_request)
+    if review_target == ReviewTarget.OPERATIONS:
+        group_reviewer_exists = (
+            db.query(User.id)
+            .join(eligible_users, eligible_users.c.id == User.id)
+            .filter(or_(User.is_admin.is_(True), User.is_president.is_(True)))
+            .first()
+            is not None
+        )
+    else:
+        group_reviewer_exists = (
+            db.query(ProjectMember.id)
+            .join(eligible_users, eligible_users.c.id == ProjectMember.user_id)
+            .filter(
+                and_(
+                    ProjectMember.project_id == approval_request.project_id,
+                    ProjectMember.role == MemberRole.LEADER,
+                    ProjectMember.left_at.is_(None),
+                )
+            )
+            .first()
+            is not None
+        )
+
+    if not group_reviewer_exists:
+        raise NoEligibleReviewerError()
 
 
 def _build_create_body(
@@ -157,7 +343,11 @@ def _build_create_body(
                 "Activity project cannot be changed by an update request"
             )
 
-    return project_id, {
+    if project_id is None:
+        raise InvalidApprovalRequestError("Project is required")
+    _lock_project(db, project_id)
+
+    body = {
         "request_kind": request.request_kind.value,
         "target_user_id": target_user_id,
         "activity_id": request.activity_id,
@@ -166,6 +356,9 @@ def _build_create_body(
         "reason": request.reason,
         "review": {"reviewer_patch": None, "final": None, "diff": None},
     }
+    if not request.reviewer_ids:
+        body["review_target"] = request.review_target.value
+    return project_id, body
 
 
 def _replace_reviewers(
@@ -189,13 +382,17 @@ def _update_after(
     body: dict,
     request: ApprovalRequestUpdateRequest,
 ) -> None:
-    if RequestKind(body["request_kind"]) == RequestKind.DELETE:
+    request_kind = RequestKind(body["request_kind"])
+    if request_kind == RequestKind.DELETE:
         raise InvalidApprovalRequestError("Delete requests cannot update after")
 
     after = request.after.model_dump(mode="json")
-    _ensure_project_exists(db, after["project_id"])
+    if request_kind == RequestKind.CREATE:
+        _lock_project(db, after["project_id"])
+    else:
+        _ensure_project_exists(db, after["project_id"])
     if (
-        RequestKind(body["request_kind"]) == RequestKind.UPDATE
+        request_kind == RequestKind.UPDATE
         and body["before"]["project_id"] != after["project_id"]
     ):
         raise InvalidApprovalRequestError(
@@ -272,11 +469,10 @@ class RequestService:
     def _ensure_can_review_pending(
         db: Session, *, actor: User, approval_request: ApprovalRequest
     ) -> None:
-        if not _can_view_or_review(
+        if not _can_review(
             db,
             approval_request=approval_request,
             actor=actor,
-            include_requester=False,
         ):
             raise ForbiddenError("Cannot review this request")
         if approval_request.status != ApprovalStatus.PENDING:
@@ -304,9 +500,9 @@ class RequestService:
         status: RequestStatusFilter,
         request_kind: RequestKindFilter,
         activity_id: int | None,
-        cursor: int | None,
+        cursor: str | None,
         limit: int,
-    ) -> tuple[list[ApprovalRequest], int | None]:
+    ) -> tuple[list[ApprovalRequest], str | None]:
         query = (
             _detail_query(db)
             .filter(ApprovalRequest.deleted_at.is_(None))
@@ -318,7 +514,7 @@ class RequestService:
                 raise ForbiddenError("Admin access required")
         elif scope == RequestScope.SENT:
             query = query.filter(ApprovalRequest.requester_id == actor.id)
-        elif not actor.has_admin_access:
+        else:
             query = query.filter(_received_condition(db, actor))
 
         if status != RequestStatusFilter.ALL:
@@ -335,12 +531,32 @@ class RequestService:
             )
 
         if cursor is not None:
-            query = query.filter(ApprovalRequest.created_at < cursor)
+            cursor_created_at, cursor_id = _decode_cursor(cursor)
+            query = query.filter(
+                or_(
+                    ApprovalRequest.created_at < cursor_created_at,
+                    and_(
+                        ApprovalRequest.created_at == cursor_created_at,
+                        ApprovalRequest.id < cursor_id,
+                    ),
+                )
+            )
 
-        items = query.order_by(ApprovalRequest.created_at.desc()).limit(limit + 1).all()
+        items = (
+            query.order_by(
+                ApprovalRequest.created_at.desc(),
+                ApprovalRequest.id.desc(),
+            )
+            .limit(limit + 1)
+            .all()
+        )
         has_more = len(items) > limit
         page_items = items[:limit]
-        next_cursor = page_items[-1].created_at if has_more and page_items else None
+        next_cursor = (
+            _encode_cursor(page_items[-1].created_at, page_items[-1].id)
+            if has_more and page_items
+            else None
+        )
         return page_items, next_cursor
 
     @staticmethod
@@ -360,14 +576,16 @@ class RequestService:
         db.add(approval_request)
         db.flush()
 
-        _replace_reviewers(db, approval_request, request.reviewer_ids)
+        _replace_reviewers(db, approval_request, request.reviewer_ids or [])
+        db.flush()
+        _ensure_has_eligible_reviewer(db, approval_request)
         return RequestService._commit_and_get(db, approval_request)
 
     @staticmethod
     def ensure_can_view(
         db: Session, *, approval_request: ApprovalRequest, actor: User
     ) -> None:
-        if not _can_view_or_review(
+        if not _can_view(
             db,
             approval_request=approval_request,
             actor=actor,
@@ -382,6 +600,7 @@ class RequestService:
         approval_request: ApprovalRequest,
         request: ApprovalRequestUpdateRequest,
     ) -> ApprovalRequest:
+        approval_request = _lock_request(db, approval_request)
         if approval_request.requester_id != actor.id:
             raise ForbiddenError("Only the requester can update this request")
         if approval_request.status != ApprovalStatus.PENDING:
@@ -392,14 +611,24 @@ class RequestService:
             _update_after(db, approval_request, body, request)
         if request.reason is not None:
             body["reason"] = request.reason
+        if request.review_target is not None:
+            body["review_target"] = request.review_target.value
+            _replace_reviewers(db, approval_request, [])
         if request.reviewer_ids is not None:
+            if "review_target" in body:
+                raise InvalidApprovalRequestError(
+                    "reviewer_ids cannot update a group-targeted request"
+                )
             _replace_reviewers(db, approval_request, request.reviewer_ids)
 
         approval_request.body = body
+        db.flush()
+        _ensure_has_eligible_reviewer(db, approval_request)
         return RequestService._commit_and_get(db, approval_request)
 
     @staticmethod
     def delete(db: Session, *, actor: User, approval_request: ApprovalRequest) -> None:
+        approval_request = _lock_request(db, approval_request)
         if not actor.has_admin_access:
             if approval_request.requester_id != actor.id:
                 raise ForbiddenError("Only the requester can delete this request")
@@ -417,6 +646,7 @@ class RequestService:
         approval_request: ApprovalRequest,
         comment: str | None,
     ) -> ApprovalRequest:
+        approval_request = _lock_request(db, approval_request)
         RequestService._ensure_can_review_pending(
             db,
             actor=actor,
@@ -450,6 +680,7 @@ class RequestService:
         approval_request: ApprovalRequest,
         request: ApprovalReviewWithEditsRequest,
     ) -> ApprovalRequest:
+        approval_request = _lock_request(db, approval_request)
         RequestService._ensure_can_review_pending(
             db,
             actor=actor,
@@ -496,6 +727,7 @@ class RequestService:
         approval_request: ApprovalRequest,
         comment: str,
     ) -> ApprovalRequest:
+        approval_request = _lock_request(db, approval_request)
         RequestService._ensure_can_review_pending(
             db,
             actor=actor,

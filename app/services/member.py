@@ -5,7 +5,14 @@ from datetime import date
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session, joinedload
 
-from app.models import ActivityStatus, AuditAction, MemberRole, ProjectMember, User
+from app.models import (
+    ActivityStatus,
+    AuditAction,
+    MemberRole,
+    Project,
+    ProjectMember,
+    User,
+)
 
 _UNSET = object()
 
@@ -136,6 +143,25 @@ class MemberService:
         )
 
     @staticmethod
+    def sync_leader_flag(db: Session, user_id: int) -> None:
+        """Sync the global leader flag from active project leaderships."""
+        user = db.query(User).filter(User.id == user_id).first()
+        if user is None:
+            return
+        user.is_leader = (
+            db.query(ProjectMember.id)
+            .join(Project, Project.id == ProjectMember.project_id)
+            .filter(
+                ProjectMember.user_id == user_id,
+                ProjectMember.role == MemberRole.LEADER,
+                ProjectMember.left_at.is_(None),
+                Project.deleted_at.is_(None),
+            )
+            .first()
+            is not None
+        )
+
+    @staticmethod
     def add(
         db: Session,
         project_id: int,
@@ -165,9 +191,10 @@ class MemberService:
         )
         db.add(member)
         db.flush()
+        if role == MemberRole.LEADER:
+            MemberService.sync_leader_flag(db, user_id)
 
         # Log history
-        from app.models import Project
         from app.services.audit_log import AuditLogService
 
         project = db.query(Project).filter(Project.id == project_id).first()
@@ -189,29 +216,44 @@ class MemberService:
         return member
 
     @staticmethod
-    def remove(db: Session, member: ProjectMember, actor_id: int) -> None:
+    def remove(
+        db: Session,
+        member: ProjectMember,
+        actor_id: int,
+        *,
+        enforce_guards: bool = True,
+    ) -> None:
         """
         Remove a member from a project by setting left_at.
         Raises:
             LastLeaderError: If this is the last leader
             CannotRemoveSelfError: If actor is trying to remove themselves
-        """
-        # Check if last leader FIRST (more critical business rule)
-        if member.role == MemberRole.LEADER:
-            leader_count = MemberService.count_leaders(db, member.project_id)
-            if leader_count <= 1:
-                raise LastLeaderError("Cannot remove the last leader from project")
 
-        # Check if trying to remove self
-        if member.user_id == actor_id:
-            raise CannotRemoveSelfError("Cannot remove self from project")
+        enforce_guards=False skips both checks above. Only for trusted,
+        non-actor-gated callers that intentionally act on the member
+        themselves (e.g. the dev-login bootstrap shortcut) -- audit logging
+        below still runs either way, so history stays consistent.
+        """
+        was_leader = member.role == MemberRole.LEADER
+
+        if enforce_guards:
+            # Check if last leader FIRST (more critical business rule)
+            if was_leader:
+                leader_count = MemberService.count_leaders(db, member.project_id)
+                if leader_count <= 1:
+                    raise LastLeaderError("Cannot remove the last leader from project")
+
+            # Check if trying to remove self
+            if member.user_id == actor_id:
+                raise CannotRemoveSelfError("Cannot remove self from project")
 
         # Set left_at
         member.left_at = date.today()
         db.flush()
+        if was_leader:
+            MemberService.sync_leader_flag(db, member.user_id)
 
         # Log history
-        from app.models import Project
         from app.services.audit_log import AuditLogService
 
         project = db.query(Project).filter(Project.id == member.project_id).first()
@@ -234,6 +276,8 @@ class MemberService:
         actor_id: int,
         role: MemberRole | None = None,
         position: str | None | object = _UNSET,
+        *,
+        enforce_guards: bool = True,
     ) -> ProjectMember:
         """
         Update the existing membership's role/position without changing its dates.
@@ -241,6 +285,10 @@ class MemberService:
 
         Raises:
             LastLeaderError: If demoting the last leader to member role
+
+        enforce_guards=False skips that check. Only for trusted, non-actor-
+        gated callers (e.g. the dev-login bootstrap shortcut) -- audit
+        logging below still runs either way, so history stays consistent.
         """
         old_role = member.role
         old_position = member.position
@@ -252,7 +300,11 @@ class MemberService:
             return member
 
         # Check if demoting the last leader
-        if old_role == MemberRole.LEADER and new_role == MemberRole.MEMBER:
+        if (
+            enforce_guards
+            and old_role == MemberRole.LEADER
+            and new_role == MemberRole.MEMBER
+        ):
             leader_count = MemberService.count_leaders(db, member.project_id)
             if leader_count <= 1:
                 raise LastLeaderError("Cannot demote the last leader")
@@ -260,6 +312,8 @@ class MemberService:
         member.role = new_role
         member.position = new_position
         db.flush()
+        if old_role != new_role:
+            MemberService.sync_leader_flag(db, member.user_id)
 
         # Log history
         from app.services.audit_log import AuditLogService

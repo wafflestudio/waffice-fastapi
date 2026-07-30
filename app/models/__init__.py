@@ -14,7 +14,6 @@ from app.models.enums import (
     ProjectStatus,
     Qualification,
 )
-from app.models.president import PresidentTerm
 from app.models.project import Project
 from app.models.project_member import ProjectMember
 from app.models.request import ApprovalRequest, RequestReviewer
@@ -36,7 +35,6 @@ __all__ = [
     "ProjectMember",
     "ApprovalRequest",
     "RequestReviewer",
-    "PresidentTerm",
     "CertificateSignature",
     "Certificate",
     "CertificateEvent",

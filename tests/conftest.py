@@ -1,7 +1,7 @@
 import atexit
 import os
 import time
-from datetime import date, timedelta
+from datetime import timedelta
 
 from testcontainers.mysql import MySqlContainer
 
@@ -38,8 +38,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.config.database import Base, Engine, get_db
 from app.config.migration import run_migrations
 from app.main import app
-from app.models import PresidentTerm, Qualification, User
-from app.services import PresidentService, UserService
+from app.models import Qualification, User
+from app.services import UserService
 
 # JWT config (must match app/deps/auth.py default)
 JWT_SECRET_KEY = (
@@ -250,22 +250,25 @@ def president_token(president_user: User) -> str:
 
 
 @pytest.fixture
-def open_president_term(db: Session, president_user: User) -> PresidentTerm:
-    """Open a president term for `president_user` via the real service (so
-    `require_president` sees a current 회장 via `User.is_president`)."""
-    return PresidentService.appoint(
-        db, user_id=president_user.id, started_at=date(2026, 1, 1)
-    )
+def open_president_term(db: Session, president_user: User) -> User:
+    """Make `president_user` the current 회장 by setting `is_president`
+    directly (so `require_president` sees them) -- in the real app this flag
+    is derived from 운영팀 (admin team) project leadership via
+    `ProjectService.sync_admin_team_roles`, but tests that only care about
+    `require_president`/`has_admin_access` gating can set it directly."""
+    president_user.is_president = True
+    db.commit()
+    db.refresh(president_user)
+    return president_user
 
 
 @pytest.fixture
 def president_flag_user(db: Session) -> User:
     """A user with `is_admin`/`is_president` set directly, for exercising the
-    `has_admin_access`/role-flag system in isolation. Distinct from
-    `president_user`, which represents 회장 via the `president_terms` table
-    (`PresidentService.appoint` keeps `is_president` in sync with that table,
-    but this fixture bypasses `appoint` entirely to test the flags on their
-    own)."""
+    `has_admin_access`/role-flag system in isolation. In the real app both
+    flags are derived from 운영팀 (admin team) project membership via
+    `ProjectService.sync_admin_team_roles`; this fixture bypasses that to
+    test the flags on their own."""
     user = UserService.create(
         db,
         email="president_flag@example.com",

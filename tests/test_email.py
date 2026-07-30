@@ -1,6 +1,7 @@
 import os
 from unittest.mock import patch
 
+from app.config.secrets import get_email_secrets
 from app.services.email import SENDER, EmailService
 
 
@@ -46,3 +47,25 @@ def test_signup_notification_messages():
     assert rejected.subject == "와피스 회원가입 신청이 거절되었습니다."
     assert "신청이 승인되지 않았습니다." in rejected.body_text
     assert "와피스 드림" in rejected.body_text
+
+
+def test_lowercase_kubernetes_email_secrets(monkeypatch):
+    for name in (
+        "EMAIL_COMPARTMENT_ID",
+        "EMAIL_FROM_EMAIL",
+        "EMAIL_FROM_NAME",
+        "EMAIL_REPLY_TO",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    monkeypatch.setenv("email_compartment_id", "ocid1.compartment.oc1..test")
+    monkeypatch.setenv("email_from_email", "sender@example.com")
+    monkeypatch.setenv("email_from_name", "와피스")
+    monkeypatch.setenv("email_reply_to", "reply@example.com")
+
+    assert get_email_secrets() == {
+        "compartment_id": "ocid1.compartment.oc1..test",
+        "from_email": "sender@example.com",
+        "from_name": "와피스",
+        "reply_to": "reply@example.com",
+    }

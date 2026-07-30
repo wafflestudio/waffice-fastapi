@@ -12,7 +12,7 @@ from oci.email_data_plane.models import (
 )
 from oci.exceptions import BaseRequestException, InvalidConfig, ServiceError
 
-from app.config.secrets import ENV
+from app.config.secrets import ENV, get_email_secrets
 
 SENDER = "master@waffiestudio.com"
 logger = logging.getLogger(__name__)
@@ -23,16 +23,17 @@ class EmailService:
 
     @classmethod
     def _send(cls, recipient: str, subject: str, body: str) -> None:
-        compartment_id = os.getenv("EMAIL_COMPARTMENT_ID", "")
+        secrets = get_email_secrets()
+        compartment_id = secrets["compartment_id"]
         if not compartment_id:
             if ENV == "local":
                 return
             raise RuntimeError("EMAIL_COMPARTMENT_ID is not configured")
 
-        from_email = os.getenv("EMAIL_FROM_EMAIL", SENDER)
+        from_email = secrets["from_email"]
         sender_address = EmailAddress(email=from_email)
-        from_name = os.getenv("EMAIL_FROM_NAME", "와피스")
-        reply_to = os.getenv("EMAIL_REPLY_TO") or from_email
+        from_name = secrets["from_name"]
+        reply_to = secrets["reply_to"] or from_email
         if from_name:
             sender_address.name = from_name
 

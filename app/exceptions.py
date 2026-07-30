@@ -163,11 +163,31 @@ class InvalidApprovalRequestError(AppError):
         super().__init__("INVALID_APPROVAL_REQUEST", message, 400)
 
 
+class NoEligibleReviewerError(AppError):
+    """400 - No eligible reviewer exists"""
+
+    def __init__(
+        self,
+        message: str = ("승인 가능한 사용자가 없습니다. " "승인 대상을 변경하거나 운영팀에 문의해주세요."),
+    ):
+        super().__init__("NO_ELIGIBLE_REVIEWER", message, 400)
+
+
 class RequestAlreadyProcessedError(AppError):
     """Approval request has already been processed"""
 
     def __init__(self, message: str = "Request has already been processed"):
         super().__init__("REQUEST_ALREADY_PROCESSED", message, 400)
+
+
+class ProjectHasPendingRequestsError(AppError):
+    """409 - Project deletion is blocked by pending approval requests"""
+
+    def __init__(
+        self,
+        message: str = "대기 중인 승인 요청을 처리한 후 프로젝트를 삭제해주세요.",
+    ):
+        super().__init__("PROJECT_HAS_PENDING_REQUESTS", message, 409)
 
 
 class InvalidProfileImageError(AppError):
@@ -213,24 +233,12 @@ class SignatureFileTooLargeError(AppError):
         super().__init__("SIGNATURE_FILE_TOO_LARGE", message, 413)
 
 
-class PresidentAppointmentConflictError(AppError):
-    """409 - Lost a race with another concurrent president appointment"""
+class PresidentAppointmentForbiddenError(AppError):
+    """403 - Only the sitting president may appoint (promote/add) the next
+    president, while one is already in place"""
 
-    def __init__(self, message: str = "다른 회장 임명 요청과 충돌했습니다. 다시 시도해주세요."):
-        super().__init__("PRESIDENT_APPOINTMENT_CONFLICT", message, 409)
-
-
-class InvalidPresidentTermError(AppError):
-    """400 - New president term's started_at is invalid (before the current
-    term's start date, or in the future -- appointment takes effect
-    immediately, so a future-dated started_at would grant/revoke
-    `require_president` access ahead of the intended date)"""
-
-    def __init__(
-        self,
-        message: str = "새 임기 시작일은 현직 회장의 임기 시작일보다 빠를 수 없습니다.",
-    ):
-        super().__init__("INVALID_PRESIDENT_TERM", message, 400)
+    def __init__(self, message: str = "회장 임명은 현재 회장만 할 수 있습니다."):
+        super().__init__("PRESIDENT_APPOINTMENT_FORBIDDEN", message, 403)
 
 
 class SignatureUploadConflictError(AppError):

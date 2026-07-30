@@ -1,6 +1,7 @@
 from sqlalchemy import (
     JSON,
     BigInteger,
+    Boolean,
     Column,
     Date,
     Enum,
@@ -29,6 +30,12 @@ class Project(Base, TimestampMixin, SoftDeleteMixin):
     ended_at = Column(Date, nullable=True)
 
     websites = Column(JSON, nullable=True)
+
+    # True for exactly one project: the "운영팀" (admin team). Its active
+    # members drive User.is_admin and its leader(s) drive User.is_president --
+    # see ProjectService.sync_admin_team_roles. Never set via any API; only
+    # ever assigned by the bootstrap migration.
+    is_admin_team = Column(Boolean, nullable=False, default=False)
 
     # Relationships
     members = relationship(

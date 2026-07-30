@@ -13,6 +13,11 @@ class RequestKind(str, Enum):
     DELETE = "delete"
 
 
+class ReviewTarget(str, Enum):
+    PROJECT_LEADER = "project_leader"
+    OPERATIONS = "operations"
+
+
 class RequestScope(str, Enum):
     RECEIVED = "received"
     SENT = "sent"
@@ -64,6 +69,7 @@ class RequestReviewBody(BaseModel):
 
 class ApprovalRequestBody(BaseModel):
     request_kind: RequestKind
+    review_target: ReviewTarget = ReviewTarget.PROJECT_LEADER
     target_user_id: int
     activity_id: int | None = None
     before: dict | None = None
@@ -74,16 +80,29 @@ class ApprovalRequestBody(BaseModel):
 
 class ApprovalRequestCreateRequest(BaseModel):
     request_kind: RequestKind
+    review_target: ReviewTarget = ReviewTarget.PROJECT_LEADER
     target_user_id: int | None = None
     activity_id: int | None = None
     after: ActivityPayload | None = None
     reason: str = Field(min_length=1, max_length=2000)
-    reviewer_ids: list[int] = Field(default_factory=list)
+    reviewer_ids: list[int] | None = Field(
+        default=None,
+        json_schema_extra={"deprecated": True},
+        description=(
+            "Deprecated explicit reviewer IDs. Use review_target instead. "
+            "Cannot be sent together with review_target."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_request_body(self):
         if self.request_kind == RequestKind.CREATE and self.activity_id is not None:
             raise ValueError("activity_id must be omitted for create requests")
+        if (
+            "review_target" in self.model_fields_set
+            and "reviewer_ids" in self.model_fields_set
+        ):
+            raise ValueError("review_target and reviewer_ids cannot be used together")
         if (
             self.request_kind in (RequestKind.UPDATE, RequestKind.DELETE)
             and self.activity_id is None
@@ -102,7 +121,24 @@ class ApprovalRequestCreateRequest(BaseModel):
 class ApprovalRequestUpdateRequest(BaseModel):
     reason: str | None = Field(default=None, min_length=1, max_length=2000)
     after: ActivityPayload | None = None
-    reviewer_ids: list[int] | None = None
+    review_target: ReviewTarget | None = None
+    reviewer_ids: list[int] | None = Field(
+        default=None,
+        json_schema_extra={"deprecated": True},
+        description=(
+            "Deprecated explicit reviewer IDs. Use review_target instead. "
+            "Cannot be sent together with review_target."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_reviewer_selection(self):
+        if (
+            "review_target" in self.model_fields_set
+            and "reviewer_ids" in self.model_fields_set
+        ):
+            raise ValueError("review_target and reviewer_ids cannot be used together")
+        return self
 
 
 class ApprovalReviewRequest(BaseModel):
@@ -133,6 +169,7 @@ class ApprovalRequestListItem(BaseModel):
     reviewers: list[RequestReviewerDetail]
     request_kind: RequestKind
     after: ActivityPayload | None
+    review_target: ReviewTarget
     status: ApprovalStatus
     created_at: int
     reviewed_at: int | None
@@ -143,6 +180,7 @@ class ApprovalRequestDetail(BaseModel):
     requester: UserBrief
     project: ProjectBrief | None
     reviewed_by: UserBrief | None
+    review_target: ReviewTarget
     reviewers: list[RequestReviewerDetail]
     status: ApprovalStatus
     body: ApprovalRequestBody

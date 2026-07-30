@@ -85,9 +85,27 @@ class DevSigninRequest(BaseModel):
         description="User name for dev signin",
         examples=["Admin User"],
     )
-    is_leader: bool = Field(default=False, description="Grant leader privileges")
-    is_admin: bool = Field(default=False, description="Grant admin privileges")
-    is_president: bool = Field(default=False, description="Grant president privileges")
+    is_leader: bool = Field(
+        default=False,
+        description="Grant leader privileges (display only; not used for authorization)",
+    )
+    is_admin: bool = Field(
+        default=False,
+        description=(
+            "Grant admin privileges directly, for local testing only. In "
+            "production is_admin is derived from 운영팀 (admin team) project "
+            "membership (ProjectService.sync_admin_team_roles) and will be "
+            "overwritten the next time that project's roster changes."
+        ),
+    )
+    is_president: bool = Field(
+        default=False,
+        description=(
+            "Grant president privileges directly, for local testing only. "
+            "Same caveat as is_admin -- overwritten by the next 운영팀 "
+            "roster sync."
+        ),
+    )
     qualification: Literal["pending", "associate", "regular", "active"] = Field(
         default="active",
         description="User qualification level",

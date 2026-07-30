@@ -82,8 +82,8 @@ def _build_qualification_rows(db, user) -> list[dict[str, str]]:
 
     합성 첫 행(회원 자격 취득, users.created_at) 다음에 `audit_logs`에서
     action=QUALIFICATION_CHANGED인 행들을 기준일(created_at) 오름차순으로
-    이어붙인다. payload는 {"from": ..., "to": ...} 형태이며 사유 필드가
-    없으므로 사유는 항상 "-"로 채운다.
+    이어붙인다. payload의 reason을 사유로 사용하되, 사유 저장 기능 도입 전
+    생성된 이력처럼 reason이 없거나 빈 값이면 "-"로 채운다.
     """
     from app.models import AuditLog
     from app.models.enums import AuditAction
@@ -109,11 +109,13 @@ def _build_qualification_rows(db, user) -> list[dict[str, str]]:
         payload = log.payload or {}
         from_label = _qualification_label(payload.get("from"))
         to_label = _qualification_label(payload.get("to"))
+        raw_reason = payload.get("reason")
+        reason = raw_reason.strip() if isinstance(raw_reason, str) else ""
         rows.append(
             {
                 "date": _format_epoch(log.created_at),
                 "content": f"{from_label} → {to_label}",
-                "reason": "-",
+                "reason": reason or "-",
             }
         )
     return rows
@@ -153,29 +155,71 @@ def _build_project_rows(db, user) -> list[dict[str, str]]:
 def _build_executive_rows(db, user) -> list[dict[str, str]]:
     """섹션 5: 임원 또는 집행부원으로서 활동한 기간 및 역할.
 
-    유일한 데이터 소스는 `president_terms`(회장 임기)뿐이다. 이 모델은 다른
-    레인에서 병렬 작성되므로, 아직 존재하지 않을 때도 이 모듈이 임포트/실행
-    가능하도록 지연 임포트한다.
+    회장(is_president) 이력은 이제 운영팀 프로젝트 리더십에서 파생되므로
+    (`ProjectService.sync_admin_team_roles`), 별도 이력 테이블 없이 운영팀
+    프로젝트의 audit log(PROJECT_JOINED/PROJECT_ROLE_CHANGED/PROJECT_LEFT)를
+    시간순으로 재생해 이 유저가 팀장(=회장)이었던 기간(들)을 복원한다.
+    `ProjectMember.joined_at`/`left_at`만으로는 부족하다 -- 팀장에서 팀원으로
+    강등되어도(=회장 임기 종료) 그 행의 left_at은 그대로 null이기 때문이다.
     """
-    try:
-        from app.models.president import PresidentTerm
-    except ImportError:
+    from app.models import AuditLog, Project
+    from app.models.enums import AuditAction
+
+    admin_team = db.query(Project).filter(Project.is_admin_team.is_(True)).first()
+    if admin_team is None:
         return []
 
-    terms = (
-        db.query(PresidentTerm)
-        .filter(PresidentTerm.user_id == user.id)
-        .order_by(PresidentTerm.started_at.asc(), PresidentTerm.id.asc())
+    events = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.user_id == user.id,
+            AuditLog.action.in_(
+                [
+                    AuditAction.PROJECT_JOINED,
+                    AuditAction.PROJECT_ROLE_CHANGED,
+                    AuditAction.PROJECT_LEFT,
+                ]
+            ),
+        )
+        .order_by(AuditLog.created_at.asc(), AuditLog.id.asc())
         .all()
     )
 
     rows: list[dict[str, str]] = []
-    for term in terms:
-        period = (
-            f"{_format_date(term.started_at) or '-'} ~ "
-            f"{_format_date(term.ended_at) if term.ended_at else '현재'}"
-        )
-        rows.append({"period": period, "role": "회장"})
+    period_start: int | None = None
+    for event in events:
+        payload = event.payload or {}
+        if payload.get("project_id") != admin_team.id:
+            continue
+
+        if event.action == AuditAction.PROJECT_JOINED:
+            if payload.get("role") == "leader":
+                period_start = event.created_at
+        elif event.action == AuditAction.PROJECT_ROLE_CHANGED:
+            was_leader = payload.get("from_role") == "leader"
+            now_leader = payload.get("to_role") == "leader"
+            if now_leader and not was_leader:
+                period_start = event.created_at
+            elif was_leader and not now_leader and period_start is not None:
+                rows.append(
+                    {
+                        "period": f"{_format_epoch(period_start)} ~ {_format_epoch(event.created_at)}",
+                        "role": "회장",
+                    }
+                )
+                period_start = None
+        elif event.action == AuditAction.PROJECT_LEFT:
+            if period_start is not None:
+                rows.append(
+                    {
+                        "period": f"{_format_epoch(period_start)} ~ {_format_epoch(event.created_at)}",
+                        "role": "회장",
+                    }
+                )
+                period_start = None
+
+    if period_start is not None:
+        rows.append({"period": f"{_format_epoch(period_start)} ~ 현재", "role": "회장"})
     return rows
 
 

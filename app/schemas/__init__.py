@@ -22,8 +22,6 @@ from app.schemas.certificate import (
     CertificateOptions,
     CertificateSummary,
     DraftCertificateCreate,
-    PresidentTermCreate,
-    PresidentTermDetail,
     SignatureDetail,
 )
 from app.schemas.common import CursorPage, Response, Website
@@ -55,6 +53,7 @@ from app.schemas.request import (
     RequestReviewerDetail,
     RequestScope,
     RequestStatusFilter,
+    ReviewTarget,
 )
 from app.schemas.user import (
     ApproveRequest,
@@ -100,8 +99,6 @@ __all__ = [
     "MemberDetail",
     "MemberInput",
     "MemberUpdateRequest",
-    "PresidentTermCreate",
-    "PresidentTermDetail",
     "ProfileUpdateRequest",
     "ProjectBrief",
     "ProjectCreateRequest",
@@ -115,6 +112,7 @@ __all__ = [
     "RequestReviewerDetail",
     "RequestScope",
     "RequestStatusFilter",
+    "ReviewTarget",
     "Response",
     "SignatureDetail",
     "SigninRequest",
