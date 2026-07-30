@@ -1,5 +1,5 @@
 import logging
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 # Google OAuth configuration
 from authlib.integrations.starlette_client import OAuth
@@ -626,13 +626,16 @@ def _grant_admin_team_membership(
     changing, or removing this user's 운영팀 (admin team) membership, then
     resyncing -- rather than setting those derived columns directly.
 
-    Bypasses two guards that don't make sense for this trusted, non-actor-
-    gated bootstrap tool: the "only the sitting president may appoint a new
-    leader" rule (an HTTP-route-level check, not enforced at the service
-    layer this calls into) and the "can't remove/demote yourself or the last
-    leader" guards on MemberService.remove/change (this always acts on the
-    signing-in user themselves, so those guards would otherwise always fire).
-    No-ops if the 운영팀 project hasn't been bootstrapped yet.
+    Passes enforce_guards=False to MemberService.remove/change: the "only
+    the sitting president may appoint a new leader" rule is an HTTP-route-
+    level check (not enforced at the service layer this calls into), but the
+    "can't remove/demote yourself or the last leader" guards on
+    remove/change don't make sense for this trusted, non-actor-gated
+    bootstrap tool (it always acts on the signing-in user themselves, so
+    those guards would otherwise always fire) -- audit logging still runs
+    normally either way, so leadership history stays consistent for
+    certificate_render._build_executive_rows. No-ops if the 운영팀 project
+    hasn't been bootstrapped yet.
     """
     admin_team = ProjectService.get_admin_team_project(db)
     if admin_team is None:
@@ -645,8 +648,9 @@ def _grant_admin_team_membership(
 
     if desired_role is None:
         if existing is not None:
-            existing.left_at = date.today()
-            db.flush()
+            MemberService.remove(
+                db, member=existing, actor_id=user.id, enforce_guards=False
+            )
     elif existing is None:
         MemberService.add(
             db,
@@ -657,8 +661,13 @@ def _grant_admin_team_membership(
             actor_id=user.id,
         )
     elif existing.role != desired_role:
-        existing.role = desired_role
-        db.flush()
+        MemberService.change(
+            db,
+            member=existing,
+            actor_id=user.id,
+            role=desired_role,
+            enforce_guards=False,
+        )
 
     ProjectService.sync_admin_team_roles(db)
     db.commit()

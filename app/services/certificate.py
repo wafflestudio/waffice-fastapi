@@ -4,7 +4,7 @@
 `app/services/user.py`와 같은 스타일로 db 세션을 첫 인자로 받는
 `@staticmethod`로 구성된다. 현직 회장 조회(`_get_current_president`)는
 `User.is_president`를 직접 보는 모듈 레벨 헬퍼로, `is_president` 자체는
-운영팀 프로젝트 리더십에서 파생된다 (`ProjectService.sync_operations_roles`).
+운영팀 프로젝트 리더십에서 파생된다 (`ProjectService.sync_admin_team_roles`).
 
 오브젝트 스토리지 업로드/다운로드는 라우트에서 만든 `OCIObjectStorageService`
 인스턴스를 `storage` 인자로 주입받아 사용한다 (`app/routes/profile_image.py`가
@@ -219,13 +219,57 @@ class SignatureService:
 
 
 def _get_current_president(db: Session) -> User | None:
-    """현직 회장 = `is_president=True`인 유저.
+    """현직 회장 = `is_president=True`인 유저 중 운영팀 팀장으로 가장 최근에
+    임명된 사람.
 
     `is_president`는 운영팀 프로젝트 리더십에서 파생되며
-    (`ProjectService.sync_operations_roles`), 인수인계 중 일시적으로 여러
-    명이 동시에 `is_president=True`일 수 있다 -- `.first()`는 그중 임의의
-    한 명을 반환할 뿐, "그 한 명"이 유일한 현직이라는 보장은 없다."""
-    return db.query(User).filter(User.is_president.is_(True)).first()
+    (`ProjectService.sync_admin_team_roles`), 인수인계 중 일시적으로 여러
+    명이 동시에 `is_president=True`일 수 있다. 그런 경우 정렬 기준 없는
+    `.first()`는 DB 엔진/실행 계획에 따라 비결정적이므로, 대신 audit log
+    (`PROJECT_JOINED`/`PROJECT_ROLE_CHANGED`)에서 "운영팀 팀장이 된" 시점이
+    가장 최근인 사람을 결정론적으로 고른다."""
+    from app.models import AuditLog
+    from app.models.enums import AuditAction
+    from app.services.project import ProjectService
+
+    presidents = db.query(User).filter(User.is_president.is_(True)).all()
+    if not presidents:
+        return None
+    if len(presidents) == 1:
+        return presidents[0]
+
+    presidents_by_id = {president.id: president for president in presidents}
+    admin_team = ProjectService.get_admin_team_project(db)
+    if admin_team is not None:
+        events = (
+            db.query(AuditLog)
+            .filter(
+                AuditLog.user_id.in_(presidents_by_id.keys()),
+                AuditLog.action.in_(
+                    [AuditAction.PROJECT_JOINED, AuditAction.PROJECT_ROLE_CHANGED]
+                ),
+            )
+            .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+            .all()
+        )
+        for event in events:
+            payload = event.payload or {}
+            if payload.get("project_id") != admin_team.id:
+                continue
+            became_leader = (
+                event.action == AuditAction.PROJECT_JOINED
+                and payload.get("role") == "leader"
+            ) or (
+                event.action == AuditAction.PROJECT_ROLE_CHANGED
+                and payload.get("to_role") == "leader"
+                and payload.get("from_role") != "leader"
+            )
+            if became_leader:
+                return presidents_by_id[event.user_id]
+
+    # Fallback (no matching "became leader" event found, or no admin team
+    # project at all) -- pick deterministically rather than arbitrarily.
+    return min(presidents, key=lambda president: president.id)
 
 
 class CertificateService:
@@ -234,9 +278,13 @@ class CertificateService:
         if options.signer != CertificateSigner.ADVISOR:
             return
         if not allow_advisor:
-            raise InvalidCertificateOptionsError("지도교수님의 서명이 필요한 경우, 운영팀에 별도 문의해주세요.")
+            raise InvalidCertificateOptionsError(
+                "지도교수님의 서명이 필요한 경우, 운영팀에 별도 문의해주세요."
+            )
         if not (options.advisor_name and options.advisor_name.strip()):
-            raise InvalidCertificateOptionsError("지도교수 서명을 선택한 경우 지도교수 성함을 입력해야 합니다.")
+            raise InvalidCertificateOptionsError(
+                "지도교수 서명을 선택한 경우 지도교수 성함을 입력해야 합니다."
+            )
 
     @staticmethod
     def _ensure_target_eligible(target_user: User) -> None:
