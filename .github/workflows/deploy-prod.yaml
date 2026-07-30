@@ -2,8 +2,8 @@ name: Push to OCIR (Prod)
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - prod
 
 env:
   OCIR_REGISTRY: yny.ocir.io
