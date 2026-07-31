@@ -24,7 +24,7 @@ from app.schemas.certificate import (
     DraftCertificateCreate,
     SignatureDetail,
 )
-from app.schemas.common import CursorPage, Response, Website
+from app.schemas.common import CursorPage, Page, Response, Website
 from app.schemas.project import (
     MemberDetail,
     MemberInput,
@@ -93,6 +93,7 @@ __all__ = [
     "CertificateOptions",
     "CertificateSummary",
     "CursorPage",
+    "Page",
     "DevSigninRequest",
     "DraftCertificateCreate",
     "GoogleTokenRequest",
