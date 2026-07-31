@@ -25,7 +25,7 @@ router = APIRouter()
 async def list_activities(
     page: int = Query(default=1, ge=1, description="Page number (1-based)."),
     size: int = Query(
-        default=20, ge=1, le=100, description="Number of items per page."
+        default=10, ge=1, le=100, description="Number of items per page."
     ),
     _admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
