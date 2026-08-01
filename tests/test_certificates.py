@@ -43,6 +43,7 @@ from app.services.certificate import (
     CertificateService,
     SignatureService,
     _get_current_president,
+    _get_current_president,
     render_pdf as _real_render_pdf,
 )
 
