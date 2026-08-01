@@ -205,11 +205,12 @@ class TestPreview:
         assert response.status_code == 409
         assert response.json()["error"] == "PRESIDENT_SIGNATURE_NOT_FOUND"
 
-    def test_prefers_signed_president_when_audit_trail_is_missing(
+    def test_prefers_most_recently_signed_president_when_audit_trail_is_missing(
         self,
         client: TestClient,
         db: Session,
         regular_token: str,
+        president_token: str,
         open_president_term: User,
         active_user: User,
         active_token: str,
@@ -217,16 +218,27 @@ class TestPreview:
         """Regression: when multiple users are is_president=True with no
         PROJECT_JOINED/PROJECT_ROLE_CHANGED audit trail to rank them (e.g.
         seeded directly by the 운영팀 bootstrap migration, which writes
-        project_members via raw SQL instead of MemberService.add), the
-        arbitrary lowest-id tie-break could pick someone with no signature
-        on file while another candidate has one -- blocking every issuance.
-        The fallback should prefer whichever candidate actually has a
-        registered signature."""
+        project_members via raw SQL instead of MemberService.add), an
+        arbitrary lowest-id tie-break could pick a candidate over someone
+        who more recently registered/updated their signature. The fallback
+        should prefer whichever candidate's signature is most recent -- the
+        strongest available signal of who is actually acting as president
+        right now."""
         active_user.is_president = True
         db.commit()
 
-        upload = _upload_signature(client, active_token)
-        assert upload.status_code == 200
+        assert _upload_signature(client, president_token).status_code == 200
+        assert _upload_signature(client, active_token).status_code == 200
+
+        # Force a deterministic ordering regardless of same-second
+        # granularity between the two uploads above.
+        db.query(CertificateSignature).filter(
+            CertificateSignature.user_id == open_president_term.id
+        ).update({"updated_at": 1_000})
+        db.query(CertificateSignature).filter(
+            CertificateSignature.user_id == active_user.id
+        ).update({"updated_at": 2_000})
+        db.commit()
 
         president = _get_current_president(db)
         assert president.id == active_user.id
