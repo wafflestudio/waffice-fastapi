@@ -50,6 +50,20 @@ class CursorPage(BaseModel, Generic[T]):
     )
 
 
+class Page(BaseModel, Generic[T]):
+    """
+    Offset-based pagination wrapper.
+
+    Use `page` and `size` query parameters to navigate pages.
+    `total` is the total number of items matching the query.
+    """
+
+    items: list[T] = Field(description="List of items in the current page")
+    total: int = Field(description="Total number of items across all pages")
+    page: int = Field(description="Current page number (1-based)")
+    size: int = Field(description="Number of items per page")
+
+
 class Website(BaseModel):
     """External website or link associated with a user or project."""
 

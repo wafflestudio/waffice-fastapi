@@ -364,22 +364,25 @@ class TestAllActivities:
         assert forbidden.status_code == 403
 
         first_response = client.get(
-            "/activities?limit=2",
+            "/activities?page=1&size=2",
             headers=auth(admin_token),
         )
         assert first_response.status_code == 200
         first_page = first_response.json()["data"]
+        assert first_page["total"] == 3
+        assert first_page["page"] == 1
+        assert first_page["size"] == 2
         assert [item["id"] for item in first_page["items"]] == list(
             reversed(created_ids[1:])
         )
-        assert first_page["next_cursor"] == created_ids[1]
         assert all(item["status"] == "active" for item in first_page["items"])
 
         second_response = client.get(
-            f"/activities?limit=2&cursor={first_page['next_cursor']}",
+            "/activities?page=2&size=2",
             headers=auth(admin_token),
         )
         assert second_response.status_code == 200
         second_page = second_response.json()["data"]
+        assert second_page["total"] == 3
+        assert second_page["page"] == 2
         assert [item["id"] for item in second_page["items"]] == [created_ids[0]]
-        assert second_page["next_cursor"] is None
