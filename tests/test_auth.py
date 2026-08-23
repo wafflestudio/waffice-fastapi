@@ -333,7 +333,7 @@ class TestSignupEndpoint:
             "/auth/signup",
             json=self.signup_payload(
                 auth_token,
-                name="Claimed Name",
+                name=temporary_user.name,
                 student_id=temporary_user.student_id,
             ),
         )
@@ -341,12 +341,41 @@ class TestSignupEndpoint:
         assert response.status_code == 200
         user = response.json()["data"]["user"]
         assert user["id"] == temporary_user.id
-        assert user["name"] == "Claimed Name"
+        assert user["name"] == "Imported Name"
         assert user["email"] == "claimed@example.com"
         assert user["is_temporary"] is False
         db.refresh(membership)
         assert membership.user_id == temporary_user.id
         assert membership.left_at is None
+
+    def test_signup_rejects_temporary_member_with_name_mismatch(self, client, db):
+        """A mistyped student ID must not hijack another member's temporary row."""
+        temporary_user = UserService.create(
+            db,
+            name="Imported Name",
+            student_id="2021-77778",
+            is_temporary=True,
+        )
+        db.commit()
+
+        auth_token = create_auth_token(
+            "mismatched_google_id", "mismatched@example.com", is_new=True
+        )
+        response = client.post(
+            "/auth/signup",
+            json=self.signup_payload(
+                auth_token,
+                name="Wrong Name",
+                student_id=temporary_user.student_id,
+            ),
+        )
+
+        assert response.status_code == 409
+        assert response.json()["error"] == "STUDENT_ID_NAME_MISMATCH"
+        assert UserService.get_by_google_id(db, "mismatched_google_id") is None
+        db.refresh(temporary_user)
+        assert temporary_user.is_temporary is True
+        assert temporary_user.name == "Imported Name"
 
     def test_signup_rejects_registered_student_id(self, client, db, active_user):
         """A student ID owned by a registered user cannot be signed up again."""

@@ -24,6 +24,7 @@ from app.exceptions import (
     GoogleAccountAlreadyLinkedError,
     InvalidAuthTokenError,
     StudentIdAlreadyInUseError,
+    StudentIdNameMismatchError,
     UserNotRegisteredError,
 )
 from app.models import AuditAction, MemberRole, Qualification, User
@@ -571,6 +572,8 @@ async def signup(
         if student_user:
             if not student_user.is_temporary:
                 raise StudentIdAlreadyInUseError()
+            if student_user.name != request.name:
+                raise StudentIdNameMismatchError()
             user = UserService.update(
                 db,
                 student_user,
