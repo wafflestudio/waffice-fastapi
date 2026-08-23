@@ -159,7 +159,9 @@ class StudentIdAlreadyInUseError(AppError):
 class StudentIdNameMismatchError(AppError):
     """Student ID belongs to a pre-registered member whose name doesn't match"""
 
-    def __init__(self, message: str = "Name does not match the pre-registered student ID"):
+    def __init__(
+        self, message: str = "Name does not match the pre-registered student ID"
+    ):
         super().__init__("STUDENT_ID_NAME_MISMATCH", message, 409)
 
 
