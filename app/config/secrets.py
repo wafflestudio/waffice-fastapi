@@ -114,7 +114,11 @@ GOOGLE_REDIRECT_URI = secrets.get(
 )
 
 # Frontend
-FRONTEND_ORIGIN = secrets.get("FRONTEND_ORIGIN", "http://localhost:3000")
+# An Origin never has a trailing slash. Normalize it once so CORS checks and
+# OAuth callback URLs use the same value even when the deployment variable does.
+FRONTEND_ORIGIN = (secrets.get("FRONTEND_ORIGIN") or "http://localhost:3000").rstrip(
+    "/"
+)
 
 # JWT / App
 APP_SECRET_KEY = secrets.get("APP_SECRET_KEY", "insecure-dev-only-key")
