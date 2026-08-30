@@ -348,6 +348,36 @@ class TestSignupEndpoint:
         assert membership.user_id == temporary_user.id
         assert membership.left_at is None
 
+    def test_signup_claims_temporary_member_despite_whitespace_and_zero_width_diff(
+        self, client, db
+    ):
+        """Stray whitespace/zero-width chars in the form input must not block a
+        real match against a roster name that was normalized on import."""
+        temporary_user = UserService.create(
+            db,
+            name="홍길동",
+            student_id="2021-77779",
+            is_temporary=True,
+        )
+        db.commit()
+
+        auth_token = create_auth_token(
+            "whitespace_google_id", "whitespace@example.com", is_new=True
+        )
+        response = client.post(
+            "/auth/signup",
+            json=self.signup_payload(
+                auth_token,
+                name=" ​홍길동﻿ ",
+                student_id=temporary_user.student_id,
+            ),
+        )
+
+        assert response.status_code == 200
+        user = response.json()["data"]["user"]
+        assert user["id"] == temporary_user.id
+        assert user["is_temporary"] is False
+
     def test_signup_rejects_temporary_member_with_name_mismatch(self, client, db):
         """A mistyped student ID must not hijack another member's temporary row."""
         temporary_user = UserService.create(

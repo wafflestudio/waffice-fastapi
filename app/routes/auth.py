@@ -38,6 +38,7 @@ from app.schemas import (
     SignupRequest,
 )
 from app.services import AuditLogService, MemberService, ProjectService, UserService
+from app.utils.text import normalize_text
 
 logger = logging.getLogger(__name__)
 
@@ -572,7 +573,7 @@ async def signup(
         if student_user:
             if not student_user.is_temporary:
                 raise StudentIdAlreadyInUseError()
-            if student_user.name != request.name:
+            if normalize_text(student_user.name) != normalize_text(request.name):
                 raise StudentIdNameMismatchError()
             user = UserService.update(
                 db,
