@@ -14,10 +14,13 @@ class AuditLogService:
         action: AuditAction,
         payload: dict,
         actor_id: int | None = None,
+        created_at: int | None = None,
     ) -> AuditLog:
         entry = AuditLog(
             user_id=user_id, action=action, payload=payload, actor_id=actor_id
         )
+        if created_at is not None:
+            entry.created_at = created_at
         db.add(entry)
         db.flush()
         db.refresh(entry)

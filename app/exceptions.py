@@ -112,6 +112,18 @@ class InvalidProjectMemberFileError(AppError):
         )
 
 
+class InvalidActiveRosterError(AppError):
+    """Active-member roster upload contains a conflicting or unresolved row."""
+
+    def __init__(self, errors: list[dict], message: str = "활동회원 명부를 적용할 수 없습니다."):
+        super().__init__(
+            "INVALID_ACTIVE_ROSTER",
+            message,
+            400,
+            data={"errors": errors},
+        )
+
+
 class NoLeaderError(AppError):
     """No leader specified in project"""
 
