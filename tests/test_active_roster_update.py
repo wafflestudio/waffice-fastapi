@@ -7,6 +7,12 @@ Qualification.ACTIVE, and either just report the diff (preview) or apply it
 (apply): unmatched student_ids become temporary members, newly-matched members
 are promoted to ACTIVE ("활동회원 등록"), members dropped from the roster are
 demoted to REGULAR ("활동 기간 종료"), and members present in both keep ACTIVE.
+
+Note: there is no self-exclusion for the acting admin (by design, matching the
+spec -- unlike the project-roster bulk replace, which blocks removing oneself).
+`admin_user` is itself ACTIVE with no student_id, so it can never be matched by
+an uploaded roster and is demoted to REGULAR by every apply/preview call in
+this file -- `demoted_count` assertions below account for that +1 baseline.
 """
 
 import io
@@ -75,7 +81,7 @@ def _make_user(db: Session, *, name, student_id, qualification, **extra) -> User
         name=name,
         generation="26",
         qualification=qualification,
-        google_id=f"google_{student_id}",
+        google_id=extra.pop("google_id", f"google_{student_id}"),
         student_id=student_id,
         **extra,
     )
@@ -224,7 +230,7 @@ def test_preview_counts_new_student_as_promoted_and_new_temporary(
     data = response.json()["data"]
     assert data["promoted_count"] == 1
     assert data["new_temporary_count"] == 1
-    assert data["demoted_count"] == 0
+    assert data["demoted_count"] == 1  # admin_user itself (see module docstring)
     assert data["maintained_count"] == 0
     # Preview must not write anything.
     assert UserService.get_by_student_id(db, "2021-70001") is None
@@ -254,7 +260,7 @@ def test_preview_counts_dropped_active_as_demoted(
     response = _preview(client, admin_token, [("다른사람", "2021-70004")])
     assert response.status_code == 200
     data = response.json()["data"]
-    assert data["demoted_count"] == 1
+    assert data["demoted_count"] == 2  # 탈락 + admin_user itself
     db.refresh(active)
     assert active.qualification == Qualification.ACTIVE  # unchanged by preview
 
@@ -270,7 +276,7 @@ def test_preview_counts_retained_active_as_maintained(
     data = response.json()["data"]
     assert data["maintained_count"] == 1
     assert data["promoted_count"] == 0
-    assert data["demoted_count"] == 0
+    assert data["demoted_count"] == 1  # admin_user itself (see module docstring)
 
 
 # === Apply: actually writes, logs audit entries ===
@@ -328,7 +334,7 @@ def test_apply_demotes_dropped_active_to_regular(
     response = _apply(client, admin_token, [("다른사람", "2021-80004")])
     assert response.status_code == 200
     data = response.json()["data"]
-    assert data["demoted_count"] == 1
+    assert data["demoted_count"] == 2  # 탈락예정 + admin_user itself
     assert any(u["name"] == "탈락예정" for u in data["demoted"])
 
     db.refresh(active)
@@ -402,7 +408,7 @@ def test_apply_full_roster_transition(
     assert response.status_code == 200
     data = response.json()["data"]
     assert data["maintained_count"] == 1
-    assert data["demoted_count"] == 1
+    assert data["demoted_count"] == 2  # 탈락자 + admin_user itself
     assert data["promoted_count"] == 2  # 승격자 + 신규자
     assert data["new_temporary_count"] == 1
 
