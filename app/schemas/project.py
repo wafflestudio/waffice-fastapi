@@ -99,7 +99,7 @@ class ProjectUpdateRequest(BaseModel):
 
 
 class MemberUpdateRequest(BaseModel):
-    """Request body for updating a project member's role or position."""
+    """Request body for updating a project member's role, position, or membership dates."""
 
     role: MemberRole | None = Field(
         default=None,
@@ -109,6 +109,17 @@ class MemberUpdateRequest(BaseModel):
         default=None,
         max_length=50,
         description="New position or responsibility",
+    )
+    joined_at: date | None = Field(
+        default=None,
+        description="New date when the member joined the project",
+    )
+    left_at: date | None = Field(
+        default=None,
+        description=(
+            "New date when the member left the project. Pass null to mark it "
+            "unset (member is still active)."
+        ),
     )
 
 
