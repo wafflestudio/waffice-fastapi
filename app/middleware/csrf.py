@@ -20,6 +20,12 @@ CSRF_EXEMPT_PATHS = {
     "/openapi.json",
 }
 
+# TODO: 프론트가 모든 POST 요청에 X-Requested-With를 보내도록 통일되면 이 예외를 제거한다.
+CSRF_EXEMPT_EXACT_PATHS = {
+    "/certificates/preview",
+    "/certificates/drafts/preview",
+}
+
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
@@ -38,7 +44,10 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # Skip CSRF check for exempt paths
-        if any(request.url.path.startswith(path) for path in CSRF_EXEMPT_PATHS):
+        # TODO: CSRF_EXEMPT_EXACT_PATHS 제거 시 정확 경로 검사도 함께 제거한다.
+        if request.url.path in CSRF_EXEMPT_EXACT_PATHS or any(
+            request.url.path.startswith(path) for path in CSRF_EXEMPT_PATHS
+        ):
             return await call_next(request)
 
         # Require X-Requested-With header for state-changing requests

@@ -39,14 +39,6 @@ else:
     # Production 환경에서는 실제 도메인만 허용
     allowed_origins = [FRONTEND_ORIGIN]
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # CSRF protection - requires X-Requested-With header for state-changing requests
 # Disabled in local/dev environments for easier testing in /docs
 if ENV not in ["local", "dev"]:
@@ -56,6 +48,16 @@ if ENV not in ["local", "dev"]:
 
 # Google OAuth 에서 state, code 저장할 세션
 app.add_middleware(SessionMiddleware, secret_key=APP_SECRET_KEY)
+
+# Starlette applies the last added user middleware first. Keep CORS outermost so
+# responses produced directly by CSRF middleware still include CORS headers.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # ==============================
