@@ -58,8 +58,7 @@ router = APIRouter()
     },
 )
 async def list_projects(
-    cursor: int
-    | None = Query(
+    cursor: int | None = Query(
         None, description="Pagination cursor (project ID). Omit for first page."
     ),
     limit: int = Query(
@@ -438,15 +437,13 @@ def _sync_if_admin_team(db: Session, project: Project) -> None:
 )
 async def list_project_members(
     project_id: int,
-    status: ActivityStatus
-    | None = Query(
+    status: ActivityStatus | None = Query(
         None,
         description="Filter by activity status; omit to return all",
     ),
     cursor: int | None = Query(None, description="Membership ID pagination cursor"),
     limit: int = Query(20, ge=1, le=100),
-    keyword: str
-    | None = Query(
+    keyword: str | None = Query(
         None,
         description="Partial match on name, position, email, or GitHub username",
     ),
@@ -526,7 +523,9 @@ async def add_project_member(
     "/{project_id}/members/{user_id}",
     response_model=Response[ProjectDetail],
     summary="Update project member",
-    description="Update a member's role or position. Requires leader or admin.",
+    description=(
+        "Update a member's role, position, or membership dates. Requires leader or admin."
+    ),
     responses={
         200: {"description": "Member updated successfully"},
         400: {"description": "Cannot demote the last leader"},
@@ -543,13 +542,14 @@ async def update_project_member(
     db: Session = Depends(get_db),
 ):
     """
-    Update a project member's role or position.
+    Update a project member's role, position, or membership dates.
 
     **Requires**: Project leader or admin privileges.
 
     **Constraints:**
     - Cannot demote the last remaining leader (project must always have at least one leader)
     - Only provided fields will be updated
+    - Pass `left_at: null` explicitly to clear it (mark the member active again)
 
     **Roles:**
     - `leader`: Can manage project and its members
@@ -558,8 +558,9 @@ async def update_project_member(
     # Check permission
     project = require_leader_or_admin(project_id, current_user, db)
 
-    # Get member
-    member = MemberService.get_active(db, project_id, user_id)
+    # Get member (latest membership row, so a just-ended membership can
+    # still be corrected in the same flow, e.g. clearing left_at)
+    member = MemberService.get_latest(db, project_id, user_id)
     if not member:
         raise NotFoundError("Member not found in this project")
 
