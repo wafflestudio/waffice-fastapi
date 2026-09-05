@@ -326,3 +326,37 @@ class UserDetail(BaseModel):
 
 # Resolve the forward reference to UserBrief used in TempMemberImportResult.
 TempMemberImportResult.model_rebuild()
+
+
+# === Active-member roster update (활동회원 명부 갱신) ===
+# Parsing/validation/diffing lives in app/services/roster.py and
+# app/services/active_roster.py; the schemas below are only the response shapes.
+class ActiveRosterCounts(BaseModel):
+    """Aggregate counts of the diff between the current and uploaded roster."""
+
+    promoted_count: int = Field(description="정회원 → 활동회원으로 전환되는 회원 수 (신규 임시 회원 승격 포함)")
+    demoted_count: int = Field(description="활동회원 → 정회원으로 전환되는 회원 수")
+    maintained_count: int = Field(description="활동회원 자격이 유지되는 회원 수")
+    new_temporary_count: int = Field(
+        description="promoted_count 중 새로 생성되는 임시 회원(is_temporary) 수"
+    )
+
+
+class ActiveRosterPreview(ActiveRosterCounts):
+    """Preview of an active-roster update, computed without writing to the DB."""
+
+    reference_date: int = Field(description="자격 변경 기준일 (Unix epoch)")
+
+
+class ActiveRosterApplyResult(ActiveRosterCounts):
+    """Result of an applied active-roster update."""
+
+    reference_date: int = Field(description="자격 변경 기준일 (Unix epoch)")
+    promoted: list["UserBrief"] = Field(description="활동회원으로 전환된 회원")
+    demoted: list["UserBrief"] = Field(description="정회원으로 전환된 회원")
+    created_temporary: list["UserBrief"] = Field(
+        description="새로 생성된 임시 회원 (promoted에도 포함됨)"
+    )
+
+
+ActiveRosterApplyResult.model_rebuild()
