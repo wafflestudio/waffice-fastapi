@@ -81,7 +81,7 @@ def test_import_creates_temporary_members(
     assert user.name == "홍길동"
     assert user.student_id == "2021-10001"
     assert user.email is None
-    assert user.qualification == Qualification.PENDING
+    assert user.qualification == Qualification.ACTIVE
 
 
 def test_import_accepts_csv(
@@ -389,6 +389,7 @@ def test_is_temporary_and_null_email_exposed_via_get_user(
     assert body["student_id"] == "2021-96001"
 
 
+''' # temporary member is active member (20260906 deprecated)
 def test_temporary_member_cannot_be_approved(
     client: TestClient, db: Session, admin_token: str, admin_user: User
 ):
@@ -404,8 +405,9 @@ def test_temporary_member_cannot_be_approved(
     assert response.json()["error"] == "TEMPORARY_MEMBER_CANNOT_BE_APPROVED"
 
     user = UserService.get_by_student_id(db, "2021-97001")
-    assert user.qualification == Qualification.PENDING
+    assert user.qualification == Qualification.ACTIVE
     assert user.is_temporary is True
+'''
 
 
 def test_temporary_member_cannot_be_approved_even_to_pending(

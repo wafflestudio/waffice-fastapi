@@ -259,8 +259,11 @@ class UserDetail(BaseModel):
         description="User's display name",
         examples=["John Doe"],
     )
-    generation: str = Field(
-        description="Generation/cohort identifier",
+    generation: str | None = Field(
+        description=(
+            "Generation/cohort identifier. Null for a roster-created temporary "
+            "member whose generation wasn't provided in the upload."
+        ),
         examples=["24.5", "25.0"],
     )
     qualification: Qualification = Field(
@@ -284,8 +287,12 @@ class UserDetail(BaseModel):
     sms_notifications_agreed: bool = Field(
         description="Whether SMS information messages were accepted",
     )
-    graduation_status: str = Field(
-        description=("Graduation status of the user. One of [학부생, 졸업생, 휴학생, 대학원생]"),
+    graduation_status: str | None = Field(
+        description=(
+            "Graduation status of the user. One of [학부생, 졸업생, 휴학생, 대학원생], "
+            "or null for a roster-created temporary member whose graduation status "
+            "wasn't provided in the upload."
+        ),
         examples=["학부생", "졸업생", "휴학생", "대학원생"],
     )
     is_leader: bool = Field(description="Whether the user has leader privileges")

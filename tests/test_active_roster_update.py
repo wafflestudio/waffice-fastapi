@@ -1,8 +1,9 @@
 """Tests for the active-member roster update endpoints:
 POST /users/active-roster/preview and POST /users/active-roster/apply.
 
-Both accept an .xlsx or .csv upload (same 이름/학번 format as /users/temporary)
-plus an optional `reference_date` form field, diff it against who is currently
+Both accept an .xlsx or .csv upload (이름/학번 required; 기수/학적상태 optional,
+same format as /users/temporary plus the two extra columns) plus an optional
+`reference_date` form field, diff it against who is currently
 Qualification.ACTIVE, and either just report the diff (preview) or apply it
 (apply): unmatched student_ids become temporary members, newly-matched members
 are promoted to ACTIVE ("활동회원 등록"), members dropped from the roster are
@@ -21,7 +22,7 @@ from fastapi.testclient import TestClient
 from openpyxl import Workbook
 from sqlalchemy.orm import Session
 
-from app.models import AuditAction, Qualification, User
+from app.models import AuditAction, GraduationStatus, Qualification, User
 from app.services import AuditLogService, UserService
 
 XLSX_CT = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -79,7 +80,7 @@ def _make_user(db: Session, *, name, student_id, qualification, **extra) -> User
         db,
         email=extra.pop("email", f"{student_id}@example.com"),
         name=name,
-        generation="26",
+        generation=extra.pop("generation", "26"),
         qualification=qualification,
         google_id=extra.pop("google_id", f"google_{student_id}"),
         student_id=student_id,
@@ -424,3 +425,115 @@ def test_apply_full_roster_transition(
     new_user = UserService.get_by_student_id(db, "2021-90004")
     assert new_user.is_temporary is True
     assert new_user.qualification == Qualification.ACTIVE
+
+
+# === 기수 / 학적상태 (optional columns) ===
+_GEN_HEADERS = ("이름", "학번", "기수", "학적상태")
+
+
+def test_rejects_invalid_graduation_status_value(
+    client: TestClient, admin_token: str, admin_user: User
+):
+    response = _post_bytes(
+        client,
+        admin_token,
+        "/users/active-roster/preview",
+        _xlsx([("신규", "2021-91001", "27", "웹반생")], headers=_GEN_HEADERS),
+    )
+    assert response.status_code == 400
+    error = response.json()["data"]["errors"][0]
+    assert error["code"] == "invalid_graduation_status"
+
+
+def test_rejects_generation_too_long(
+    client: TestClient, admin_token: str, admin_user: User
+):
+    response = _post_bytes(
+        client,
+        admin_token,
+        "/users/active-roster/preview",
+        _xlsx([("신규", "2021-91002", "1" * 21, "")], headers=_GEN_HEADERS),
+    )
+    assert response.status_code == 400
+    error = response.json()["data"]["errors"][0]
+    assert error["code"] == "too_long"
+
+
+def test_new_temporary_member_defaults_generation_and_graduation_status_to_null(
+    client: TestClient, db: Session, admin_token: str, admin_user: User
+):
+    """No 기수/학적상태 columns at all -> both fields stay null, not "26"/학부생."""
+    response = _apply(client, admin_token, [("신규", "2021-91003")])
+    assert response.status_code == 200
+
+    user = UserService.get_by_student_id(db, "2021-91003")
+    assert user.generation is None
+    assert user.graduation_status is None
+
+
+def test_new_temporary_member_gets_generation_and_graduation_status_from_file(
+    client: TestClient, db: Session, admin_token: str, admin_user: User
+):
+    response = _post_bytes(
+        client,
+        admin_token,
+        "/users/active-roster/apply",
+        _xlsx([("신규", "2021-91004", "27", "대학원생")], headers=_GEN_HEADERS),
+    )
+    assert response.status_code == 200
+
+    user = UserService.get_by_student_id(db, "2021-91004")
+    assert user.generation == "27"
+    assert user.graduation_status == GraduationStatus.GRADUATE_STUDENT
+
+
+def test_apply_overwrites_matched_members_generation_and_graduation_status(
+    client: TestClient, db: Session, admin_token: str, admin_user: User
+):
+    """Existing REGULAR member being promoted also gets 기수/학적상태 updated."""
+    user = _make_user(
+        db,
+        name="승격대상",
+        student_id="2021-91005",
+        qualification=Qualification.REGULAR,
+        generation="24",
+        graduation_status=GraduationStatus.UNDERGRADUATE,
+    )
+    response = _post_bytes(
+        client,
+        admin_token,
+        "/users/active-roster/apply",
+        _xlsx([("승격대상", "2021-91005", "28", "졸업생")], headers=_GEN_HEADERS),
+    )
+    assert response.status_code == 200
+
+    db.refresh(user)
+    assert user.qualification == Qualification.ACTIVE
+    assert user.generation == "28"
+    assert user.graduation_status == GraduationStatus.GRADUATED
+
+
+def test_apply_leaves_existing_generation_untouched_when_file_row_is_blank(
+    client: TestClient, db: Session, admin_token: str, admin_user: User
+):
+    """A blank 기수/학적상태 cell on a matched row must not wipe real data."""
+    user = _make_user(
+        db,
+        name="유지대상",
+        student_id="2021-91006",
+        qualification=Qualification.ACTIVE,
+        generation="25",
+        graduation_status=GraduationStatus.GRADUATE_STUDENT,
+    )
+    response = _post_bytes(
+        client,
+        admin_token,
+        "/users/active-roster/apply",
+        _xlsx([("유지대상", "2021-91006", "", "")], headers=_GEN_HEADERS),
+    )
+    assert response.status_code == 200
+
+    db.refresh(user)
+    assert user.qualification == Qualification.ACTIVE
+    assert user.generation == "25"
+    assert user.graduation_status == GraduationStatus.GRADUATE_STUDENT

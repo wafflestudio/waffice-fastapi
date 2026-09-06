@@ -35,7 +35,9 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
 
     # Profile (required)
     name = Column(String(100), nullable=False)
-    generation = Column(String(20), nullable=False, default="26")
+    # Nullable so a roster-created temporary member whose generation wasn't
+    # provided in the upload doesn't get a fake "26" that looks like real data.
+    generation = Column(String(20), nullable=True, default="26")
 
     # Temporary member: created from an admin roster import with only name and
     # student_id populated. Has no email/OAuth identity until the real person
@@ -95,8 +97,11 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     github_username = Column(String(100), nullable=True)
     slack_id = Column(String(100), nullable=True)
     websites = Column(JSON, nullable=True)
+    # Nullable for the same reason as `generation` above -- a roster-created
+    # temporary member with no graduation status provided stays NULL instead
+    # of a fake "학부생".
     graduation_status = Column(
-        Enum(GraduationStatus), nullable=False, default=GraduationStatus.UNDERGRADUATE
+        Enum(GraduationStatus), nullable=True, default=GraduationStatus.UNDERGRADUATE
     )
 
     # Academic / professional info

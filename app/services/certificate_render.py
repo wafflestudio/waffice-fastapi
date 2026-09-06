@@ -373,7 +373,9 @@ def to_ink_signature_png(
     gray = src.convert("L")
 
     cutoff = 205
-    span = cutoff * 0.72
+    # span이 작을수록 획의 중간 밝기 픽셀도 더 빨리 완전 불투명에 도달해
+    # 잉크가 진하게 찍힌다 (0.72 -> 0.4: 연하게 나온다는 피드백을 반영).
+    span = cutoff * 0.4
 
     def _alpha(p: int) -> int:
         if p >= cutoff:
