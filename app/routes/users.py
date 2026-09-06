@@ -48,7 +48,11 @@ from app.services import (
     UserService,
 )
 from app.services.active_roster import ActiveRosterDiff, ActiveRosterResolvedRow
-from app.services.roster import MAX_ROSTER_FILE_BYTES, parse_member_roster
+from app.services.roster import (
+    MAX_ROSTER_FILE_BYTES,
+    parse_active_member_roster,
+    parse_member_roster,
+)
 
 router = APIRouter()
 
@@ -64,27 +68,6 @@ def _skip_message(name: str, student_id: str, reason: str) -> str:
     if reason == "duplicate_in_request":
         return f'"{student_id}"이(가) 파일에 중복되어 있습니다.'
     return f'"{name or student_id}"의 데이터 형식이 올바르지 않습니다.'
-
-
-def _invalid_row_errors(invalid_rows: list[tuple[str, str, str]]) -> list[dict]:
-    """
-    Turn parse_member_roster's (name, student_id, reason) rows into blocking
-    {row, field, code, message} errors. Unlike /users/temporary (which skips
-    such rows and keeps going), an active-roster upload must reject the whole
-    file so an admin never partially reconciles a roster.
-    """
-    errors = []
-    for index, (name, student_id, reason) in enumerate(invalid_rows, start=1):
-        field = "학번" if reason == "missing_student_id" else "이름"
-        errors.append(
-            {
-                "row": index,
-                "field": field,
-                "code": reason,
-                "message": _skip_message(name, student_id, reason),
-            }
-        )
-    return errors
 
 
 def _active_roster_preview(
@@ -106,9 +89,9 @@ async def _parse_and_diff_active_roster(
     if len(content) > MAX_ROSTER_FILE_BYTES:
         raise RosterFileTooLargeError()
 
-    valid_rows, invalid_rows = parse_member_roster(content, file.filename or "")
-    if invalid_rows:
-        raise InvalidActiveRosterError(_invalid_row_errors(invalid_rows))
+    valid_rows, row_errors = parse_active_member_roster(content, file.filename or "")
+    if row_errors:
+        raise InvalidActiveRosterError(row_errors)
 
     resolved, errors = ActiveRosterService.resolve(db, valid_rows)
     if errors:
@@ -484,7 +467,7 @@ async def import_temporary_members(
         400: {
             "description": (
                 "파일 양식이 올바르지 않습니다 / 이름·학번 헤더 누락 / 행 누락 데이터 / "
-                "준회원·대기 회원 포함 / 학번 중복 또는 모호"
+                "준회원·대기 회원 포함 / 학번 중복 또는 모호 / 잘못된 학적상태 값"
             )
         },
         401: {"description": "Not authenticated"},
@@ -498,7 +481,9 @@ async def preview_active_roster(
         ...,
         description=(
             "활동회원 명부 파일 (.xlsx 또는 .csv). 첫 행은 헤더이며 이름 열(이름/성명/name)과 "
-            "학번 열(학번/student_id/sid)이 있어야 합니다."
+            "학번 열(학번/student_id/sid)이 있어야 합니다. 기수(기수/generation)와 "
+            "학적상태(학적상태/graduation_status, 값은 학부생/졸업생/휴학생/대학원생 중 하나)는 "
+            "선택 열이다."
         ),
     ),
     reference_date: int
@@ -513,13 +498,19 @@ async def preview_active_roster(
     **Requires**: Admin privileges.
 
     The whole file is rejected (400) if any row is missing a name/student_id,
-    a student_id is duplicated in the file or ambiguous in the DB, or a
+    a student_id is duplicated in the file or ambiguous in the DB, a
+    학적상태 value doesn't match one of 학부생/졸업생/휴학생/대학원생, or a
     matched member is currently ASSOCIATE or PENDING -- those must be resolved
     outside the active-roster flow first. Otherwise returns aggregate counts
     for the confirmation modal: members newly becoming ACTIVE (including new
     temporary members created for unmatched student_ids), members losing
     ACTIVE status (demoted to REGULAR), and members whose ACTIVE status is
     unchanged. Call `/users/active-roster/apply` with the same file to commit.
+
+    기수/학적상태 columns are optional and, when applying, are only written
+    for rows that actually provide a value -- a blank cell never erases an
+    existing member's data, but does leave a brand-new temporary member's
+    field as null.
     """
     _resolved, diff = await _parse_and_diff_active_roster(file, db)
     return Response(
@@ -541,7 +532,7 @@ async def preview_active_roster(
         400: {
             "description": (
                 "파일 양식이 올바르지 않습니다 / 이름·학번 헤더 누락 / 행 누락 데이터 / "
-                "준회원·대기 회원 포함 / 학번 중복 또는 모호"
+                "준회원·대기 회원 포함 / 학번 중복 또는 모호 / 잘못된 학적상태 값"
             )
         },
         401: {"description": "Not authenticated"},
@@ -555,7 +546,9 @@ async def apply_active_roster(
         ...,
         description=(
             "활동회원 명부 파일 (.xlsx 또는 .csv). 첫 행은 헤더이며 이름 열(이름/성명/name)과 "
-            "학번 열(학번/student_id/sid)이 있어야 합니다."
+            "학번 열(학번/student_id/sid)이 있어야 합니다. 기수(기수/generation)와 "
+            "학적상태(학적상태/graduation_status, 값은 학부생/졸업생/휴학생/대학원생 중 하나)는 "
+            "선택 열이다."
         ),
     ),
     reference_date: int
@@ -575,6 +568,11 @@ async def apply_active_roster(
     REGULAR with reason "활동 기간 종료") is logged to the user's audit log,
     backdated to `reference_date` (defaults to now) so a late-entered roster
     still reflects the intended effective date.
+
+    기수/학적상태 in the file are written to both new and existing matched
+    members, but only where a row provides a value -- omitting the column
+    entirely, or leaving a cell blank, never overwrites an existing member's
+    data (it only leaves a new temporary member's field null).
     """
     resolved, diff = await _parse_and_diff_active_roster(file, db)
     effective_date = reference_date or int(time.time())
