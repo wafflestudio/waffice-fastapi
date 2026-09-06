@@ -31,6 +31,9 @@ jobs:
         run: |
           echo "timestamp=$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
 
+      - name: Set image tag
+        run: echo "IMAGE_TAG=${{ steps.meta.outputs.timestamp }}" >> $GITHUB_ENV
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
@@ -50,4 +53,12 @@ jobs:
         run: |
           echo "Image pushed successfully to ${{ env.ENVIRONMENT }}!"
           echo "Repository: ${{ env.OCIR_REGISTRY }}/${{ env.OCIR_NAMESPACE }}/${{ env.OCIR_REPOSITORY }}"
-          echo "Tag: ${{ steps.meta.outputs.timestamp }}"
+          echo "Tag: ${{ env.IMAGE_TAG }}"
+
+      - name: Update GitOps image tag
+        uses: wafflestudio/waffle-world-oci/.github/actions/update-image@main
+        with:
+          image: ${{ env.OCIR_REGISTRY }}/${{ env.OCIR_NAMESPACE }}/${{ env.OCIR_REPOSITORY }}
+          tag: ${{ env.IMAGE_TAG }}
+          overlay-path: argocd/waffice-prod
+          private-key: ${{ secrets.DEPLOYER_APP_PRIVATE_KEY }}
