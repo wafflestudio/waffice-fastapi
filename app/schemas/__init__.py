@@ -24,7 +24,7 @@ from app.schemas.certificate import (
     DraftCertificateCreate,
     SignatureDetail,
 )
-from app.schemas.common import CursorPage, Response, Website
+from app.schemas.common import CursorPage, Page, Response, Website
 from app.schemas.project import (
     MemberDetail,
     MemberInput,
@@ -56,6 +56,9 @@ from app.schemas.request import (
     ReviewTarget,
 )
 from app.schemas.user import (
+    ActiveRosterApplyResult,
+    ActiveRosterCounts,
+    ActiveRosterPreview,
     ApproveRequest,
     ProfileUpdateRequest,
     SignupRequest,
@@ -67,6 +70,9 @@ from app.schemas.user import (
 )
 
 __all__ = [
+    "ActiveRosterApplyResult",
+    "ActiveRosterCounts",
+    "ActiveRosterPreview",
     "ActivityCreateRequest",
     "ActivityDetail",
     "ActivityHistoryAdminItem",
@@ -93,6 +99,7 @@ __all__ = [
     "CertificateOptions",
     "CertificateSummary",
     "CursorPage",
+    "Page",
     "DevSigninRequest",
     "DraftCertificateCreate",
     "GoogleTokenRequest",

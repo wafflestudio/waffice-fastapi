@@ -7,7 +7,7 @@ from app.models import User
 from app.schemas import (
     ActivityHistoryAdminItem,
     ActivityHistoryStatus,
-    CursorPage,
+    Page,
     Response,
     UserBrief,
 )
@@ -18,25 +18,19 @@ router = APIRouter()
 
 @router.get(
     "",
-    response_model=Response[CursorPage[ActivityHistoryAdminItem]],
+    response_model=Response[Page[ActivityHistoryAdminItem]],
     summary="List all users' activities",
-    description=(
-        "Returns persisted activities for all users using an ID-based cursor. "
-        "Admin only."
-    ),
+    description="Returns persisted activities for all users with offset-based pagination. Admin only.",
 )
 async def list_activities(
-    cursor: int
-    | None = Query(
-        default=None,
-        ge=1,
-        description="Last activity ID from the previous page.",
+    page: int = Query(default=1, ge=1, description="Page number (1-based)."),
+    size: int = Query(
+        default=10, ge=1, le=100, description="Number of items per page."
     ),
-    limit: int = Query(default=20, ge=1, le=100),
     _admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    activities, next_cursor = ActivityService.list_all(db, cursor=cursor, limit=limit)
+    activities, total = ActivityService.list_all_paged(db, page=page, size=size)
     pending_updates = ActivityService.pending_updates_by_activity(
         db, [activity.id for activity in activities]
     )
@@ -69,5 +63,5 @@ async def list_activities(
     ]
     return Response(
         ok=True,
-        data=CursorPage(items=items, next_cursor=next_cursor),
+        data=Page(items=items, total=total, page=page, size=size),
     )

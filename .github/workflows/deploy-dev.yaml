@@ -53,12 +53,12 @@ jobs:
         run: |
           echo "Image pushed successfully to ${{ env.ENVIRONMENT }}!"
           echo "Repository: ${{ env.OCIR_REGISTRY }}/${{ env.OCIR_NAMESPACE }}/${{ env.OCIR_REPOSITORY }}"
-          echo "Tag: ${{ env.IMAGE_TAG }}"
+          echo "Tag: ${{ steps.meta.outputs.timestamp }}"
 
       - name: Update GitOps image tag
         uses: wafflestudio/waffle-world-oci/.github/actions/update-image@main
         with:
           image: ${{ env.OCIR_REGISTRY }}/${{ env.OCIR_NAMESPACE }}/${{ env.OCIR_REPOSITORY }}
-          tag: ${{ env.IMAGE_TAG }}
+          tag: ${{ steps.meta.outputs.timestamp }}
           overlay-path: argocd/waffice-dev
           private-key: ${{ secrets.DEPLOYER_APP_PRIVATE_KEY }}

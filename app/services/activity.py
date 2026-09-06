@@ -22,22 +22,22 @@ class ActivityService:
         )
 
     @staticmethod
-    def list_all(
-        db: Session, *, cursor: int | None, limit: int
-    ) -> tuple[list[UserActivity], int | None]:
-        """List persisted activities using the indexed primary key as a cursor."""
+    def list_all_paged(
+        db: Session, *, page: int, size: int
+    ) -> tuple[list[UserActivity], int]:
+        """List persisted activities using offset-based pagination."""
         query = db.query(UserActivity).options(
             joinedload(UserActivity.user),
             joinedload(UserActivity.project),
         )
-        if cursor is not None:
-            query = query.filter(UserActivity.id < cursor)
-
-        items = query.order_by(UserActivity.id.desc()).limit(limit + 1).all()
-        has_more = len(items) > limit
-        page_items = items[:limit]
-        next_cursor = page_items[-1].id if has_more and page_items else None
-        return page_items, next_cursor
+        total = query.count()
+        items = (
+            query.order_by(UserActivity.id.desc())
+            .offset((page - 1) * size)
+            .limit(size)
+            .all()
+        )
+        return items, total
 
     @staticmethod
     def pending_updates_by_activity(

@@ -1,4 +1,6 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, UploadFile
+import time
+
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
@@ -9,6 +11,7 @@ from app.deps.auth import (
     require_regular,
 )
 from app.exceptions import (
+    InvalidActiveRosterError,
     InvalidQualificationError,
     NotFoundError,
     RosterFileTooLargeError,
@@ -16,6 +19,8 @@ from app.exceptions import (
 )
 from app.models import AuditAction, Qualification, User
 from app.schemas import (
+    ActiveRosterApplyResult,
+    ActiveRosterPreview,
     ActivityCreateRequest,
     ActivityDetail,
     ActivityHistoryItem,
@@ -35,12 +40,14 @@ from app.schemas import (
     UserUpdateRequest,
 )
 from app.services import (
+    ActiveRosterService,
     ActivityService,
     AuditLogService,
     EmailService,
     ProjectService,
     UserService,
 )
+from app.services.active_roster import ActiveRosterDiff, ActiveRosterResolvedRow
 from app.services.roster import MAX_ROSTER_FILE_BYTES, parse_member_roster
 
 router = APIRouter()
@@ -57,6 +64,58 @@ def _skip_message(name: str, student_id: str, reason: str) -> str:
     if reason == "duplicate_in_request":
         return f'"{student_id}"이(가) 파일에 중복되어 있습니다.'
     return f'"{name or student_id}"의 데이터 형식이 올바르지 않습니다.'
+
+
+def _invalid_row_errors(invalid_rows: list[tuple[str, str, str]]) -> list[dict]:
+    """
+    Turn parse_member_roster's (name, student_id, reason) rows into blocking
+    {row, field, code, message} errors. Unlike /users/temporary (which skips
+    such rows and keeps going), an active-roster upload must reject the whole
+    file so an admin never partially reconciles a roster.
+    """
+    errors = []
+    for index, (name, student_id, reason) in enumerate(invalid_rows, start=1):
+        field = "학번" if reason == "missing_student_id" else "이름"
+        errors.append(
+            {
+                "row": index,
+                "field": field,
+                "code": reason,
+                "message": _skip_message(name, student_id, reason),
+            }
+        )
+    return errors
+
+
+def _active_roster_preview(
+    diff: ActiveRosterDiff, reference_date: int
+) -> ActiveRosterPreview:
+    return ActiveRosterPreview(
+        reference_date=reference_date,
+        promoted_count=len(diff.promote) + len(diff.to_create),
+        demoted_count=len(diff.demote),
+        maintained_count=len(diff.maintain),
+        new_temporary_count=len(diff.to_create),
+    )
+
+
+async def _parse_and_diff_active_roster(
+    file: UploadFile, db: Session
+) -> tuple[list[ActiveRosterResolvedRow], ActiveRosterDiff]:
+    content = await file.read(MAX_ROSTER_FILE_BYTES + 1)
+    if len(content) > MAX_ROSTER_FILE_BYTES:
+        raise RosterFileTooLargeError()
+
+    valid_rows, invalid_rows = parse_member_roster(content, file.filename or "")
+    if invalid_rows:
+        raise InvalidActiveRosterError(_invalid_row_errors(invalid_rows))
+
+    resolved, errors = ActiveRosterService.resolve(db, valid_rows)
+    if errors:
+        raise InvalidActiveRosterError(errors)
+
+    diff = ActiveRosterService.diff(db, resolved)
+    return resolved, diff
 
 
 # === Own profile ===
@@ -410,6 +469,132 @@ async def import_temporary_members(
         ],
     )
     return Response(ok=True, data=result)
+
+
+@router.post(
+    "/active-roster/preview",
+    response_model=Response[ActiveRosterPreview],
+    summary="Preview an active-member roster update (.xlsx / .csv upload)",
+    description=(
+        "Upload the new 활동회원 명부 and see the diff against who is currently "
+        "ACTIVE, without writing anything. Admin only."
+    ),
+    responses={
+        200: {"description": "Preview computed successfully"},
+        400: {
+            "description": (
+                "파일 양식이 올바르지 않습니다 / 이름·학번 헤더 누락 / 행 누락 데이터 / "
+                "준회원·대기 회원 포함 / 학번 중복 또는 모호"
+            )
+        },
+        401: {"description": "Not authenticated"},
+        403: {"description": "Admin access required"},
+        413: {"description": "파일 용량 초과 (최대 5MB)"},
+        422: {"description": "명부에 회원 데이터가 없습니다"},
+    },
+)
+async def preview_active_roster(
+    file: UploadFile = File(
+        ...,
+        description=(
+            "활동회원 명부 파일 (.xlsx 또는 .csv). 첫 행은 헤더이며 이름 열(이름/성명/name)과 "
+            "학번 열(학번/student_id/sid)이 있어야 합니다."
+        ),
+    ),
+    reference_date: int
+    | None = Form(None, description="자격 변경 기준일 (Unix epoch). 생략 시 현재 시각."),
+    _admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Compute (without applying) the diff between the current ACTIVE roster and
+    an uploaded 활동회원 명부.
+
+    **Requires**: Admin privileges.
+
+    The whole file is rejected (400) if any row is missing a name/student_id,
+    a student_id is duplicated in the file or ambiguous in the DB, or a
+    matched member is currently ASSOCIATE or PENDING -- those must be resolved
+    outside the active-roster flow first. Otherwise returns aggregate counts
+    for the confirmation modal: members newly becoming ACTIVE (including new
+    temporary members created for unmatched student_ids), members losing
+    ACTIVE status (demoted to REGULAR), and members whose ACTIVE status is
+    unchanged. Call `/users/active-roster/apply` with the same file to commit.
+    """
+    _resolved, diff = await _parse_and_diff_active_roster(file, db)
+    return Response(
+        ok=True,
+        data=_active_roster_preview(diff, reference_date or int(time.time())),
+    )
+
+
+@router.post(
+    "/active-roster/apply",
+    response_model=Response[ActiveRosterApplyResult],
+    summary="Apply an active-member roster update (.xlsx / .csv upload)",
+    description=(
+        "Upload the new 활동회원 명부 and atomically apply the diff against who "
+        "is currently ACTIVE. Admin only."
+    ),
+    responses={
+        200: {"description": "Roster applied successfully"},
+        400: {
+            "description": (
+                "파일 양식이 올바르지 않습니다 / 이름·학번 헤더 누락 / 행 누락 데이터 / "
+                "준회원·대기 회원 포함 / 학번 중복 또는 모호"
+            )
+        },
+        401: {"description": "Not authenticated"},
+        403: {"description": "Admin access required"},
+        413: {"description": "파일 용량 초과 (최대 5MB)"},
+        422: {"description": "명부에 회원 데이터가 없습니다"},
+    },
+)
+async def apply_active_roster(
+    file: UploadFile = File(
+        ...,
+        description=(
+            "활동회원 명부 파일 (.xlsx 또는 .csv). 첫 행은 헤더이며 이름 열(이름/성명/name)과 "
+            "학번 열(학번/student_id/sid)이 있어야 합니다."
+        ),
+    ),
+    reference_date: int
+    | None = Form(None, description="자격 변경 기준일 (Unix epoch). 생략 시 현재 시각."),
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Apply the diff between the current ACTIVE roster and an uploaded
+    활동회원 명부, in one transaction.
+
+    **Requires**: Admin privileges.
+
+    Same validation as `/users/active-roster/preview`. Unmatched student_ids
+    become new temporary members (`is_temporary=True`); every qualification
+    change (promotion to ACTIVE with reason "활동회원 등록", or demotion to
+    REGULAR with reason "활동 기간 종료") is logged to the user's audit log,
+    backdated to `reference_date` (defaults to now) so a late-entered roster
+    still reflects the intended effective date.
+    """
+    resolved, diff = await _parse_and_diff_active_roster(file, db)
+    effective_date = reference_date or int(time.time())
+    result = ActiveRosterService.apply(
+        db, diff, reference_date=effective_date, actor_id=admin.id
+    )
+
+    apply_result = ActiveRosterApplyResult(
+        reference_date=effective_date,
+        promoted_count=len(result["promoted"]),
+        demoted_count=len(result["demoted"]),
+        maintained_count=len(result["maintained"]),
+        new_temporary_count=len(result["created_temporary"]),
+        promoted=[UserBrief.model_validate(u) for u in result["promoted"]],
+        demoted=[UserBrief.model_validate(u) for u in result["demoted"]],
+        created_temporary=[
+            UserBrief.model_validate(u) for u in result["created_temporary"]
+        ],
+    )
+    return Response(ok=True, data=apply_result)
 
 
 @router.get(

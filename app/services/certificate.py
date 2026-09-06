@@ -227,7 +227,16 @@ def _get_current_president(db: Session) -> User | None:
     명이 동시에 `is_president=True`일 수 있다. 그런 경우 정렬 기준 없는
     `.first()`는 DB 엔진/실행 계획에 따라 비결정적이므로, 대신 audit log
     (`PROJECT_JOINED`/`PROJECT_ROLE_CHANGED`)에서 "운영팀 팀장이 된" 시점이
-    가장 최근인 사람을 결정론적으로 고른다."""
+    가장 최근인 사람을 결정론적으로 고른다.
+
+    이 audit log는 `MemberService.add`/`change`를 거칠 때만 남는다 --
+    운영팀 프로젝트를 처음 만든 마이그레이션은 당시 `is_president=1`이던
+    유저들을 raw SQL로 바로 `project_members`에 넣어서 이 로그가 없다.
+    그래서 해당자들 사이에서는 "가장 최근에 임명된 사람"을 가릴 audit log가
+    아예 없을 수 있다 -- 그 경우 서명을 가장 최근에 등록/갱신한 사람을
+    우선한다 (아래 폴백 참고): 실제로 지금 서명을 쓰고 있는 사람일 가능성이
+    가장 높은 신호이고, 근거 없는 tie-break로 서명 없는 사람을 골라 증명서
+    발급이 막히는 것도 피할 수 있다."""
     from app.models import AuditLog
     from app.models.enums import AuditAction
     from app.services.project import ProjectService
@@ -268,7 +277,24 @@ def _get_current_president(db: Session) -> User | None:
                 return presidents_by_id[event.user_id]
 
     # Fallback (no matching "became leader" event found, or no admin team
-    # project at all) -- pick deterministically rather than arbitrarily.
+    # project at all) -- prefer whoever registered/updated their signature
+    # most recently. `CertificateSignature.updated_at` bumps every time
+    # `SignatureService.upsert` replaces the image (TimestampMixin's
+    # `onupdate`), so this is a direct signal of "who is actually acting as
+    # president right now", independent of the audit-log gap above.
+    latest_signature = (
+        db.query(CertificateSignature)
+        .filter(CertificateSignature.user_id.in_(presidents_by_id.keys()))
+        .order_by(
+            CertificateSignature.updated_at.desc(), CertificateSignature.id.desc()
+        )
+        .first()
+    )
+    if latest_signature is not None:
+        return presidents_by_id[latest_signature.user_id]
+
+    # Still ambiguous (nobody has a signature on file) -- pick
+    # deterministically rather than arbitrarily.
     return min(presidents, key=lambda president: president.id)
 
 
