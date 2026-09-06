@@ -161,7 +161,12 @@ class UserService:
                 skipped.append((name, student_id, "already_exists"))
                 continue
 
-            user = User(name=name, student_id=student_id, is_temporary=True)
+            user = User(
+                name=name,
+                student_id=student_id,
+                is_temporary=True,
+                qualification=Qualification.ACTIVE,
+            )
             db.add(user)
             created.append(user)
 
