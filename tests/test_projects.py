@@ -339,6 +339,76 @@ def test_member_patch_distinguishes_omitted_and_null_position(
     )
 
 
+def test_member_patch_updates_joined_and_left_at(
+    client: TestClient,
+    db: Session,
+    admin_token: str,
+    admin_user: User,
+    regular_user: User,
+):
+    project_id = _create_project(
+        client,
+        admin_token,
+        "Membership Dates Project",
+        [
+            {"user_id": admin_user.id, "role": "leader"},
+            {"user_id": regular_user.id, "role": "member", "position": "Backend"},
+        ],
+    )
+
+    # joined_at alone doesn't end the membership, so it still shows up in
+    # the (active-only) response.
+    update_joined_at = client.patch(
+        f"/projects/{project_id}/members/{regular_user.id}",
+        json={"joined_at": "2025-01-01"},
+        headers=_auth(admin_token),
+    )
+    assert update_joined_at.status_code == 200
+    member = next(
+        item
+        for item in update_joined_at.json()["data"]["members"]
+        if item["user"]["id"] == regular_user.id
+    )
+    assert member["joined_at"] == "2025-01-01"
+
+    # Setting left_at ends the membership, so ProjectDetail.members (active
+    # only) no longer includes this member -- verify via the DB row instead.
+    update_left_at = client.patch(
+        f"/projects/{project_id}/members/{regular_user.id}",
+        json={"left_at": "2025-06-30"},
+        headers=_auth(admin_token),
+    )
+    assert update_left_at.status_code == 200
+    assert not any(
+        item["user"]["id"] == regular_user.id
+        for item in update_left_at.json()["data"]["members"]
+    )
+    ended = (
+        db.query(ProjectMember)
+        .filter_by(project_id=project_id, user_id=regular_user.id)
+        .one()
+    )
+    assert ended.joined_at.isoformat() == "2025-01-01"
+    assert ended.left_at.isoformat() == "2025-06-30"
+
+    # left_at must be explicitly clearable by sending null (member active again)
+    clear_left_at = client.patch(
+        f"/projects/{project_id}/members/{regular_user.id}",
+        json={"left_at": None},
+        headers=_auth(admin_token),
+    )
+    assert clear_left_at.status_code == 200
+    member = next(
+        item
+        for item in clear_left_at.json()["data"]["members"]
+        if item["user"]["id"] == regular_user.id
+    )
+    assert member["left_at"] is None
+    updated = MemberService.get_active(db, project_id, regular_user.id)
+    assert updated.joined_at.isoformat() == "2025-01-01"
+    assert updated.left_at is None
+
+
 def test_global_leader_flag_tracks_active_project_leaderships(
     client: TestClient,
     db: Session,

@@ -12,6 +12,7 @@ from openpyxl.utils.exceptions import InvalidFileException
 
 from app.exceptions import EmptyRosterError, InvalidRosterFileError, RosterTooLargeError
 from app.models import MemberRole
+from app.utils.text import normalize_text
 
 MAX_ROWS = 2000
 MAX_ROSTER_FILE_BYTES = 5 * 1024 * 1024
@@ -25,9 +26,6 @@ _MAX_POSITION = 50
 # Header aliases (normalized: lowercased, non-alphanumeric/non-Hangul stripped).
 _NAME_HEADERS = {"이름", "성명", "성함", "name"}
 _STUDENT_ID_HEADERS = {"학번", "studentid", "sid", "학번sid"}
-
-# Zero-width / format chars that str.strip() does not treat as whitespace (e.g. BOM).
-_ZERO_WIDTH = "\u200b\u200c\u200d\u2060\ufeff\u00ad"
 
 PROJECT_MEMBER_HEADERS = ("이름", "이메일", "학번", "역할", "포지션")
 _PROJECT_MEMBER_ROLES = {"팀장": MemberRole.LEADER, "팀원": MemberRole.MEMBER}
@@ -74,10 +72,6 @@ def _cell_to_str(value: object) -> str:
     if isinstance(value, int):
         return str(value)
     return str(value).strip()
-
-
-def _normalize(value: str) -> str:
-    return value.strip().strip(_ZERO_WIDTH).strip()
 
 
 def _xlsx_rows(content: bytes) -> Iterator[Sequence[object]]:
@@ -166,8 +160,10 @@ def parse_member_roster(
     invalid: list[tuple[str, str, str]] = []
     count = 0
     for row in rows:
-        name = _normalize(_cell_to_str(row[name_idx]) if name_idx < len(row) else "")
-        student_id = _normalize(
+        name = normalize_text(
+            _cell_to_str(row[name_idx]) if name_idx < len(row) else ""
+        )
+        student_id = normalize_text(
             _cell_to_str(row[student_id_idx]) if student_id_idx < len(row) else ""
         )
         if not name and not student_id:
@@ -232,7 +228,7 @@ def parse_project_member_roster(
     count = 0
     for row_number, row in enumerate(rows, start=2):
         values = {
-            header_name: _normalize(
+            header_name: normalize_text(
                 _cell_to_str(row[indexes[_norm_header(header_name)]])
                 if indexes[_norm_header(header_name)] < len(row)
                 else ""
@@ -375,7 +371,7 @@ def parse_multi_project_member_roster(
     parsed: list[MultiProjectMemberRosterRow] = []
     for row_number, row in enumerate(rows, start=2):
         values = {
-            header_name: _normalize(
+            header_name: normalize_text(
                 _cell_to_str(row[indexes[_norm_header(header_name)]])
                 if indexes[_norm_header(header_name)] < len(row)
                 else ""

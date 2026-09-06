@@ -84,6 +84,29 @@ class MemberService:
         )
 
     @staticmethod
+    def get_latest(db: Session, project_id: int, user_id: int) -> ProjectMember | None:
+        """
+        Get the most relevant membership row for a user in a project: the
+        active one if there is one, otherwise the most recently created row
+        (a user can have multiple past memberships from rejoining).
+
+        Used by the member-edit PATCH endpoint so an admin can still correct
+        joined_at/left_at on a membership that was just ended in the same
+        flow, which get_active alone can no longer see.
+        """
+        return (
+            db.query(ProjectMember)
+            .filter(
+                and_(
+                    ProjectMember.project_id == project_id,
+                    ProjectMember.user_id == user_id,
+                )
+            )
+            .order_by(ProjectMember.left_at.is_(None).desc(), ProjectMember.id.desc())
+            .first()
+        )
+
+    @staticmethod
     def list_active(db: Session, project_id: int) -> list[ProjectMember]:
         """List all active members of a project"""
         return (
@@ -276,11 +299,13 @@ class MemberService:
         actor_id: int,
         role: MemberRole | None = None,
         position: str | None | object = _UNSET,
+        joined_at: date | None | object = _UNSET,
+        left_at: date | None | object = _UNSET,
         *,
         enforce_guards: bool = True,
     ) -> ProjectMember:
         """
-        Update the existing membership's role/position without changing its dates.
+        Update the existing membership's role/position/dates.
         Logs the change in audit history.
 
         Raises:
@@ -292,10 +317,19 @@ class MemberService:
         """
         old_role = member.role
         old_position = member.position
+        old_joined_at = member.joined_at
+        old_left_at = member.left_at
         new_role = role if role is not None else old_role
         new_position = old_position if position is _UNSET else position
+        new_joined_at = old_joined_at if joined_at is _UNSET else joined_at
+        new_left_at = old_left_at if left_at is _UNSET else left_at
 
-        if old_role == new_role and old_position == new_position:
+        if (
+            old_role == new_role
+            and old_position == new_position
+            and old_joined_at == new_joined_at
+            and old_left_at == new_left_at
+        ):
             # No change, return existing membership
             return member
 
@@ -311,6 +345,8 @@ class MemberService:
 
         member.role = new_role
         member.position = new_position
+        member.joined_at = new_joined_at
+        member.left_at = new_left_at
         db.flush()
         if old_role != new_role:
             MemberService.sync_leader_flag(db, member.user_id)
@@ -328,6 +364,12 @@ class MemberService:
                 "to_role": member.role.value,
                 "from_position": old_position,
                 "to_position": member.position,
+                "from_joined_at": old_joined_at.isoformat() if old_joined_at else None,
+                "to_joined_at": (
+                    member.joined_at.isoformat() if member.joined_at else None
+                ),
+                "from_left_at": old_left_at.isoformat() if old_left_at else None,
+                "to_left_at": member.left_at.isoformat() if member.left_at else None,
             },
             actor_id=actor_id,
         )

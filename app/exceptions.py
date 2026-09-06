@@ -112,6 +112,18 @@ class InvalidProjectMemberFileError(AppError):
         )
 
 
+class InvalidActiveRosterError(AppError):
+    """Active-member roster upload contains a conflicting or unresolved row."""
+
+    def __init__(self, errors: list[dict], message: str = "활동회원 명부를 적용할 수 없습니다."):
+        super().__init__(
+            "INVALID_ACTIVE_ROSTER",
+            message,
+            400,
+            data={"errors": errors},
+        )
+
+
 class NoLeaderError(AppError):
     """No leader specified in project"""
 
@@ -154,6 +166,15 @@ class StudentIdAlreadyInUseError(AppError):
 
     def __init__(self, message: str = "Student ID is already in use"):
         super().__init__("STUDENT_ID_ALREADY_IN_USE", message, 409)
+
+
+class StudentIdNameMismatchError(AppError):
+    """Student ID belongs to a pre-registered member whose name doesn't match"""
+
+    def __init__(
+        self, message: str = "Name does not match the pre-registered student ID"
+    ):
+        super().__init__("STUDENT_ID_NAME_MISMATCH", message, 409)
 
 
 class InvalidApprovalRequestError(AppError):

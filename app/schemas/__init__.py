@@ -56,6 +56,9 @@ from app.schemas.request import (
     ReviewTarget,
 )
 from app.schemas.user import (
+    ActiveRosterApplyResult,
+    ActiveRosterCounts,
+    ActiveRosterPreview,
     ApproveRequest,
     ProfileUpdateRequest,
     SignupRequest,
@@ -67,6 +70,9 @@ from app.schemas.user import (
 )
 
 __all__ = [
+    "ActiveRosterApplyResult",
+    "ActiveRosterCounts",
+    "ActiveRosterPreview",
     "ActivityCreateRequest",
     "ActivityDetail",
     "ActivityHistoryAdminItem",
