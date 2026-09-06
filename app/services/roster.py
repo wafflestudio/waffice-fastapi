@@ -11,7 +11,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.utils.exceptions import InvalidFileException
 
 from app.exceptions import EmptyRosterError, InvalidRosterFileError, RosterTooLargeError
-from app.models import MemberRole
+from app.models import GraduationStatus, MemberRole
 from app.utils.text import normalize_text
 
 MAX_ROWS = 2000
@@ -22,10 +22,14 @@ _MAX_NAME = 100
 _MAX_EMAIL = 255
 _MAX_STUDENT_ID = 50
 _MAX_POSITION = 50
+_MAX_GENERATION = 20  # matches users.generation column length
 
 # Header aliases (normalized: lowercased, non-alphanumeric/non-Hangul stripped).
 _NAME_HEADERS = {"이름", "성명", "성함", "name"}
 _STUDENT_ID_HEADERS = {"학번", "studentid", "sid", "학번sid"}
+_GENERATION_HEADERS = {"기수", "generation"}
+_GRADUATION_STATUS_HEADERS = {"학적상태", "graduationstatus"}
+_GRADUATION_STATUS_BY_LABEL = {status.value: status for status in GraduationStatus}
 
 PROJECT_MEMBER_HEADERS = ("이름", "이메일", "학번", "역할", "포지션")
 _PROJECT_MEMBER_ROLES = {"팀장": MemberRole.LEADER, "팀원": MemberRole.MEMBER}
@@ -185,6 +189,165 @@ def parse_member_roster(
         raise EmptyRosterError()
 
     return valid, invalid
+
+
+class ActiveMemberRosterRow(NamedTuple):
+    row_number: int
+    name: str
+    student_id: str
+    generation: str | None
+    graduation_status: GraduationStatus | None
+
+
+def parse_active_member_roster(
+    content: bytes, filename: str
+) -> tuple[list[ActiveMemberRosterRow], list[dict]]:
+    """
+    Parse an .xlsx or .csv 활동회원 명부 for the active-roster bulk update.
+
+    이름/학번은 필수, 기수/학적상태는 선택 컬럼이다: 헤더 자체가 없거나 특정
+    행의 셀이 비어 있으면 그 필드는 `None`으로 남는다 (신규로 생성되는 임시
+    회원에 "26"/"학부생" 같은 실제 값처럼 보이는 기본값을 채우지 않기 위함 --
+    호출자가 결정하는 부분).
+
+    Returns (valid_rows, row_errors) -- row_errors가 하나라도 있으면 호출자는
+    전체 업로드를 거부해야 한다 (부분 반영 없음).
+
+    Raises:
+      InvalidRosterFileError (400): 지원하지 않는 확장자, 손상된 파일, 이름/학번
+                                     헤더 누락.
+      EmptyRosterError (422): 헤더만 있고 데이터 행이 없음.
+      RosterTooLargeError (400): MAX_ROWS 초과.
+    """
+    name = (filename or "").lower()
+    if name.endswith(".csv"):
+        rows = _csv_rows(content)
+    elif name.endswith(".xlsx"):
+        rows = _xlsx_rows(content)
+    else:
+        raise InvalidRosterFileError()
+
+    try:
+        header = next(rows)
+    except StopIteration:
+        raise EmptyRosterError()
+
+    indexes: dict[str, int] = {}
+    for index, cell in enumerate(header or ()):
+        indexes.setdefault(_norm_header(cell), index)
+
+    name_idx = next((indexes[key] for key in indexes if key in _NAME_HEADERS), None)
+    student_id_idx = next(
+        (indexes[key] for key in indexes if key in _STUDENT_ID_HEADERS), None
+    )
+    generation_idx = next(
+        (indexes[key] for key in indexes if key in _GENERATION_HEADERS), None
+    )
+    graduation_status_idx = next(
+        (indexes[key] for key in indexes if key in _GRADUATION_STATUS_HEADERS), None
+    )
+
+    if name_idx is None:
+        raise InvalidRosterFileError("이름 헤더를 찾을 수 없습니다.")
+    if student_id_idx is None:
+        raise InvalidRosterFileError("학번 헤더를 찾을 수 없습니다.")
+
+    def _cell(row: Sequence[object], idx: int | None) -> str:
+        if idx is None or idx >= len(row):
+            return ""
+        return normalize_text(_cell_to_str(row[idx]))
+
+    valid: list[ActiveMemberRosterRow] = []
+    errors: list[dict] = []
+    count = 0
+    for row in rows:
+        row_name = _cell(row, name_idx)
+        student_id = _cell(row, student_id_idx)
+        generation_cell = _cell(row, generation_idx)
+        graduation_status_cell = _cell(row, graduation_status_idx)
+
+        if (
+            not row_name
+            and not student_id
+            and not generation_cell
+            and not graduation_status_cell
+        ):
+            continue  # fully-empty spacer row
+
+        count += 1
+        if count > MAX_ROWS:
+            raise RosterTooLargeError()
+        row_number = count
+
+        if not student_id:
+            errors.append(
+                _project_member_error(
+                    row_number,
+                    "학번",
+                    "missing_student_id",
+                    f'"{row_name}"의 학번을 찾을 수 없습니다.',
+                )
+            )
+            continue
+        if not row_name:
+            errors.append(
+                _project_member_error(
+                    row_number,
+                    "이름",
+                    "missing_name",
+                    f'"{student_id}"의 이름을 찾을 수 없습니다.',
+                )
+            )
+            continue
+        if len(row_name) > _MAX_NAME or len(student_id) > _MAX_STUDENT_ID:
+            errors.append(
+                _project_member_error(
+                    row_number,
+                    "이름" if len(row_name) > _MAX_NAME else "학번",
+                    "invalid",
+                    f'"{row_name or student_id}"의 데이터 형식이 올바르지 않습니다.',
+                )
+            )
+            continue
+        if len(generation_cell) > _MAX_GENERATION:
+            errors.append(
+                _project_member_error(
+                    row_number,
+                    "기수",
+                    "too_long",
+                    f"기수는 {_MAX_GENERATION}자 이하여야 합니다.",
+                )
+            )
+            continue
+
+        graduation_status: GraduationStatus | None = None
+        if graduation_status_cell:
+            graduation_status = _GRADUATION_STATUS_BY_LABEL.get(graduation_status_cell)
+            if graduation_status is None:
+                errors.append(
+                    _project_member_error(
+                        row_number,
+                        "학적상태",
+                        "invalid_graduation_status",
+                        "학적상태는 학부생/졸업생/휴학생/대학원생 중 하나여야 합니다.",
+                    )
+                )
+                continue
+
+        valid.append(
+            ActiveMemberRosterRow(
+                row_number,
+                row_name,
+                student_id,
+                generation_cell or None,
+                graduation_status,
+            )
+        )
+
+    if not valid and not errors:
+        raise EmptyRosterError()
+
+    return valid, errors
 
 
 def parse_project_member_roster(
