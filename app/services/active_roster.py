@@ -26,10 +26,8 @@ class ActiveRosterDiff(NamedTuple):
 
 
 def _apply_roster_fields(user: User, row: ActiveRosterResolvedRow) -> None:
-    """Overwrite generation/graduation_status from the file, but only for
-    fields the row actually provided -- a blank cell leaves the existing
-    value on an already-matched user untouched rather than wiping it."""
-    if row.generation is not None:
+    """Fill a missing generation and update a provided graduation status."""
+    if row.generation is not None and user.generation is None:
         user.generation = row.generation
     if row.graduation_status is not None:
         user.graduation_status = row.graduation_status
@@ -168,9 +166,9 @@ class ActiveRosterService:
         """
         Apply the diff in one transaction: create temporary members for
         `to_create`, promote them together with `diff.promote` to ACTIVE, and
-        demote `diff.demote` to REGULAR. Every matched row's generation/
-        graduation_status (if provided in the file) is written to its user,
-        new or existing. Every qualification change is logged to AuditLog,
+        demote `diff.demote` to REGULAR. A provided generation fills only a
+        missing value, while a provided graduation_status updates the user.
+        Every qualification change is logged to AuditLog,
         backdated to `reference_date`. Commits once at the end; rolls back on
         any error.
         """

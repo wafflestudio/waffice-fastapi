@@ -427,8 +427,8 @@ def test_apply_full_roster_transition(
     assert new_user.qualification == Qualification.ACTIVE
 
 
-# === 기수 / 학적상태 (optional columns) ===
-_GEN_HEADERS = ("이름", "학번", "기수", "학적상태")
+# === 기수 / 재학 여부 (optional columns) ===
+_GEN_HEADERS = ("이름", "학번", "기수", "재학 여부")
 
 
 def test_rejects_invalid_graduation_status_value(
@@ -487,10 +487,10 @@ def test_new_temporary_member_gets_generation_and_graduation_status_from_file(
     assert user.graduation_status == GraduationStatus.GRADUATE_STUDENT
 
 
-def test_apply_overwrites_matched_members_generation_and_graduation_status(
+def test_apply_preserves_existing_generation_and_updates_graduation_status(
     client: TestClient, db: Session, admin_token: str, admin_user: User
 ):
-    """Existing REGULAR member being promoted also gets 기수/학적상태 updated."""
+    """An existing generation wins, while a provided graduation status updates."""
     user = _make_user(
         db,
         name="승격대상",
@@ -509,8 +509,32 @@ def test_apply_overwrites_matched_members_generation_and_graduation_status(
 
     db.refresh(user)
     assert user.qualification == Qualification.ACTIVE
-    assert user.generation == "28"
+    assert user.generation == "24"
     assert user.graduation_status == GraduationStatus.GRADUATED
+
+
+def test_apply_fills_missing_generation_from_file(
+    client: TestClient, db: Session, admin_token: str, admin_user: User
+):
+    user = _make_user(
+        db,
+        name="기수없음",
+        student_id="2021-91007",
+        qualification=Qualification.REGULAR,
+    )
+    user.generation = None
+    db.commit()
+
+    response = _post_bytes(
+        client,
+        admin_token,
+        "/users/active-roster/apply",
+        _xlsx([("기수없음", "2021-91007", "28", "")], headers=_GEN_HEADERS),
+    )
+    assert response.status_code == 200
+
+    db.refresh(user)
+    assert user.generation == "28"
 
 
 def test_apply_leaves_existing_generation_untouched_when_file_row_is_blank(
