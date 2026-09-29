@@ -507,10 +507,9 @@ async def preview_active_roster(
     ACTIVE status (demoted to REGULAR), and members whose ACTIVE status is
     unchanged. Call `/users/active-roster/apply` with the same file to commit.
 
-    기수/학적상태 columns are optional and, when applying, are only written
-    for rows that actually provide a value -- a blank cell never erases an
-    existing member's data, but does leave a brand-new temporary member's
-    field as null.
+    기수/학적 상태 columns are optional. A provided generation fills only a
+    null generation; a provided graduation status is updated. Blank cells
+    never erase existing data and remain null for brand-new temporary members.
     """
     _resolved, diff = await _parse_and_diff_active_roster(file, db)
     return Response(
@@ -569,10 +568,9 @@ async def apply_active_roster(
     backdated to `reference_date` (defaults to now) so a late-entered roster
     still reflects the intended effective date.
 
-    기수/학적상태 in the file are written to both new and existing matched
-    members, but only where a row provides a value -- omitting the column
-    entirely, or leaving a cell blank, never overwrites an existing member's
-    data (it only leaves a new temporary member's field null).
+    A provided 기수 fills only a null generation on an existing member; a
+    provided 학적상태 updates the graduation status. Omitting a column or
+    leaving a cell blank never overwrites existing data.
     """
     resolved, diff = await _parse_and_diff_active_roster(file, db)
     effective_date = reference_date or int(time.time())
