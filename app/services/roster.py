@@ -549,6 +549,15 @@ def parse_multi_project_member_roster(
             row_errors.append(
                 _project_member_error(row_number, "프로젝트명", "required", "프로젝트명을 입력해주세요.")
             )
+        elif values["프로젝트명"] == "운영팀":
+            row_errors.append(
+                _project_member_error(
+                    row_number,
+                    "프로젝트명",
+                    "admin_team_not_allowed",
+                    "운영팀은 팀원 소속 일괄 갱신 대상에 포함할 수 없습니다.",
+                )
+            )
 
         if not values["프로젝트원 이름"]:
             row_errors.append(

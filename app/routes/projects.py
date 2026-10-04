@@ -177,9 +177,9 @@ async def replace_project_members(
 
 @router.get(
     "/members/bulk-all-projects/template",
-    summary="Export every project's current active member roster as an editable XLSX template",
+    summary="Export current active member rosters excluding the admin team as an editable XLSX template",
     description=(
-        "Not a blank form — the file is pre-filled with every project's "
+        "Not a blank form — the file is pre-filled with eligible projects' "
         "**current** active members (프로젝트명/프로젝트원 이름/학번/역할/포지션), "
         "so it doubles as a live export of team status. Edit it and upload it "
         "back to `PUT /members/bulk-all-projects` to apply changes."
@@ -197,7 +197,9 @@ async def download_multi_project_member_template(
     members = [
         member
         for member in MemberService.list_all_active(db)
-        if member.user is not None and member.user.deleted_at is None
+        if member.user is not None
+        and member.user.deleted_at is None
+        and not member.project.is_admin_team
     ]
     content = build_multi_project_member_template(members)
     return StreamingResponse(
