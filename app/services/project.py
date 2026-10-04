@@ -403,6 +403,16 @@ class ProjectService:
                 )
                 continue
             project = matches[0]
+            if project.is_admin_team:
+                errors.append(
+                    _member_file_error(
+                        group_rows[0].row_number,
+                        "프로젝트명",
+                        "admin_team_not_allowed",
+                        "운영팀은 팀원 소속 일괄 갱신 대상에 포함할 수 없습니다.",
+                    )
+                )
+                continue
 
             resolved: list[tuple[MultiProjectMemberRosterRow, User]] = []
             seen_user_ids: set[int] = set()
