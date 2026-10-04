@@ -5,7 +5,14 @@ from fastapi.testclient import TestClient
 from openpyxl import Workbook, load_workbook
 from sqlalchemy.orm import Session
 
-from app.models import ActivityStatus, MemberRole, Project, ProjectMember, User, UserActivity
+from app.models import (
+    ActivityStatus,
+    MemberRole,
+    Project,
+    ProjectMember,
+    User,
+    UserActivity,
+)
 from app.services import MemberService
 
 XLSX_CT = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -69,30 +76,48 @@ def test_rejects_non_xlsx_file(client: TestClient, admin_token: str):
 
 
 def test_admin_team_row_rejects_entire_upload(
-    client: TestClient, admin_token: str, admin_user: User, active_user: User, db: Session
+    client: TestClient,
+    admin_token: str,
+    admin_user: User,
+    active_user: User,
+    db: Session,
 ):
     admin_user.student_id = "2030-0011"
     active_user.student_id = "2030-0012"
     admin_team = Project(name="운영팀", is_admin_team=True, started_at=date.today())
     db.add(admin_team)
     db.flush()
-    db.add(ProjectMember(project_id=admin_team.id, user_id=admin_user.id,
-                         role=MemberRole.LEADER, joined_at=date.today()))
+    db.add(
+        ProjectMember(
+            project_id=admin_team.id,
+            user_id=admin_user.id,
+            role=MemberRole.LEADER,
+            joined_at=date.today(),
+        )
+    )
     db.commit()
     project_id = _create_project(
-        client, admin_token, "Regular Project",
+        client,
+        admin_token,
+        "Regular Project",
         [{"user_id": admin_user.id, "role": "leader"}],
     )
 
-    response = _upload(client, admin_token, [
-        ("Regular Project", admin_user.name, admin_user.student_id, "팀장", ""),
-        ("Regular Project", active_user.name, active_user.student_id, "팀원", ""),
-        ("운영팀", admin_user.name, admin_user.student_id, "팀장", ""),
-    ])
+    response = _upload(
+        client,
+        admin_token,
+        [
+            ("Regular Project", admin_user.name, admin_user.student_id, "팀장", ""),
+            ("Regular Project", active_user.name, active_user.student_id, "팀원", ""),
+            ("운영팀", admin_user.name, admin_user.student_id, "팀장", ""),
+        ],
+    )
 
     assert response.status_code == 400
-    assert any(error["code"] == "admin_team_not_allowed" and error["row"] == 4
-               for error in response.json()["data"]["errors"])
+    assert any(
+        error["code"] == "admin_team_not_allowed" and error["row"] == 4
+        for error in response.json()["data"]["errors"]
+    )
     assert MemberService.get_active(db, project_id, active_user.id) is None
     assert MemberService.get_active(db, admin_team.id, admin_user.id) is not None
 
