@@ -28,7 +28,7 @@ _MAX_GENERATION = 20  # matches users.generation column length
 _NAME_HEADERS = {"이름", "성명", "성함", "name"}
 _STUDENT_ID_HEADERS = {"학번", "studentid", "sid", "학번sid"}
 _GENERATION_HEADERS = {"기수", "generation"}
-_GRADUATION_STATUS_HEADERS = {"학적상태", "graduationstatus"}
+_GRADUATION_STATUS_HEADERS = {"재학여부", "학적상태", "graduationstatus"}
 _GRADUATION_STATUS_BY_LABEL = {status.value: status for status in GraduationStatus}
 
 PROJECT_MEMBER_HEADERS = ("이름", "이메일", "학번", "역할", "포지션")
