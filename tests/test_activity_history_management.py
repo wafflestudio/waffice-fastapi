@@ -341,7 +341,7 @@ class TestAllActivities:
         client: TestClient,
         db: Session,
         admin_token: str,
-        regular_token: str,
+        associate_token: str,
         regular_user: User,
         active_user: User,
     ):
@@ -359,7 +359,7 @@ class TestAllActivities:
 
         forbidden = client.get(
             "/activities",
-            headers=auth(regular_token),
+            headers=auth(associate_token),
         )
         assert forbidden.status_code == 403
 

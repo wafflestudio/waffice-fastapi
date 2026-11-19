@@ -92,6 +92,19 @@ async def require_regular(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+async def require_regular_or_admin(user: User = Depends(get_current_user)) -> User:
+    """Require regular or active membership, or admin access."""
+    if not user.has_admin_access and user.qualification not in (
+        Qualification.REGULAR,
+        Qualification.ACTIVE,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Regular or active membership or admin access required",
+        )
+    return user
+
+
 async def require_admin(user: User = Depends(get_current_user)) -> User:
     """
     Require user to be admin.

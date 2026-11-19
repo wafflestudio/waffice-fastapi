@@ -1,24 +1,33 @@
 from __future__ import annotations
 
-from sqlalchemy import and_
+from sqlalchemy import ColumnElement, and_, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.models import Qualification, User
 from app.models.project_member import ProjectMember
 
 
+def not_pending_applicant() -> ColumnElement[bool]:
+    """Keep roster placeholders visible even when their qualification is pending."""
+    return or_(User.qualification != Qualification.PENDING, User.is_temporary.is_(True))
+
+
 class UserService:
     @staticmethod
-    def get(db: Session, user_id: int) -> User | None:
+    def get(
+        db: Session, user_id: int, *, exclude_pending_applicants: bool = False
+    ) -> User | None:
         """Get user by ID (excluding soft-deleted users)"""
-        return (
+        query = (
             db.query(User)
             .options(
                 joinedload(User.project_memberships).joinedload(ProjectMember.project)
             )
             .filter(and_(User.id == user_id, User.deleted_at.is_(None)))
-            .first()
         )
+        if exclude_pending_applicants:
+            query = query.filter(not_pending_applicant())
+        return query.first()
 
     @staticmethod
     def get_by_google_id(db: Session, google_id: str) -> User | None:
@@ -66,6 +75,7 @@ class UserService:
         cursor: int | None = None,
         limit: int = 20,
         name: str | None = None,
+        exclude_pending_applicants: bool = False,
     ) -> tuple[list[User], int | None]:
         """
         List users with cursor-based pagination (excluding soft-deleted users).
@@ -78,6 +88,9 @@ class UserService:
             )
             .filter(User.deleted_at.is_(None))
         )
+
+        if exclude_pending_applicants:
+            query = query.filter(not_pending_applicant())
 
         if name is not None:
             query = query.filter(User.name.ilike(f"%{name}%"))

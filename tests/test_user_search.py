@@ -119,13 +119,13 @@ class TestUserSearchByName:
         # admin_user + 3 users
         assert len(data["data"]["items"]) == 4
 
-    def test_search_requires_admin(
-        self, client: TestClient, regular_token: str, users: list[User]
+    def test_associate_cannot_search_users(
+        self, client: TestClient, associate_token: str, users: list[User]
     ):
-        """어드민이 아니면 이름 검색이 거부된다."""
+        """준회원은 이름 검색을 할 수 없다."""
         response = client.get(
             "/users?name=와플",
-            headers={"Authorization": f"Bearer {regular_token}"},
+            headers={"Authorization": f"Bearer {associate_token}"},
         )
 
         assert response.status_code == 403

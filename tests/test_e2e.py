@@ -825,7 +825,7 @@ class TestPresidentAndLeaderRoles:
     ):
         """President can access admin-only endpoints"""
         response = client.get(
-            "/users",
+            "/users/pending",
             headers={"Authorization": f"Bearer {president_flag_token}"},
         )
         assert response.status_code == 200
@@ -835,7 +835,7 @@ class TestPresidentAndLeaderRoles:
     ):
         """Leader_and_president can access admin-only endpoints"""
         response = client.get(
-            "/users",
+            "/users/pending",
             headers={"Authorization": f"Bearer {leader_and_president_flag_token}"},
         )
         assert response.status_code == 200
@@ -845,7 +845,7 @@ class TestPresidentAndLeaderRoles:
     ):
         """Regular user is denied admin-only endpoints"""
         response = client.get(
-            "/users",
+            "/users/pending",
             headers={"Authorization": f"Bearer {regular_token}"},
         )
         assert response.status_code == 403
@@ -922,7 +922,7 @@ class TestPresidentAndLeaderRoles:
 
         # Should be denied admin-only endpoint
         response = client.get(
-            "/users",
+            "/users/pending",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 403

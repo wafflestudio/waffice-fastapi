@@ -4,7 +4,9 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.models.enums import ApprovalStatus
 from app.models.request import ApprovalRequest
+from app.models.user import User
 from app.models.user_activity import UserActivity
+from app.services.user import not_pending_applicant
 
 
 class ActivityService:
@@ -23,13 +25,17 @@ class ActivityService:
 
     @staticmethod
     def list_all_paged(
-        db: Session, *, page: int, size: int
+        db: Session, *, page: int, size: int, exclude_hidden_users: bool = False
     ) -> tuple[list[UserActivity], int]:
         """List persisted activities using offset-based pagination."""
         query = db.query(UserActivity).options(
             joinedload(UserActivity.user),
             joinedload(UserActivity.project),
         )
+        if exclude_hidden_users:
+            query = query.join(UserActivity.user).filter(
+                User.deleted_at.is_(None), not_pending_applicant()
+            )
         total = query.count()
         items = (
             query.order_by(UserActivity.id.desc())

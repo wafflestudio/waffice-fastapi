@@ -1,6 +1,15 @@
 import time
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    Query,
+    Response as FastAPIResponse,
+    UploadFile,
+)
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
@@ -9,6 +18,7 @@ from app.deps.auth import (
     require_admin,
     require_associate,
     require_regular,
+    require_regular_or_admin,
 )
 from app.exceptions import (
     InvalidActiveRosterError,
@@ -312,19 +322,22 @@ async def get_my_activities(
     return Response(ok=True, data=items)
 
 
-# === Admin management ===
 @router.get(
     "",
     response_model=Response[CursorPage[UserDetail]],
-    summary="List all users",
-    description="Returns paginated list of all users. Admin only.",
+    summary="List visible users",
+    description=(
+        "Returns a paginated list of users for regular or active members and admins. "
+        "Only admins can see signup applicants awaiting approval."
+    ),
     responses={
         200: {"description": "Users retrieved successfully"},
         401: {"description": "Not authenticated"},
-        403: {"description": "Admin access required"},
+        403: {"description": "Regular or active membership or admin access required"},
     },
 )
 async def list_users(
+    response: FastAPIResponse,
     cursor: int
     | None = Query(
         None, description="Pagination cursor (user ID). Omit for first page."
@@ -333,21 +346,27 @@ async def list_users(
         20, ge=1, le=100, description="Number of users per page (1-100)"
     ),
     name: str | None = Query(None, description="Filter by name (partial match)"),
-    _admin: User = Depends(require_admin),
+    viewer: User = Depends(require_regular_or_admin),
     db: Session = Depends(get_db),
 ):
     """
-    List all users with cursor-based pagination.
+    List visible users with cursor-based pagination.
 
-    **Requires**: Admin privileges.
-
-    Returns users ordered by ID. Use `next_cursor` from the response
-    to fetch subsequent pages.
+    Use `next_cursor` from the response to fetch subsequent pages.
     """
-    users, next_cursor = UserService.list(db, cursor=cursor, limit=limit, name=name)
-    return Response(ok=True, data=CursorPage(items=users, next_cursor=next_cursor))
+    users, next_cursor = UserService.list(
+        db,
+        cursor=cursor,
+        limit=limit,
+        name=name,
+        exclude_pending_applicants=not viewer.has_admin_access,
+    )
+    items = [UserDetail.for_viewer(user, viewer) for user in users]
+    response.headers["Cache-Control"] = "private, no-store"
+    return Response(ok=True, data=CursorPage(items=items, next_cursor=next_cursor))
 
 
+# === Admin management ===
 @router.get(
     "/pending",
     response_model=Response[list[UserDetail]],
@@ -596,32 +615,34 @@ async def apply_active_roster(
 @router.get(
     "/{user_id}",
     response_model=Response[UserDetail],
-    summary="Get user by ID",
-    description="Returns detailed information for a specific user. Admin only.",
+    summary="Get visible user by ID",
+    description=(
+        "Returns a user's profile for regular or active members and admins. "
+        "Student ID, phone, and contact email are visible to the profile owner and "
+        "admins. Other signed-in regular and active members can see each current "
+        "value only if the user opts in to sharing that field."
+    ),
     responses={
         200: {"description": "User retrieved successfully"},
         401: {"description": "Not authenticated"},
-        403: {"description": "Admin access required"},
+        403: {"description": "Regular or active membership or admin access required"},
         404: {"description": "User not found"},
     },
 )
 async def get_user(
     user_id: int,
-    _admin: User = Depends(require_admin),
+    response: FastAPIResponse,
+    viewer: User = Depends(require_regular_or_admin),
     db: Session = Depends(get_db),
 ):
-    """
-    Get a specific user's complete profile.
-
-    **Requires**: Admin privileges.
-
-    Returns full user details including qualification, admin status,
-    and all profile fields.
-    """
-    user = UserService.get(db, user_id)
+    user = UserService.get(
+        db, user_id, exclude_pending_applicants=not viewer.has_admin_access
+    )
     if not user:
         raise NotFoundError("User not found")
-    return Response(ok=True, data=user)
+    detail = UserDetail.for_viewer(user, viewer)
+    response.headers["Cache-Control"] = "private, no-store"
+    return Response(ok=True, data=detail)
 
 
 @router.patch(
@@ -836,25 +857,32 @@ async def get_user_audit_log(
 @router.get(
     "/{user_id}/activities",
     response_model=Response[list[ActivityDetail]],
-    summary="List user's activities",
-    description="Returns all activity records for a user. Admin only.",
+    summary="List a visible user's activities",
+    description=(
+        "Returns a user's activity records for regular or active members and admins. "
+        "Only admins can view records of signup applicants awaiting approval."
+    ),
     responses={
         200: {"description": "Activities retrieved successfully"},
         401: {"description": "Not authenticated"},
-        403: {"description": "Admin access required"},
+        403: {"description": "Regular or active membership or admin access required"},
         404: {"description": "User not found"},
     },
 )
 async def list_user_activities(
     user_id: int,
-    _admin: User = Depends(require_admin),
+    response: FastAPIResponse,
+    viewer: User = Depends(require_regular_or_admin),
     db: Session = Depends(get_db),
 ):
-    user = UserService.get(db, user_id)
+    user = UserService.get(
+        db, user_id, exclude_pending_applicants=not viewer.has_admin_access
+    )
     if not user:
         raise NotFoundError("User not found")
 
     activities = ActivityService.list_by_user(db, user_id)
+    response.headers["Cache-Control"] = "private, no-store"
     return Response(ok=True, data=activities)
 
 

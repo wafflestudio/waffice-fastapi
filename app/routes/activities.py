@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response as FastAPIResponse
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
-from app.deps.auth import require_admin
+from app.deps.auth import require_regular_or_admin
 from app.models import User
 from app.schemas import (
     ActivityHistoryAdminItem,
@@ -19,18 +19,28 @@ router = APIRouter()
 @router.get(
     "",
     response_model=Response[Page[ActivityHistoryAdminItem]],
-    summary="List all users' activities",
-    description="Returns persisted activities for all users with offset-based pagination. Admin only.",
+    summary="List visible users' activities",
+    description=(
+        "Returns persisted activities with offset-based pagination for regular or active "
+        "members and admins. Only admins can view records of soft-deleted users or "
+        "signup applicants awaiting approval."
+    ),
+    responses={
+        403: {"description": "Regular or active membership or admin access required"},
+    },
 )
 async def list_activities(
+    response: FastAPIResponse,
     page: int = Query(default=1, ge=1, description="Page number (1-based)."),
     size: int = Query(
         default=10, ge=1, le=100, description="Number of items per page."
     ),
-    _admin: User = Depends(require_admin),
+    viewer: User = Depends(require_regular_or_admin),
     db: Session = Depends(get_db),
 ):
-    activities, total = ActivityService.list_all_paged(db, page=page, size=size)
+    activities, total = ActivityService.list_all_paged(
+        db, page=page, size=size, exclude_hidden_users=not viewer.has_admin_access
+    )
     pending_updates = ActivityService.pending_updates_by_activity(
         db, [activity.id for activity in activities]
     )
@@ -61,6 +71,7 @@ async def list_activities(
         )
         for activity in activities
     ]
+    response.headers["Cache-Control"] = "private, no-store"
     return Response(
         ok=True,
         data=Page(items=items, total=total, page=page, size=size),
