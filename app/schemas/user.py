@@ -1,9 +1,13 @@
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic.json_schema import SkipJsonSchema
 
 from app.models.enums import GraduationStatus, NotificationChannel, Qualification
 from app.schemas.common import Website
+
+if TYPE_CHECKING:
+    from app.models.user import User
 
 
 class CurrentProject(BaseModel):
@@ -88,8 +92,8 @@ class SignupRequest(BaseModel):
     )
 
 
-class ProfileUpdateRequest(BaseModel):
-    """Request body for updating own profile. All fields are optional."""
+class _ProfileUpdateFields(BaseModel):
+    """Profile fields editable by members and admins."""
 
     name: str | None = Field(
         default=None,
@@ -156,11 +160,59 @@ class ProfileUpdateRequest(BaseModel):
     )
 
 
-class UserUpdateRequest(ProfileUpdateRequest):
-    """
-    Request body for admin to update any user.
-    Extends ProfileUpdateRequest with admin-only fields.
-    """
+def _omit_schema_default(schema: dict[str, object]) -> None:
+    schema.pop("default", None)
+
+
+class ProfileUpdateRequest(_ProfileUpdateFields):
+    """Request body for updating own profile. All fields are optional."""
+
+    is_student_id_public: bool | SkipJsonSchema[None] = Field(
+        default=None,
+        description=(
+            "Share your current student ID with signed-in regular and active members "
+            "and admins only. Opt-in follows the field, so admin edits are visible "
+            "immediately while enabled. "
+            "Omit to keep the current setting."
+        ),
+        json_schema_extra=_omit_schema_default,
+    )
+    is_phone_public: bool | SkipJsonSchema[None] = Field(
+        default=None,
+        description=(
+            "Share your current phone number with signed-in regular and active members "
+            "and admins only. Opt-in follows the field, so admin edits are visible "
+            "immediately while enabled. "
+            "Omit to keep the current setting."
+        ),
+        json_schema_extra=_omit_schema_default,
+    )
+    is_contact_email_public: bool | SkipJsonSchema[None] = Field(
+        default=None,
+        description=(
+            "Share your current contact email with signed-in regular and active members "
+            "and admins only. Opt-in follows the field, so admin edits are visible "
+            "immediately while enabled. "
+            "Omit to keep the current setting."
+        ),
+        json_schema_extra=_omit_schema_default,
+    )
+
+    @field_validator(
+        "is_student_id_public",
+        "is_phone_public",
+        "is_contact_email_public",
+        mode="before",
+    )
+    @classmethod
+    def reject_null_visibility_flags(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("Visibility flag cannot be null")
+        return value
+
+
+class UserUpdateRequest(_ProfileUpdateFields):
+    """Request body for an admin to update any user."""
 
     qualification: Qualification | None = Field(
         default=None,
@@ -247,6 +299,13 @@ class UserBrief(BaseModel):
     model_config = {"from_attributes": True}
 
 
+_PROFILE_VISIBILITY_FLAGS = {
+    "student_id": "is_student_id_public",
+    "phone": "is_phone_public",
+    "contact_email": "is_contact_email_public",
+}
+
+
 class UserDetail(BaseModel):
     """Complete user profile information."""
 
@@ -299,6 +358,14 @@ class UserDetail(BaseModel):
     is_admin: bool = Field(description="Whether the user has admin privileges")
     is_president: bool = Field(description="Whether the user has president privileges")
     phone: str | None = Field(description="Contact phone number")
+    is_phone_public: bool = Field(
+        description=(
+            "Whether regular and active members and admins can see the current phone number. "
+            "Public visibility is limited to these signed-in viewers. Opt-in follows "
+            "the field, so admin edits are visible immediately while enabled. "
+            "Admins and the profile owner always have access."
+        )
+    )
     affiliation: str | None = Field(description="Current organization or company")
     bio: str | None = Field(description="Short self-introduction")
     avatar_url: str | None = Field(description="URL to profile image")
@@ -306,9 +373,25 @@ class UserDetail(BaseModel):
     slack_id: str | None = Field(description="Slack member ID")
     websites: list[Website] | None = Field(description="External websites or links")
     student_id: str | None = Field(description="Student ID (e.g., 2021-14205)")
+    is_student_id_public: bool = Field(
+        description=(
+            "Whether regular and active members and admins can see the current student ID. "
+            "Public visibility is limited to these signed-in viewers. Opt-in follows "
+            "the field, so admin edits are visible immediately while enabled. "
+            "Admins and the profile owner always have access."
+        )
+    )
     department: str | None = Field(description="Department or major")
     contact_email: str | None = Field(
         description="Preferred contact email for notifications"
+    )
+    is_contact_email_public: bool = Field(
+        description=(
+            "Whether regular and active members and admins can see the current contact email. "
+            "Public visibility is limited to these signed-in viewers. Opt-in follows "
+            "the field, so admin edits are visible immediately while enabled. "
+            "Admins and the profile owner always have access."
+        )
     )
     notification_channel: NotificationChannel = Field(
         description="Preferred notification channel"
@@ -329,6 +412,18 @@ class UserDetail(BaseModel):
     )
 
     model_config = {"from_attributes": True}
+
+    @classmethod
+    def for_viewer(cls, user: "User", viewer: "User") -> "UserDetail":
+        detail = cls.model_validate(user)
+        if viewer.id == user.id or viewer.has_admin_access:
+            return detail
+        return detail.model_copy(
+            update={
+                field: getattr(detail, field) if getattr(detail, flag) else None
+                for field, flag in _PROFILE_VISIBILITY_FLAGS.items()
+            }
+        )
 
 
 # Resolve the forward reference to UserBrief used in TempMemberImportResult.

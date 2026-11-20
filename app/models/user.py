@@ -8,6 +8,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    text,
 )
 from sqlalchemy.orm import relationship
 
@@ -89,6 +90,11 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
 
     # Profile (optional)
     phone = Column(String(20), nullable=True)
+    # The three visibility flags share current field values only with signed-in
+    # regular and active members and admins. Opt-in survives edits.
+    is_phone_public = Column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
     affiliation = Column(String(200), nullable=True)
     bio = Column(Text, nullable=True)
     avatar_url = Column(String(500), nullable=True)
@@ -106,10 +112,16 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
 
     # Academic / professional info
     student_id = Column(String(50), nullable=True)
+    is_student_id_public = Column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
     department = Column(String(100), nullable=True)
 
     # Notification preferences
     contact_email = Column(String(255), nullable=True)
+    is_contact_email_public = Column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
     notification_channel = Column(
         Enum(NotificationChannel),
         nullable=False,
