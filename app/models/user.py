@@ -90,8 +90,10 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
 
     # Profile (optional)
     phone = Column(String(20), nullable=True)
-    # The three visibility flags share current field values only with signed-in
-    # regular and active members and admins. Opt-in survives edits.
+    # Student ID and phone are private by default (opt-in). Contact email is
+    # public by default (opt-out). When shared, each flag exposes the current
+    # value only to signed-in regular and active members and admins. The choice
+    # survives edits.
     is_phone_public = Column(
         Boolean, nullable=False, default=False, server_default=text("0")
     )
@@ -120,7 +122,7 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     # Notification preferences
     contact_email = Column(String(255), nullable=True)
     is_contact_email_public = Column(
-        Boolean, nullable=False, default=False, server_default=text("0")
+        Boolean, nullable=False, default=True, server_default=text("1")
     )
     notification_channel = Column(
         Enum(NotificationChannel),

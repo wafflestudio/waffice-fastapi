@@ -190,10 +190,10 @@ class ProfileUpdateRequest(_ProfileUpdateFields):
     is_contact_email_public: bool | SkipJsonSchema[None] = Field(
         default=None,
         description=(
-            "Share your current contact email with signed-in regular and active members "
-            "and admins only. Opt-in follows the field, so admin edits are visible "
-            "immediately while enabled. "
-            "Omit to keep the current setting."
+            "Contact email is public by default to signed-in regular and active "
+            "members and admins. Set to false to opt out. Admin edits to the contact "
+            "email are visible immediately while sharing is enabled. Omit to keep "
+            "the current setting."
         ),
         json_schema_extra=_omit_schema_default,
     )
@@ -387,10 +387,10 @@ class UserDetail(BaseModel):
     )
     is_contact_email_public: bool = Field(
         description=(
-            "Whether regular and active members and admins can see the current contact email. "
-            "Public visibility is limited to these signed-in viewers. Opt-in follows "
-            "the field, so admin edits are visible immediately while enabled. "
-            "Admins and the profile owner always have access."
+            "Whether the current contact email is shared with signed-in regular and "
+            "active members and admins. It is public to these viewers by default "
+            "unless the profile owner opts out. Admin edits are visible immediately "
+            "while sharing is enabled. Admins and the profile owner always have access."
         )
     )
     notification_channel: NotificationChannel = Field(

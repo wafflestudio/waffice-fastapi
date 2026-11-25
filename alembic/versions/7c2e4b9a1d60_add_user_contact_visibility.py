@@ -1,5 +1,7 @@
 """add user student ID, phone, and contact email visibility flags
 
+Contact email defaults to public (opt-out). Student ID and phone default to private.
+
 Revision ID: 7c2e4b9a1d60
 Revises: a4c8f1b3d9e2
 Create Date: 2026-11-19
@@ -19,10 +21,10 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-_VISIBILITY_COLUMNS = {
-    "is_student_id_public",
-    "is_phone_public",
-    "is_contact_email_public",
+_VISIBILITY_DEFAULTS = {
+    "is_student_id_public": "0",
+    "is_phone_public": "0",
+    "is_contact_email_public": "1",
 }
 
 
@@ -40,23 +42,24 @@ def _has_visibility_columns() -> bool:
         )
         .all()
     )
-    if 0 < len(columns) < len(_VISIBILITY_COLUMNS):
+    if 0 < len(columns) < len(_VISIBILITY_DEFAULTS):
         existing = {column[0] for column in columns}
-        missing = _VISIBILITY_COLUMNS - existing
+        missing = _VISIBILITY_DEFAULTS.keys() - existing
         raise RuntimeError(
             "Incomplete users visibility schema: "
             f"existing columns: {', '.join(sorted(existing))}; "
             f"missing columns: {', '.join(sorted(missing))}"
         )
     for name, column_type, is_nullable, column_default in columns:
+        expected_default = _VISIBILITY_DEFAULTS[name]
         if (column_type, is_nullable, str(column_default)) != (
             "tinyint(1)",
             "NO",
-            "0",
+            expected_default,
         ):
             raise RuntimeError(
                 f"Unexpected definition for users.{name}: expected TINYINT(1) "
-                f"NOT NULL DEFAULT 0, found type={column_type!r}, "
+                f"NOT NULL DEFAULT {expected_default}, found type={column_type!r}, "
                 f"nullable={is_nullable!r}, default={column_default!r}"
             )
     return bool(columns)
@@ -71,7 +74,7 @@ def upgrade() -> None:
         "ALTER TABLE users "
         "ADD COLUMN is_student_id_public TINYINT(1) NOT NULL DEFAULT 0, "
         "ADD COLUMN is_phone_public TINYINT(1) NOT NULL DEFAULT 0, "
-        "ADD COLUMN is_contact_email_public TINYINT(1) NOT NULL DEFAULT 0"
+        "ADD COLUMN is_contact_email_public TINYINT(1) NOT NULL DEFAULT 1"
     )
 
 

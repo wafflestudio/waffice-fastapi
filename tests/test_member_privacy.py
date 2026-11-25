@@ -2,6 +2,7 @@
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.models import Qualification, User, UserActivity
@@ -52,6 +53,7 @@ def member_activity(db: Session, contact_member: User) -> UserActivity:
 def associate_admin_token(
     db: Session, associate_user: User, associate_token: str
 ) -> str:
+    # Admin access does not bypass the REGULAR qualification requirement.
     UserService.update(db, associate_user, is_admin=True)
     return associate_token
 
@@ -60,8 +62,22 @@ def associate_admin_token(
 def associate_president_token(
     db: Session, open_president_term: User, president_token: str
 ) -> str:
-    # Exercise the presidency bypass with a qualification that cannot read on its own.
+    # Presidents below REGULAR are subject to the same read guard.
     UserService.update(db, open_president_term, qualification=Qualification.ASSOCIATE)
+    return president_token
+
+
+@pytest.fixture
+def pending_admin_token(db: Session, pending_user: User, pending_token: str) -> str:
+    UserService.update(db, pending_user, is_admin=True)
+    return pending_token
+
+
+@pytest.fixture
+def pending_president_token(
+    db: Session, open_president_term: User, president_token: str
+) -> str:
+    UserService.update(db, open_president_term, qualification=Qualification.PENDING)
     return president_token
 
 
@@ -86,8 +102,10 @@ def user_views(client: TestClient, token: str, user_id: int) -> tuple[dict, dict
         ("active_token", 200),
         ("associate_token", 403),
         ("pending_token", 403),
-        ("associate_admin_token", 200),
-        ("associate_president_token", 200),
+        ("associate_admin_token", 403),
+        ("associate_president_token", 403),
+        ("pending_admin_token", 403),
+        ("pending_president_token", 403),
     ],
 )
 def test_member_read_access_by_role(
@@ -106,6 +124,8 @@ def test_member_read_access_by_role(
     all_activities = client.get("/activities", headers=headers)
     for response in (users, profile, user_activities, all_activities):
         assert response.status_code == expected_status, response.request.url.path
+        if expected_status == 403:
+            assert response.json()["detail"] == "Regular membership or higher required"
 
     if expected_status == 200:
         assert [item["id"] for item in users.json()["data"]["items"]] == [
@@ -233,6 +253,91 @@ def test_regular_can_read_pending_temporary_member(
     assert activity.id in {item["id"] for item in response.json()["data"]["items"]}
 
 
+def test_new_user_visibility_defaults(
+    client: TestClient, db: Session, regular_token: str, admin_token: str
+):
+    user = UserService.create(
+        db,
+        email="visibility-defaults@example.com",
+        name="Visibility Defaults Member",
+        qualification=Qualification.ACTIVE,
+        student_id=STUDENT_ID,
+        phone=PHONE,
+        contact_email=CONTACT_EMAIL,
+    )
+    with Session(bind=db.get_bind()) as read_db:
+        stored = read_db.get(User, user.id)
+        assert (
+            stored.is_student_id_public,
+            stored.is_phone_public,
+            stored.is_contact_email_public,
+        ) == (False, False, True)
+
+    for profile in user_views(client, regular_token, user.id):
+        assert profile["student_id"] is None
+        assert profile["phone"] is None
+        assert profile["contact_email"] == CONTACT_EMAIL
+
+    for profile in user_views(client, admin_token, user.id):
+        assert profile["student_id"] == STUDENT_ID
+        assert profile["phone"] == PHONE
+        assert profile["contact_email"] == CONTACT_EMAIL
+
+
+def test_visibility_column_server_defaults(db: Session):
+    columns = db.execute(
+        text(
+            """
+            SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
+              AND COLUMN_NAME IN (
+                'is_student_id_public', 'is_phone_public', 'is_contact_email_public'
+              )
+            """
+        )
+    )
+    definitions = {
+        name: (column_type, nullable, str(default))
+        for name, column_type, nullable, default in columns
+    }
+    assert definitions == {
+        "is_student_id_public": ("tinyint(1)", "NO", "0"),
+        "is_phone_public": ("tinyint(1)", "NO", "0"),
+        "is_contact_email_public": ("tinyint(1)", "NO", "1"),
+    }
+
+    email = "visibility-server-defaults@example.com"
+    db.execute(
+        text(
+            """
+            INSERT INTO users (
+                email, name, qualification, notification_channel,
+                privacy_policy_agreed, terms_agreed,
+                email_notifications_agreed, sms_notifications_agreed,
+                is_leader, is_admin, is_president, is_superadmin, is_temporary,
+                created_at, updated_at
+            ) VALUES (
+                :email, 'SQL Visibility Defaults Member', 'ACTIVE', 'EMAIL',
+                0, 0, 0, 0, 0, 0, 0, 0, 0, UNIX_TIMESTAMP(), UNIX_TIMESTAMP()
+            )
+            """
+        ),
+        {"email": email},
+    )
+    flags = db.execute(
+        text(
+            """
+            SELECT is_student_id_public, is_phone_public, is_contact_email_public
+            FROM users WHERE email = :email
+            """
+        ),
+        {"email": email},
+    ).one()
+    assert tuple(flags) == (0, 0, 1)
+    db.rollback()
+
+
 @pytest.mark.parametrize("public_field", ["student_id", "phone", "contact_email"])
 def test_contact_flags_mask_independently_without_changing_stored_values(
     client: TestClient,
@@ -304,7 +409,7 @@ def test_user_detail_routes_mask_private_contact_fields_for_other_members(
     for profile in user_views(client, regular_token, contact_member.id):
         assert profile["student_id"] is None
         assert profile["phone"] is None
-        assert profile["contact_email"] is None
+        assert profile["contact_email"] == CONTACT_EMAIL
         assert profile["email"] == LOGIN_EMAIL
 
     for profile in user_views(client, admin_token, contact_member.id):
@@ -322,7 +427,14 @@ def test_self_and_admin_view_private_contact_values(
     admin_token: str,
 ):
     UserService.update(
-        db, active_user, student_id=STUDENT_ID, phone=PHONE, contact_email=CONTACT_EMAIL
+        db,
+        active_user,
+        student_id=STUDENT_ID,
+        phone=PHONE,
+        contact_email=CONTACT_EMAIL,
+        is_student_id_public=False,
+        is_phone_public=False,
+        is_contact_email_public=False,
     )
 
     for token in (active_token, admin_token):
@@ -338,6 +450,13 @@ def test_self_and_admin_view_private_contact_values(
 def test_patch_me_toggles_visibility_and_preserves_omitted_flags(
     client: TestClient, db: Session, regular_user: User, regular_token: str
 ):
+    UserService.update(
+        db,
+        regular_user,
+        is_student_id_public=False,
+        is_phone_public=False,
+        is_contact_email_public=False,
+    )
     user_id = regular_user.id
     updates = [
         ("is_student_id_public", True, (True, False, False)),
@@ -382,7 +501,9 @@ def test_admin_patch_ignores_visibility_flags(
     client: TestClient, db: Session, admin_token: str, contact_member: User
 ):
     target_id = contact_member.id
-    UserService.update(db, contact_member, is_student_id_public=True)
+    UserService.update(
+        db, contact_member, is_student_id_public=True, is_contact_email_public=False
+    )
 
     response = client.patch(
         f"/users/{target_id}",

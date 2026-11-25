@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query, Response as FastAPIResponse
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
-from app.deps.auth import require_regular_or_admin
+from app.deps.auth import require_regular
 from app.models import User
 from app.schemas import (
     ActivityHistoryAdminItem,
@@ -21,12 +21,12 @@ router = APIRouter()
     response_model=Response[Page[ActivityHistoryAdminItem]],
     summary="List visible users' activities",
     description=(
-        "Returns persisted activities with offset-based pagination for regular or active "
-        "members and admins. Only admins can view records of soft-deleted users or "
-        "signup applicants awaiting approval."
+        "Returns persisted activities with offset-based pagination for members with "
+        "REGULAR qualification or higher. Only admins can view records of "
+        "soft-deleted users or signup applicants awaiting approval."
     ),
     responses={
-        403: {"description": "Regular or active membership or admin access required"},
+        403: {"description": "Requires REGULAR qualification or higher"},
     },
 )
 async def list_activities(
@@ -35,7 +35,7 @@ async def list_activities(
     size: int = Query(
         default=10, ge=1, le=100, description="Number of items per page."
     ),
-    viewer: User = Depends(require_regular_or_admin),
+    viewer: User = Depends(require_regular),
     db: Session = Depends(get_db),
 ):
     activities, total = ActivityService.list_all_paged(

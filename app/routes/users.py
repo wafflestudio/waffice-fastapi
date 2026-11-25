@@ -18,7 +18,6 @@ from app.deps.auth import (
     require_admin,
     require_associate,
     require_regular,
-    require_regular_or_admin,
 )
 from app.exceptions import (
     InvalidActiveRosterError,
@@ -327,13 +326,13 @@ async def get_my_activities(
     response_model=Response[CursorPage[UserDetail]],
     summary="List visible users",
     description=(
-        "Returns a paginated list of users for regular or active members and admins. "
-        "Only admins can see signup applicants awaiting approval."
+        "Returns a paginated list of users for members with REGULAR qualification or "
+        "higher. Only admins can see signup applicants awaiting approval."
     ),
     responses={
         200: {"description": "Users retrieved successfully"},
         401: {"description": "Not authenticated"},
-        403: {"description": "Regular or active membership or admin access required"},
+        403: {"description": "Requires REGULAR qualification or higher"},
     },
 )
 async def list_users(
@@ -346,7 +345,7 @@ async def list_users(
         20, ge=1, le=100, description="Number of users per page (1-100)"
     ),
     name: str | None = Query(None, description="Filter by name (partial match)"),
-    viewer: User = Depends(require_regular_or_admin),
+    viewer: User = Depends(require_regular),
     db: Session = Depends(get_db),
 ):
     """
@@ -617,22 +616,23 @@ async def apply_active_roster(
     response_model=Response[UserDetail],
     summary="Get visible user by ID",
     description=(
-        "Returns a user's profile for regular or active members and admins. "
+        "Returns a user's profile for members with REGULAR qualification or higher. "
         "Student ID, phone, and contact email are visible to the profile owner and "
-        "admins. Other signed-in regular and active members can see each current "
-        "value only if the user opts in to sharing that field."
+        "admins. Other signed-in regular and active members can see the current "
+        "student ID and phone number only if the member opted in to sharing each "
+        "field, and the current contact email unless the member opted out."
     ),
     responses={
         200: {"description": "User retrieved successfully"},
         401: {"description": "Not authenticated"},
-        403: {"description": "Regular or active membership or admin access required"},
+        403: {"description": "Requires REGULAR qualification or higher"},
         404: {"description": "User not found"},
     },
 )
 async def get_user(
     user_id: int,
     response: FastAPIResponse,
-    viewer: User = Depends(require_regular_or_admin),
+    viewer: User = Depends(require_regular),
     db: Session = Depends(get_db),
 ):
     user = UserService.get(
@@ -859,20 +859,20 @@ async def get_user_audit_log(
     response_model=Response[list[ActivityDetail]],
     summary="List a visible user's activities",
     description=(
-        "Returns a user's activity records for regular or active members and admins. "
-        "Only admins can view records of signup applicants awaiting approval."
+        "Returns a user's activity records for members with REGULAR qualification or "
+        "higher. Only admins can view records of signup applicants awaiting approval."
     ),
     responses={
         200: {"description": "Activities retrieved successfully"},
         401: {"description": "Not authenticated"},
-        403: {"description": "Regular or active membership or admin access required"},
+        403: {"description": "Requires REGULAR qualification or higher"},
         404: {"description": "User not found"},
     },
 )
 async def list_user_activities(
     user_id: int,
     response: FastAPIResponse,
-    viewer: User = Depends(require_regular_or_admin),
+    viewer: User = Depends(require_regular),
     db: Session = Depends(get_db),
 ):
     user = UserService.get(
