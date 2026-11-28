@@ -227,16 +227,16 @@ class TestUserActivityCRUD:
         )
         assert list_response.json()["data"] == []
 
-    def test_non_admin_cannot_access_activities(
+    def test_associate_cannot_list_other_users_activities(
         self,
         client: TestClient,
-        regular_token: str,
+        associate_token: str,
         regular_user: User,
     ):
-        """Non-admin cannot access activity endpoints."""
+        """Associate members cannot list another user's activities."""
         response = client.get(
             f"/users/{regular_user.id}/activities",
-            headers={"Authorization": f"Bearer {regular_token}"},
+            headers={"Authorization": f"Bearer {associate_token}"},
         )
         assert response.status_code == 403
 
